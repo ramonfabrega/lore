@@ -17,6 +17,10 @@ knowledge (wiki), and graduates it (canon).
 Tiers: **raw sources** (immutable transcripts + memories) → **wiki** (lore-maintained
 markdown; the compounding middle layer) → **canon** (git-committed docs).
 
+Three corpora feed layer 1: **transcripts** (JSONL wells), **memories** (per-well
+memory dirs), and **canon docs** (the .md files already committed across repos —
+the internalized doctrine; indexing it powers lint, the map, and graduation dedup).
+
 Ops: **ingest** (raw → wiki), **graduate** (wiki → canon; human-approved; leaves a
 tombstone/backlink in the wiki so facts aren't re-learned), **lint** (flag stale canon
 and cross-app pattern drift against the wiki).

@@ -68,6 +68,8 @@ Two layers:
 | 2026-07-17 | Thinking blocks: indexed, own lane, excluded from default search | ~13% of records, reasoning gold + chaff; opt-in flag for rationale archaeology. |
 | 2026-07-17 | Stack: Bun + TypeScript; **incur as core CLI infra** (user call) | bun:sqlite (FTS5), native test runner, streaming JSONL, user fluency, `bun build --compile` later. incur (wevm) is the CLI framework from day one — agent-first surface (schema'd I/O, token-aware output, discovery) is lore's primary interface, and wevm engineering is trusted. Karpathy's llm-wiki is the guidance counterpart (docs/references/llm-wiki.md). Rust port noted only as a someday-if-daily-driver idea. |
 | 2026-07-17 | Graduation UX: OPEN | User: writing to a target repo's master is wrong; landing on a non-master branch they merge via normal flow is the leading shape. Needs more thinking — revisit with a working prototype. |
+| 2026-07-17 | Third corpus: canon docs (.md files) | Raw sources aren't just transcripts + memories — the git-committed markdown across repos (CLAUDE.mds, docs/) is the "already internalized doctrine" and a first-class corpus. Indexing canon is what makes lint real (compare wiki against canon), deduplicates graduation ("does canon already say this?"), and feeds the map. Already parse-friendly. |
+| 2026-07-17 | Thinking lane: structurally empty (corpus fact) | Thinking blocks persist as empty strings + signature only (0 non-empty / 6,335 sampled). Lane plumbing kept as future-proofing; rationale mining must use assistant text. |
 
 ## Privacy redline
 
