@@ -169,12 +169,17 @@ claude-sonnet-5 and retroactively confirmed golf-sim's = claude-fable-5.
 Registration failure triaged against docs (2026-07-17): `model: sonnet` IS a
 valid frontmatter alias and discovery officially walks cwd→repo-root (both
 worktree and parent .claude/agents/ in scope) — frontmatter is NOT the
-culprit; suspicion narrows to background-job sessions skipping project agent
-discovery (undocumented). **Debug next from an INTERACTIVE session in this
-repo**: run `/doctor` first, then spawn `lore-miner` by agentType with prompt
-"report your model and thinking mode, then stop" and verify via transcript
-grep. If it registers interactively, bg-job discovery is the bug; file it
-upstream and launch future ingests interactively. Also shaken out:
+culprit. **RESOLVED same day via interactive one-spawn probe**: lore-miner
+registered by agentType and the sonnet pin HELD with no override → bg-job
+sessions skipping project agent discovery is the confirmed bug (file
+upstream; launch ingests interactively, or bg runs use the explicit-sonnet
+ad-hoc fallback, which is proven). Probe bonus — fan-out economics: a bare
+identity probe cost ~50k tokens (0 tools, 3s) = the fixed per-spawn context
+tax (system prompt + CLAUDE.md + rules + skills/MCP listings). Miner budget
+model: ~50k tax + ~17–20k per session mined; bigger buckets amortize the
+tax (5-session buckets ≈ 35% overhead). Golf-sim's 821k included ~350k of
+spawn tax across 7 agents — model comparisons should subtract fixed costs.
+Also shaken out:
 `database is locked` transient under parallel miners (add WAL/busy_timeout
 to openDb) and text-lane truncation mid-message (--token-limit should cut at
 message boundaries). Headline: 820b6f21 carries the verbatim origin quote of
