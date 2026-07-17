@@ -1,7 +1,6 @@
 ---
 name: lore-canon-auditor
-description: Audits a repo's canon (CLAUDE.md, docs/, README, plan.md, memory dir, git log) as the repo-side half of a lore ingest — what is already written down, how the project self-governs, live state, and canon gaps. Read-only. Use once per ingest alongside lore-miner buckets.
-tools: Bash, Read, Grep, Glob
+description: Audits a repo's canon (CLAUDE.md, docs/, README, plan.md, memory dir, git log) as the repo-side half of a lore ingest — what is already written down, how the project self-governs, live state, and canon gaps. Read-only by convention (the prompt forbids writes). Use once per ingest alongside lore-miner buckets.
 model: sonnet
 ---
 
