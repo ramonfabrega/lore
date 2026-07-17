@@ -76,10 +76,13 @@ stable consumers.
   knowledge to the parent repo well is an ongoing op.
 - Retention: `cleanupPeriodDays: 3650` set 2026-07-17; transcripts before ~2026-06-12
   were already lost to the old ~30-day default. Archiving is job zero.
-- Recording channels split by dir (found in the first ingest, 2026-07-17):
-  `history.jsonl` records the session's LAUNCH dir, the transcript shards to the
-  worktree the session works in, and memory shards to the launch dir — one project,
-  multiple wells. And "gone by id ≠ gone by content": job respawns and resume-forks
+- Recording channels split by dir (first ingest 2026-07-17; mechanism pinned in the
+  gym cross-check same day): `history.jsonl` records the terminal's launch dir;
+  the transcript shards by **cwd at session creation** (a `/clear` re-shards,
+  mid-session worktree entry does NOT move the file); memory shards to the launch
+  dir — one project, multiple wells. Well membership ≠ work location: the ground
+  truth for where work happened is per-message `cwd`/`gitBranch` in the transcript.
+  Worktree deletion loses no transcripts (wells outlive their dirs). And "gone by id ≠ gone by content": job respawns and resume-forks
   re-id sessions (`~/.claude/jobs/*/state.json` maps job → transcript via
   `linkScanPath`; forked copies share message uuids), so measure loss by content
   lineage, not missing session ids.
@@ -89,21 +92,27 @@ stable consumers.
 ## Status (2026-07-17) & open unknowns
 
 Done: JSONL spelunk (docs/notes/), interview pass, v0 CLI (archive/index/search/
-stats/wells/sessions/wiki-commit — all working, tests green, `lore-*` skills
+stats/wells/sessions/session/wiki-commit — all working, tests green, `lore-*` skills
 synced), first archive (1.6GB → ~/.lore/archive), wiki bootstrapped at
 `~/code/personal/lore-wiki` (its CLAUDE.md is the maintainer schema), **first
 ingest** (disk → projects/disk.md, hand-written calibration run; six pattern
-candidates flagged, process findings in the wiki's log.md).
+candidates flagged, process findings in the wiki's log.md), **first pattern page**
+(patterns/sqlite-streaming-scan-index.md — sub-shapes convention born there),
+**second ingest** (gym → projects/gym.md, the nascent-well calibration: for young
+wells ingest ≈ indexing the memory; husk-checkout + sharding findings above).
+`lore session <id>` (transcript slice, prefix-matched) was earned by both ingests
+needing raw sqlite3 for it twice.
 
 Wiki durability is CLI-owned (`lore wiki commit`, the passage model): every wiki
 op ends with it. Harness auto-commit hooks were tried and rejected same day —
 they don't travel to `claude -p` or other drivers. Note: "mux" = `~/code/fun/tv`
 (Mux.xcodeproj); no well carries the name.
 
-**Next: first pattern page** (sqlite-streaming-scan-index; disk is canonical,
-lore itself is the second consumer), and a second calibration ingest on a
-canon-POOR well (golf-sim or gym) — disk's canon was too hand-graduated to
-exercise extraction.
+**Next: golf-sim ingest** (35 sessions, 585MB — the first fan-out-scale ingest,
+and the canon-LAG test: 6 docs vs 35 dense sessions of drift; needs the run
+ledger, or at least a manual version of it), and `lore docs` — now with a hard
+requirement from gym: canon can live only in git objects (husk checkouts), so
+the scanner must read via git, not walk working trees.
 
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
