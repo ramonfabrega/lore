@@ -6,7 +6,8 @@ import { z } from 'zod'
 // messages carries metadata only; the text lives once, in the FTS table, with
 // a shared rowid (plain FTS5 — deletable, no external-content bookkeeping).
 //
-// Schema changes bump SCHEMA_VERSION; openDb drops and recreates on mismatch
+// Schema changes bump SCHEMA_VERSION; openDb drops and recreates when the db
+// is OLDER, and refuses when the db is NEWER than the build (stale-build guard)
 // (rebuild beats migrate — the db is a derived artifact). v2: messages.cwd,
 // the ground truth for where work happened (well membership only records the
 // session's creation-time cwd). v3: the canon corpus (repos/docs/docs_fts) —
@@ -118,6 +119,16 @@ export function openDb(path: string): Database {
   const { user_version: version } = z
     .object({ user_version: z.number() })
     .parse(db.prepare('PRAGMA user_version').get())
+  // Older db: rebuild (derived artifact). Newer db: REFUSE — a stale build
+  // must never drop a current index (the v5/v8 checkout ping-pong incident).
+  if (version > SCHEMA_VERSION) {
+    db.close()
+    throw new Error(
+      `lore.db is schema v${version} but this build only knows v${SCHEMA_VERSION} — ` +
+        `you are running a stale lore (old checkout or outdated installed bin). ` +
+        `Use the current build, or reinstall it via scripts/install.`,
+    )
+  }
   if (version !== SCHEMA_VERSION) {
     for (const t of TABLES) db.exec(`DROP TABLE IF EXISTS ${t}`)
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)

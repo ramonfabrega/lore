@@ -74,6 +74,12 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   queries are FTS5.
 - `lore docs` reads git objects only (`ls-tree`/`cat-file`), never working
   trees — canon can exist only at origin (husk repos).
+- **Prod bin vs dev lane**: the installed `lore` (frozen artifact, built by
+  `scripts/install` from a clean landed tree; gates on tests) is the default
+  everywhere including spawns. `bun src/main.ts` is the dev lane, invoked by
+  explicit absolute path only — never "from the current directory". openDb
+  refuses DBs newer than the build (stale checkouts fail loudly, never
+  drop-rebuild). Every invocation self-identifies on stderr.
 
 ## Data-model invariants
 
