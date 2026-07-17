@@ -18,7 +18,9 @@ import { z } from 'zod'
 // <session>/subagents/; `model` is VERIFIED from the first request (the spawn
 // parameter and completion notification are never trusted), `requested_model`
 // is the parameter from meta.json when one was passed.
-const SCHEMA_VERSION = 6
+// v7: spawns.boot_cached — the cache_read share of the boot envelope (half of
+// all runs historically booted full-freight; the reuse rate is a lore#6 ask).
+const SCHEMA_VERSION = 7
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -88,6 +90,7 @@ CREATE TABLE IF NOT EXISTS spawns(
   requested_model TEXT,
   model TEXT,
   boot_tokens INTEGER,
+  boot_cached INTEGER,
   requests INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
   tool_uses INTEGER NOT NULL DEFAULT 0,

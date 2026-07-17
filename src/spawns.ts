@@ -100,11 +100,11 @@ export async function indexSpawns(
   const Existing = z.object({ size: z.number(), mtime_ms: z.number() }).nullish()
   const upsert = db.prepare(
     `INSERT INTO spawns(well_dir, session_id, agent_id, agent_type, description, spawn_depth, requested_model,
-       model, boot_tokens, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       model, boot_tokens, boot_cached, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(agent_id) DO UPDATE SET well_dir=excluded.well_dir, session_id=excluded.session_id, agent_type=excluded.agent_type,
        description=excluded.description, spawn_depth=excluded.spawn_depth, requested_model=excluded.requested_model,
-       model=excluded.model, boot_tokens=excluded.boot_tokens, requests=excluded.requests,
+       model=excluded.model, boot_tokens=excluded.boot_tokens, boot_cached=excluded.boot_cached, requests=excluded.requests,
        output_tokens=excluded.output_tokens, tool_uses=excluded.tool_uses, first_ts=excluded.first_ts,
        last_ts=excluded.last_ts, size=excluded.size, mtime_ms=excluded.mtime_ms`,
   )
@@ -130,6 +130,7 @@ export async function indexSpawns(
 
     let model: string | null = null
     let bootTokens: number | null = null
+    let bootCached: number | null = null
     let firstTs: string | null = null
     let lastTs: string | null = null
     let toolUses = 0
@@ -162,6 +163,7 @@ export async function indexSpawns(
           bootTokens = u
             ? (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
             : null
+          bootCached = u ? (u.cache_read_input_tokens ?? 0) : null
         }
         outputByRequest.set(reqId, 0)
       }
@@ -183,6 +185,7 @@ export async function indexSpawns(
       meta.model ?? null,
       model,
       bootTokens,
+      bootCached,
       outputByRequest.size,
       outputTokens,
       toolUses,
@@ -211,6 +214,7 @@ const Row = z.object({
   requestedModel: z.string().nullable(),
   model: z.string().nullable(),
   bootTokens: z.number().nullable(),
+  bootCached: z.number().nullable(),
   requests: z.number(),
   outputTokens: z.number(),
   toolUses: z.number(),
@@ -223,18 +227,28 @@ export type SpawnSummary = {
   agentType: string | null
   n: number
   avgBoot: number | null
+  bootReusePct: number | null
   models: string
 }
 
-// Spawn rows newest-first plus a per-agentType rollup — the observatory's
-// at-a-glance answer (which types run, on which verified models, at what
-// boot cost). `drift` flags a spawn whose verified model doesn't contain the
-// requested alias (e.g. asked "sonnet", served fable) — only computable when
-// a model parameter was actually passed.
+export type SpawnTrendRow = {
+  week: string
+  agentType: string | null
+  n: number
+  avgBoot: number | null
+  bootReusePct: number | null
+}
+
+// Spawn rows newest-first plus two rollups — the observatory's at-a-glance
+// answers: byAgentType (which types run, on which verified models, at what
+// boot cost, with how much cache reuse) and byWeek (the trend — did a config
+// change actually move boot cost). `drift` flags a spawn whose verified model
+// doesn't contain the requested alias (e.g. asked "sonnet", served fable) —
+// only computable when a model parameter was actually passed.
 export function listSpawns(
   db: Database,
   opts: { well?: string; exact?: boolean; agent?: string; since?: string; limit: number },
-): { spawns: SpawnRow[]; byAgentType: SpawnSummary[] } {
+): { spawns: SpawnRow[]; byAgentType: SpawnSummary[]; byWeek: SpawnTrendRow[] } {
   const where: string[] = []
   const params: (string | number)[] = []
   if (opts.well) {
@@ -258,6 +272,7 @@ export function listSpawns(
   const sql = `
     SELECT p.well_dir AS well, p.session_id AS sessionId, p.agent_id AS agentId, p.agent_type AS agentType,
            p.description, p.requested_model AS requestedModel, p.model, p.boot_tokens AS bootTokens,
+           p.boot_cached AS bootCached,
            p.requests, p.output_tokens AS outputTokens, p.tool_uses AS toolUses, p.first_ts AS first,
            CAST(ROUND((julianday(p.last_ts) - julianday(p.first_ts)) * 86400000) AS INTEGER) AS durationMs
     ${base}
@@ -269,9 +284,13 @@ export function listSpawns(
       ...r,
       ...(r.requestedModel && r.model ? { drift: !r.model.includes(r.requestedModel) } : {}),
     }))
+  // Boot cache reuse: what share of the boot envelope was served from cache
+  // (0% = full-freight cache write — historically half of all runs).
+  const reuse = `CAST(ROUND(100.0 * SUM(p.boot_cached) / NULLIF(SUM(p.boot_tokens), 0)) AS INTEGER)`
   const summarySql = `
     SELECT p.agent_type AS agentType, COUNT(*) AS n,
            CAST(AVG(p.boot_tokens) AS INTEGER) AS avgBoot,
+           ${reuse} AS bootReusePct,
            GROUP_CONCAT(DISTINCT p.model) AS models
     ${base}
     GROUP BY p.agent_type ORDER BY n DESC`
@@ -281,10 +300,31 @@ export function listSpawns(
         agentType: z.string().nullable(),
         n: z.number(),
         avgBoot: z.number().nullable(),
+        bootReusePct: z.number().nullable(),
         models: z.string().nullable(),
       }),
     )
     .parse(db.prepare(summarySql).all(...params))
     .map((r) => ({ ...r, models: r.models ?? '' }))
-  return { spawns, byAgentType }
+  // The trend view — lore#6's whole point: boot cost by agentType × ISO week,
+  // so config changes (lean profiles, plugin diets) show up as a step.
+  const trendSql = `
+    SELECT strftime('%Y-W%W', p.first_ts) AS week, p.agent_type AS agentType, COUNT(*) AS n,
+           CAST(AVG(p.boot_tokens) AS INTEGER) AS avgBoot,
+           ${reuse} AS bootReusePct
+    ${base}
+    ${whereClause ? 'AND' : 'WHERE'} p.first_ts IS NOT NULL
+    GROUP BY week, p.agent_type ORDER BY week, n DESC`
+  const byWeek = z
+    .array(
+      z.object({
+        week: z.string(),
+        agentType: z.string().nullable(),
+        n: z.number(),
+        avgBoot: z.number().nullable(),
+        bootReusePct: z.number().nullable(),
+      }),
+    )
+    .parse(db.prepare(trendSql).all(...params))
+  return { spawns, byAgentType, byWeek }
 }

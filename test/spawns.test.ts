@@ -53,7 +53,7 @@ function seedProjectsDir(): string {
   writeFileSync(join(sub, 'agent-def.meta.json'), JSON.stringify({ agentType: 'general-purpose', description: 'review', spawnDepth: 1, model: 'sonnet' }))
   writeFileSync(
     join(sub, 'agent-def.jsonl'),
-    [assistantLine({ ts: '2026-07-17T11:00:00Z', msgId: 'm9', model: 'claude-fable-5', usage: { i: 2, cc: 40000, cr: 0, o: 10 } })].join('\n'),
+    [assistantLine({ ts: '2026-07-17T11:00:00Z', msgId: 'm9', model: 'claude-fable-5', usage: { i: 2, cc: 10000, cr: 30000, o: 10 } })].join('\n'),
   )
   return dir
 }
@@ -77,6 +77,7 @@ describe('indexSpawns + listSpawns', () => {
     expect(miner.requestedModel).toBeNull()
     expect(miner.drift).toBeUndefined() // no param passed → no drift verdict
     expect(miner.bootTokens).toBe(30002)
+    expect(miner.bootCached).toBe(0) // full-freight boot, zero cache reuse
     expect(miner.requests).toBe(2)
     expect(miner.outputTokens).toBe(130) // max(7, 90) + 40, not 7+90+40
     expect(miner.toolUses).toBe(1)
@@ -87,11 +88,28 @@ describe('indexSpawns + listSpawns', () => {
     expect(adHoc.requestedModel).toBe('sonnet')
     expect(adHoc.model).toBe('claude-fable-5')
     expect(adHoc.drift).toBe(true) // asked sonnet, served fable
+    expect(adHoc.bootTokens).toBe(40002)
+    expect(adHoc.bootCached).toBe(30000)
 
     const minerSummary = byAgentType.find((r) => r.agentType === 'lore-miner')!
     expect(minerSummary.n).toBe(1)
     expect(minerSummary.avgBoot).toBe(30002)
+    expect(minerSummary.bootReusePct).toBe(0)
     expect(minerSummary.models).toBe('claude-sonnet-5')
+    expect(byAgentType.find((r) => r.agentType === 'general-purpose')!.bootReusePct).toBe(75) // 30000/40002
+  })
+
+  test('byWeek trend groups boot cost by ISO week and agentType', async () => {
+    const db = openDb(':memory:')
+    await indexSpawns(db, { projectsDir: seedProjectsDir() })
+    const { byWeek } = listSpawns(db, { limit: 50 })
+    expect(byWeek).toHaveLength(2) // same week, two agent types
+    for (const row of byWeek) expect(row.week).toMatch(/^2026-W\d{2}$/)
+    const miner = byWeek.find((r) => r.agentType === 'lore-miner')!
+    expect(miner.n).toBe(1)
+    expect(miner.avgBoot).toBe(30002)
+    // filters apply to the trend too
+    expect(listSpawns(db, { agent: 'lore-miner', limit: 50 }).byWeek).toHaveLength(1)
   })
 
   test('incremental skip by size+mtime; --full reindexes', async () => {

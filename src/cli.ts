@@ -137,7 +137,7 @@ cli.command('search', {
 
 cli.command('spawns', {
   description:
-    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope, totals. Newest first, with a per-agentType rollup. Populated by `lore index`.',
+    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope + cache reuse, totals. Newest first, with per-agentType and per-week rollups (the trend: did a config change move boot cost). Populated by `lore index`.',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
@@ -151,14 +151,14 @@ cli.command('spawns', {
   alias: { well: 'w', agent: 'a', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
-    const { spawns, byAgentType } = listSpawns(db, {
+    const { spawns, byAgentType, byWeek } = listSpawns(db, {
       well: options.well,
       exact: options.exact,
       agent: options.agent,
       since: options.since,
       limit: options.limit,
     })
-    return { count: spawns.length, byAgentType, spawns }
+    return { count: spawns.length, byAgentType, byWeek, spawns }
   },
 })
 
