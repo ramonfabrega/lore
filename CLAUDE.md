@@ -130,9 +130,12 @@ requirement. Ref = newest commit among HEAD and origin's default branch; husk
 flag = local HEAD has zero canon while the chosen remote ref has some. Repos
 gone from disk are pruned (canon lives in git; no evaporation to guard).
 `lore docs index|search|list`; wiki dir excluded (middle tier ≠ canon). First
-real run: 30 repos, 1925 docs; gym + personal/site + work/acarreo flagged husk.
-Corpus-noise finding: sandbox/expo (vendored SDK clone) is 1435 of the 1925
-docs — exclusion/foreign-repo policy is an open call, filter with `-r` meanwhile.
+real run: 30 repos; gym + personal/site + work/acarreo flagged husk. Foreign
+repos (forks-for-upstreaming, detected by the `upstream` remote — sandbox/expo)
+are listed but their docs skipped; corpus is 490 docs, not 1925. Authorship
+share was probed and rejected as the signal: cuanto (34/5157 under the personal
+email) and bodas-app (0/118) would misclassify. `LORE_DOCS_EXCLUDE`
+(comma-separated, `/`-bounded path suffixes) skips repos entirely.
 
 **Next: sonnet-miner calibration ingest** (any mid-size well) scored against
 the Fable baseline.
@@ -140,8 +143,6 @@ the Fable baseline.
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
   shape; prototype it).
-- Foreign-repo policy for the docs corpus (vendored clones like sandbox/expo
-  drown searches; exclude, flag, or rank down — decide from usage).
 - One vs two pipelines for memories vs transcripts; dedup across a repo's
   main + worktree wells; run-ledger implementation for fan-out mining.
 - The user operates suggest-first — challenge premises, propose alternatives.

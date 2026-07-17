@@ -70,6 +70,13 @@ describe('listRepoPaths', () => {
     expect(paths).toEqual([join(root, 'beta'), join(root, 'group', 'alpha')])
   })
 
+  test('exclude suffixes are /-bounded — sandbox/expo does not catch sandbox/expo-repro', () => {
+    const root = tempDir()
+    canonRepo(root, join('sandbox', 'expo'))
+    const repro = canonRepo(root, join('sandbox', 'expo-repro'))
+    expect(listRepoPaths(root, { exclude: ['sandbox/expo'] })).toEqual([repro])
+  })
+
   test('does not descend into a repo (worktrees never scan separately)', () => {
     const root = tempDir()
     const repo = canonRepo(root, 'outer')
@@ -98,6 +105,15 @@ describe('scanRepo', () => {
     expect(scan?.ref).toStartWith('origin/')
     expect(scan?.isHusk).toBe(true)
     expect(scan?.files.map((f) => f.path)).toEqual(['README.md'])
+  })
+
+  test('fork with an upstream remote is foreign — canon is not ours, docs skipped', async () => {
+    const root = tempDir()
+    const repo = canonRepo(root, 'fork')
+    sh(repo, 'git remote add upstream https://example.com/them/theirs.git')
+    const scan = await scanRepo(repo)
+    expect(scan?.isForeign).toBe(true)
+    expect(scan?.files).toEqual([])
   })
 
   test('repo with no commits returns null', async () => {
@@ -149,6 +165,30 @@ describe('indexDocs', () => {
     expect(fourth.reposPruned).toBe(1)
     expect(searchDocs(db, 'zorbs', { limit: 10 })).toHaveLength(0)
     expect(listIndexedRepos(db)).toHaveLength(1)
+  })
+
+  test('foreign repo is listed with its flag but contributes no docs; flag flip reindexes', async () => {
+    const root = tempDir()
+    const repo = canonRepo(root, 'fork')
+    sh(repo, 'git remote add upstream https://example.com/them/theirs.git')
+    const db = memDb()
+
+    const first = await indexDocs(db, { codeDir: root })
+    expect(first.reposIndexed).toBe(1)
+    expect(first.docs).toBe(0)
+    const row = listIndexedRepos(db)[0]
+    expect(row?.isForeign).toBe(true)
+    expect(row?.docs).toBe(0)
+    expect(searchDocs(db, 'frobnicator', { limit: 10 })).toHaveLength(0)
+
+    // Removing the upstream remote flips the flag and indexes docs, even
+    // though the commit sha never changed.
+    sh(repo, 'git remote remove upstream')
+    const second = await indexDocs(db, { codeDir: root })
+    expect(second.reposIndexed).toBe(1)
+    expect(second.docs).toBe(2)
+    expect(listIndexedRepos(db)[0]?.isForeign).toBe(false)
+    expect(searchDocs(db, 'frobnicator', { limit: 10 })).toHaveLength(1)
   })
 
   test('repo filter narrows search', async () => {
