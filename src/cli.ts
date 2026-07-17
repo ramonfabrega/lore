@@ -8,6 +8,8 @@ import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
 import { getSession } from './session'
 import { listSessions } from './sessions'
+import { indexSpawns, listSpawns } from './spawns'
+import { listToolUsage } from './tools'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
 
@@ -52,12 +54,16 @@ cli.command('sessions', {
   description: 'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt)',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
     limit: z.number().default(100).describe('Max results'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
-    const sessions = listSessions(db, { well: options.well, limit: options.limit })
+    const sessions = listSessions(db, { well: options.well, exact: options.exact, limit: options.limit })
     return { count: sessions.length, sessions }
   },
 })
@@ -92,7 +98,8 @@ cli.command('index', {
   run: async (c) => {
     const db = openDb(DB_PATH)
     const stats = await buildIndex(db, { projectsDir: PROJECTS_DIR, historyPath: HISTORY_PATH, full: c.options.full })
-    return c.ok(stats, {
+    const spawns = await indexSpawns(db, { projectsDir: PROJECTS_DIR, full: c.options.full })
+    return c.ok({ ...stats, spawns }, {
       cta: {
         description: 'Next:',
         commands: [{ command: 'search', description: 'Search the index' }, 'stats'],
@@ -112,6 +119,10 @@ cli.command('search', {
       .optional()
       .describe('Lanes to search (default: prompt, text). thinking/tool/event/meta are opt-in'),
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
     limit: z.number().default(20).describe('Max results'),
     history: z.boolean().optional().describe('Also search history.jsonl (every prompt ever typed, survives retention)'),
   }),
@@ -119,9 +130,66 @@ cli.command('search', {
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
     const lanes = (options.lane ?? ['prompt', 'text']) as Lane[]
-    const hits = searchMessages(db, args.query, { lanes, well: options.well, limit: options.limit })
+    const hits = searchMessages(db, args.query, { lanes, well: options.well, exact: options.exact, limit: options.limit })
     const history = options.history ? searchHistory(db, args.query, { limit: options.limit }) : undefined
     return { query: args.query, lanes, count: hits.length, hits, ...(history ? { history } : {}) }
+  },
+})
+
+cli.command('spawns', {
+  description:
+    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope + cache reuse, totals. Newest first, with per-agentType and per-week rollups (the trend: did a config change move boot cost). Populated by `lore index`.',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+    agent: z.string().optional().describe('Filter to this agentType (e.g. lore-miner, general-purpose)'),
+    since: z.string().optional().describe('Only spawns on/after this ISO date (e.g. 2026-07-15)'),
+    limit: z.number().default(50).describe('Max spawn rows (the rollup always covers all matches)'),
+  }),
+  alias: { well: 'w', agent: 'a', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const { spawns, byAgentType, byWeek } = listSpawns(db, {
+      well: options.well,
+      exact: options.exact,
+      agent: options.agent,
+      since: options.since,
+      limit: options.limit,
+    })
+    return { count: spawns.length, byAgentType, byWeek, spawns }
+  },
+})
+
+cli.command('tools', {
+  description:
+    'Invocation usage counts — the evidence half of the ambient ROI ledger: how often each tool, MCP tool (mcp__…), skill (Skill:<name> via the Skill tool, command:<name> via slash invocation), was ACTUALLY used, over which wells and when. Score against the ambient roster to find zero-use items.',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+    since: z.string().optional().describe('Only invocations on/after this ISO date (e.g. 2026-06-17)'),
+    prefix: z
+      .string()
+      .optional()
+      .describe('Only names starting with this prefix (e.g. mcp__, Skill:, command:, mcp__argent)'),
+    limit: z.number().default(100).describe('Max rows'),
+  }),
+  alias: { well: 'w', prefix: 'p', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const tools = listToolUsage(db, {
+      well: options.well,
+      exact: options.exact,
+      since: options.since,
+      prefix: options.prefix,
+      limit: options.limit,
+    })
+    return { count: tools.length, tools }
   },
 })
 
@@ -193,6 +261,12 @@ docs.command('index', {
     'Scan repos and index their canon .md files (incremental by commit sha; prunes gone repos). Ownership is auto-detected per repo: foreign (`upstream` remote — a fork, docs skipped), assisted (zero commits under the user identity — indexed but flagged: not the user\'s doctrine), mine. Overrides: LORE_DOCS_EXCLUDE skips repos entirely, LORE_DOCS_ASSISTED force-flags.',
   options: z.object({
     full: z.boolean().optional().describe('Reindex every repo, ignoring the commit-sha skip'),
+    fetch: z
+      .boolean()
+      .optional()
+      .describe(
+        'Run `git fetch origin` in each repo first. Canon detection is a ref-diff and origin refs only move when something fetches — without this, upstream merges stay invisible to every re-index. Offline-safe: fetch failures degrade to stale refs.',
+      ),
   }),
   run: async (c) => {
     const db = openDb(DB_PATH)
@@ -201,6 +275,7 @@ docs.command('index', {
       exclude: [WIKI_DIR, ...DOCS_EXCLUDE],
       assisted: DOCS_ASSISTED,
       full: c.options.full,
+      fetch: c.options.fetch,
     })
     return c.ok(stats, {
       cta: {

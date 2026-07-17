@@ -1,186 +1,108 @@
 # lore
 
-Claude Code memory/conversation explorer and knowledge compounder. Scans the wells in
-`~/.claude/projects` (transcript JSONL + per-project memory dirs), archives and indexes
-them, maintains an LLM-written wiki, and promotes matured knowledge into canon
-(git-committed CLAUDE.mds and docs).
+Claude Code memory/conversation explorer and knowledge compounder. Scans the
+wells in `~/.claude/projects` (transcript JSONL + per-project memory dirs),
+archives and indexes them, maintains an LLM-written wiki, and promotes matured
+knowledge into canon (git-committed CLAUDE.mds and docs).
+
+**Status, ingest history, and open threads live in the wiki**
+(`~/code/personal/lore-wiki`): `projects/lore.md` is this project's state page,
+`log.md` the chronology, `index.md` the map. This file carries only what every
+session needs: thesis, architecture, constraints, conventions. Decision
+narrative: `docs/DESIGN.md`.
 
 ## Thesis
 
-Claude Code memory is **path-sharded** — one well per directory (`~/code`, each repo,
-each worktree), all mutually blind — while knowledge is repo- or workspace-scoped.
-Conversations and memories never compound. lore bridges wells (sync), accumulates
-knowledge (wiki), and graduates it (canon).
+Claude Code memory is **path-sharded** — one well per directory, all mutually
+blind — while knowledge is repo- or workspace-scoped. Conversations and
+memories never compound. lore bridges wells (sync), accumulates knowledge
+(wiki), and graduates it (canon).
 
-## Architecture — three tiers, three ops
+## Architecture
 
-Tiers: **raw sources** (immutable transcripts + memories) → **wiki** (lore-maintained
-markdown; the compounding middle layer) → **canon** (git-committed docs).
+Tiers: **raw sources** (immutable transcripts + memories) → **wiki**
+(lore-maintained markdown; the compounding middle layer) → **canon**
+(git-committed docs). Three corpora feed layer 1: transcripts, memories, and
+canon docs (indexed via git objects; powers lint, the map, graduation dedup).
 
-Three corpora feed layer 1: **transcripts** (JSONL wells), **memories** (per-well
-memory dirs), and **canon docs** (the .md files already committed across repos —
-the internalized doctrine; indexing it powers lint, the map, and graduation dedup).
+Ops: **ingest** (raw → wiki), **graduate** (wiki → canon; human-approved;
+protocol v1.2 in DESIGN.md — facts as PRs, work as issues, repo-lens review
+gate, tombstones), **lint** (flag stale canon and cross-app drift).
 
-Ops: **ingest** (raw → wiki), **graduate** (wiki → canon; human-approved; leaves a
-tombstone/backlink in the wiki so facts aren't re-learned), **lint** (flag stale canon
-and cross-app pattern drift against the wiki).
-
-## Two layers
-
-1. **Deterministic CLI** — scan, parse, archive, index (SQLite FTS5), search, stats,
-   run ledger. Zero model dependency; independently testable. Agent-first CLI design
-   (see wevm/incur for the conventions: schema'd output, token-aware pagination,
-   discovery, next-step hints).
-2. **Judgment** — a `/lore` skill; interactive Claude Code sessions drive the CLI
-   (the session is the brain, the CLI is the eyes). The skill's one-line listing is
-   the only ambient context footprint — no root `~/code/CLAUDE.md` map (rejected:
-   ambient context must earn its per-session cost; the map is pull-based).
-
-## Code conventions (decided 2026-07-17, rationale in DESIGN.md)
-
-- **Bun-first**: Bun API when one exists (`Bun.file`, `Bun.write`, `Bun.$`,
-  `bun:sqlite`, `bun:test`); `node:fs`/`node:path`/`node:os` for the gaps
-  (sync dir ops, `join`, `homedir`) — that's idiomatic Bun, not a compromise.
-- **Boundary parsing, no casts**: DB rows, env, and JSONL get zod-parsed at the
-  edge; schemas colocated with the queries that produce them. Never `as X` on I/O.
-  Env is one validated object in `config.ts`.
-- **No ORM** over lore.db — it's a derived artifact (rebuild beats migrate) and
-  the load-bearing queries are FTS5. Revisit at run-ledger-era schema complexity.
+Layers: (1) **deterministic CLI** — scan, parse, archive, index (SQLite FTS5),
+search, ledger; zero model dependency; agent-first design (wevm/incur
+conventions). (2) **judgment** — interactive sessions drive the CLI via the
+`lore-*` skills (the session is the brain, the CLI is the eyes). No root
+`~/code/CLAUDE.md` map — ambient context must earn its per-session cost.
 
 ## Hard constraints
 
-- **Subscription OAuth only.** Never an API key; never design around API billing.
-  In-session subagent fan-out is the sanctioned parallel lane; `claude -p` is an
-  escape hatch only (`--bare` skips OAuth and may become the `-p` default — another
-  reason the inverted architecture is primary).
+- **Subscription OAuth only.** Never an API key; never design around API
+  billing. In-session subagent fan-out is the sanctioned parallel lane;
+  `claude -p` is an escape hatch only.
 - Layer 1 stays model-free.
-- Graduation writes git-committed files → always human-approved, and loud about
-  *which repo* a fact lands in (work vs personal must never cross).
+- Graduation writes git-committed files → always human-approved, and loud
+  about *which repo* a fact lands in (work vs personal must never cross;
+  assisted repos never receive graduations and their canon is context only —
+  never the user's prior art or provenance).
 
-## Wiki page species
+## Fan-out rules (violations are findings, not workarounds)
 
-Project pages; **pattern pages** (cross-app registry with provenance + quality
-verdicts — "canonical impl lives in X; Y's copy is stale; style-reference-only");
-the map (`index.md`); `log.md`. Pattern pages are how apps piggyback/upstream code
-without premature shared packages — extraction is earned when a page shows several
-stable consumers.
+- Defined agents (`.claude/agents/`: lore-miner, lore-canon-auditor) pin
+  `model: sonnet` in frontmatter — spawn by agentType with NO per-call model
+  override. Ad-hoc spawns of generic types MUST pass an explicit model;
+  omission inherits the main loop's Fable.
+- VERIFY the model from the spawn's task-output JSONL (`"model":"..."` on the
+  first request, ~15s in) — never trust the spawn parameter or completion
+  notification alone. Post-hoc this is mechanized: `lore spawns` reports the
+  verified model per spawn and flags requested-vs-served `drift`.
+- Bg-job sessions skip project-agent discovery at start (upstream bug);
+  `/reload-plugins` fixes it; ad-hoc explicit-sonnet is the proven fallback.
+- Ledger every fan-out in the wiki log: per agent — scope, tokens, tools,
+  duration, verified model.
 
-## Data-model notes (landed July 2026 — see docs/DESIGN.md for rationale)
+## Code conventions (rationale in DESIGN.md)
 
-- Wells are continuous work streams: the user `/clear`s long-lived sessions (two
-  species: arc-spanning with a transient plan.md deleted on land; task-boundary).
-  Group by well + time, **infer arcs from artifacts** — plan-file lifecycles are fully
-  recoverable from transcript Writes. Learn the user's clear semantics; never impose
-  conventions without evidence from the data.
-- Worktree wells are durable perma-worktree agent homes, not spikes; syncing their
-  knowledge to the parent repo well is an ongoing op.
-- Retention: `cleanupPeriodDays: 3650` set 2026-07-17; transcripts before ~2026-06-12
-  were already lost to the old ~30-day default. Archiving is job zero.
-- Recording channels split by dir (first ingest 2026-07-17; mechanism pinned in the
-  gym cross-check same day): `history.jsonl` records the terminal's launch dir;
-  the transcript shards by **cwd at session creation** (a `/clear` re-shards,
-  mid-session worktree entry does NOT move the file); memory shards to the launch
-  dir — one project, multiple wells. Well membership ≠ work location: the ground
-  truth for where work happened is per-message `cwd`/`gitBranch` in the transcript.
-  Worktree deletion loses no transcripts (wells outlive their dirs). And "gone by id ≠ gone by content": job respawns and resume-forks
-  re-id sessions (`~/.claude/jobs/*/state.json` maps job → transcript via
-  `linkScanPath`; forked copies share message uuids), so measure loss by content
-  lineage, not missing session ids.
-- Fan-out mining requires a structured run ledger (per agent: well, tokens, duration,
-  pages touched, outcome) — it will be tuned live.
+- **Bun-first**: Bun API when one exists (`Bun.file`, `Bun.write`, `Bun.$`,
+  `bun:sqlite`, `bun:test`); `node:fs`/`node:path`/`node:os` for the gaps —
+  idiomatic Bun, not a compromise.
+- **Boundary parsing, no casts**: DB rows, env, and JSONL are zod-parsed at
+  the edge; schemas colocated with the queries that produce them. Never
+  `as X` on I/O. Env is one validated object in `config.ts`.
+- **No ORM** over lore.db — it's a derived artifact (rebuild beats migrate;
+  openDb drops+rebuilds on schema-version mismatch) and the load-bearing
+  queries are FTS5.
+- `lore docs` reads git objects only (`ls-tree`/`cat-file`), never working
+  trees — canon can exist only at origin (husk repos).
+- **Prod bin vs dev lane**: the installed `lore` (frozen artifact, built by
+  `scripts/install` from a clean landed tree; gates on tests) is the default
+  everywhere including spawns. `bun src/main.ts` is the dev lane, invoked by
+  explicit absolute path only — never "from the current directory". openDb
+  refuses DBs newer than the build (stale checkouts fail loudly, never
+  drop-rebuild). Every invocation self-identifies on stderr.
 
-## Status (2026-07-17) & open unknowns
+## Data-model invariants
 
-Done: JSONL spelunk (docs/notes/), interview pass, v0 CLI (archive/index/search/
-stats/wells/sessions/session/wiki-commit — all working, tests green, `lore-*` skills
-synced), first archive (1.6GB → ~/.lore/archive), wiki bootstrapped at
-`~/code/personal/lore-wiki` (its CLAUDE.md is the maintainer schema), **first
-ingest** (disk → projects/disk.md, hand-written calibration run; six pattern
-candidates flagged, process findings in the wiki's log.md), **first pattern page**
-(patterns/sqlite-streaming-scan-index.md — sub-shapes convention born there),
-**second ingest** (gym → projects/gym.md, the nascent-well calibration: for young
-wells ingest ≈ indexing the memory; husk-checkout + sharding findings above).
-`lore session <id>` (transcript slice, prefix-matched) was earned by both ingests
-needing raw sqlite3 for it twice. Schema v2 indexes per-message cwd (openDb
-drops+rebuilds on version mismatch — rebuild beats migrate, mechanized):
-`sessions` lists workDir (modal cwd) + workDirs, `session` returns the full cwd
-histogram, and skill expansions / interruption markers route to the meta lane.
-
-Wiki durability is CLI-owned (`lore wiki commit`, the passage model): every wiki
-op ends with it. Harness auto-commit hooks were tried and rejected same day —
-they don't travel to `claude -p` or other drivers. Note: "mux" = `~/code/fun/tv`
-(Mux.xcodeproj); no well carries the name.
-
-**Third ingest done: golf-sim** (35 sessions via 7-agent fan-out; run ledger v0
-in the wiki log — Agent-tool completion notifications carry per-agent tokens/
-duration for free). Headline: golf-sim's CLAUDE.md contains a hand-built
-graduation system (sort-before-you-write + closeout landing flow) — proto-lore,
-the template for fleet-wide canon. Fan-out model rule learned the hard way
-(accidental Fable swarms are recurring): defined agents (`.claude/agents/*.md`)
-carry a `model: sonnet` pin in frontmatter — spawn by agentType with NO
-per-call model override (no special-casing; rely on the official feature) and
-VERIFY the model from the completion notification; a pin that doesn't hold is
-a finding to surface, not to hack around. Ad-hoc spawns of generic agent types
-MUST pass an explicit model; omission inherits the main loop's Fable.
-
-Pattern pages 2+3 done (oklch-token-ssot, expo-swiftui-sheet-kit — species
-conventions stabilized: elements/sub-shapes/provenance-lineage/gotcha-ledger/
-split-verdicts). Miner subagents defined in `.claude/agents/` (lore-miner,
-lore-canon-auditor — model: sonnet pinned; the 821k-Fable golf-sim run is the
-quality baseline to judge them against).
-
-**`lore docs` done** — canon corpus scan/index (schema v3: repos/docs/docs_fts).
-Reads via git objects only (`ls-tree`/`cat-file`), never working trees — the gym
-requirement. Ref = newest commit among HEAD and origin's default branch; husk
-flag = local HEAD has zero canon while the chosen remote ref has some. Repos
-gone from disk are pruned (canon lives in git; no evaporation to guard).
-`lore docs index|search|list`; wiki dir excluded (middle tier ≠ canon). First
-real run: 30 repos, 490 docs; gym + personal/site + work/acarreo flagged husk.
-
-**Ownership** (auto-detected per repo, rides on every search hit): `foreign` =
-has an `upstream` remote (fork-for-upstreaming — sandbox/expo; docs not
-indexed); `assisted` = zero commits under the user's repo-local identity
-(bodas-app — helped a junior dev on someone else's project); else `mine`.
-The zero/nonzero line is the fleet's real boundary — cuanto is 34/5157 under
-the personal email yet mine (user commits there); a share threshold would
-misclassify it. **Redline (extends the privacy redline): assisted canon is
-context only — it must NEVER feed pattern-page provenance, count as the user's
-prior art in graduation dedup, or read as authored by the user. The user's
-transcripts in an assisted repo's well remain theirs and stay minable.**
-Overrides: `LORE_DOCS_EXCLUDE` skips repos entirely, `LORE_DOCS_ASSISTED`
-force-flags (both comma-separated `/`-bounded path suffixes).
-
-**Next: sonnet-miner calibration ingest** — target well decided 2026-07-17:
-**tv/multicaster** (15 sessions, 157MB; mid-size, personal, canon-rich repo
-with 4 sibling wells). Protocol (user-ratified): bucket ~5 sessions per miner
-(→3 miners); launch ONE `lore-miner` first — by agentType, no per-call model
-override, no special-casing — and gate before the rest: completion
-notification confirms sonnet + sane tokens vs the golf-sim per-agent numbers,
-all 8 rubric sections present with session prefixes cited, spot-check 2–3
-claims against transcripts. Only then the remaining miners in one parallel
-batch. Ledger every spawn (run ledger in wiki log.md). Synthesis + scoring
-vs the 821k-Fable golf-sim baseline stays in the main loop. Note the felt-
-effort gap: mux/tv "feels bigger" than 15 sessions because its work is
-sharded across 5 wells (25 sessions, ~237MB total) and pre-June transcripts
-were lost to retention — session count ≠ work volume.
-
-Still open (arrive from data, not guesses):
-- Graduation UX (landing on a non-master branch in the target repo is the leading
-  shape; prototype it).
-- One vs two pipelines for memories vs transcripts; dedup across a repo's
-  main + worktree wells; run-ledger implementation for fan-out mining.
-- The user operates suggest-first — challenge premises, propose alternatives.
+- Wells are continuous work streams; the user `/clear`s long-lived sessions.
+  Group by well + time, infer arcs from artifacts; never impose conventions
+  without evidence from the data.
+- Recording channels shard by dir: the transcript shards by **cwd at session
+  creation** (`/clear` re-shards; mid-session worktree entry does NOT move the
+  file); memory shards to the launch dir. Well membership ≠ work location —
+  ground truth is per-message `cwd`/`gitBranch`.
+- Wells outlive their dirs (worktree deletion loses no transcripts), and
+  "gone by id ≠ gone by content" (respawns/resume-forks re-id sessions;
+  measure loss by content lineage). Per-spawn subagent transcripts persist
+  under `<session>/subagents/` — agentType, per-request model and usage.
+- Wiki durability is CLI-owned: **every wiki op ends with
+  `lore wiki commit`** (hooks don't travel across drivers).
 
 ## References
 
-- `docs/DESIGN.md` — design narrative, decision log, rejected alternatives.
-- `docs/references/llm-wiki.md` — Karpathy's LLM-wiki pattern, adopted as the middle tier.
-- Prior art: `~/code/fun/disk` — SQLite streaming-writer craft (`ScanStore.swift`),
-  FSEvents refresh (`Refresh.swift`/`Live.swift`), token query grammar (`Query.swift`),
-  and the scanner-spike worktree's `IndexCatalog.swift` + tests. Style/technique
-  reference only — disk's engine has no FTS and is tree-specialized; it is not a base.
-- wevm/incur — agent-first CLI conventions.
-
-Design origin: conceived conversationally 2026-07-16/17 in a session booted from
-`~/code`; those transcripts and memories live in the `~/code` well, which sessions
-booted here cannot see — the path-sharding thesis, self-demonstrated.
+- `docs/DESIGN.md` — design narrative, decision log (graduation protocol,
+  ownership model, stack), rejected alternatives.
+- Wiki maintainer schema: `~/code/personal/lore-wiki/CLAUDE.md`.
+- Prior art: `~/code/fun/disk` (SQLite streaming/FSEvents craft — style
+  reference only, not a base); wevm/incur (agent-first CLI conventions);
+  Karpathy's llm-wiki (`docs/references/llm-wiki.md`).
+- The user operates suggest-first — challenge premises, propose alternatives.

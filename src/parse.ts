@@ -4,7 +4,13 @@
 
 export type Lane = 'prompt' | 'text' | 'thinking' | 'tool' | 'event' | 'meta'
 
-export type Entry = { lane: Lane; text: string }
+// toolName is the structured hook for the ambient ROI ledger (lore#7): raw
+// tool name for tool_use blocks, with two refinements so usage counts answer
+// "is this ambient item earning its tokens" — Skill invocations become
+// `Skill:<skill>` and slash-command wrappers `command:<name>` (user-invoked
+// skills flow through command wrappers, not the Skill tool; without this
+// they'd all read as zero-use).
+export type Entry = { lane: Lane; text: string; toolName?: string }
 
 export type Parsed = {
   type: string
@@ -51,11 +57,11 @@ export function parseLine(line: string): Parsed | null {
     case 'user': {
       const content = r.message?.content
       if (typeof content === 'string') {
-        p.entries.push({ lane: META_PROMPT.test(content) ? 'meta' : 'prompt', text: content })
+        p.entries.push(userTextEntry(content))
       } else if (Array.isArray(content)) {
         for (const block of content) {
           if (block?.type === 'text' && block.text) {
-            p.entries.push({ lane: META_PROMPT.test(block.text) ? 'meta' : 'prompt', text: block.text })
+            p.entries.push(userTextEntry(block.text))
           } else if (block?.type === 'tool_result') {
             const text = toolResultText(block.content)
             if (text) p.entries.push({ lane: 'tool', text: text.slice(0, TOOL_TEXT_CAP) })
@@ -75,6 +81,10 @@ export function parseLine(line: string): Parsed | null {
           p.entries.push({
             lane: 'tool',
             text: `${block.name ?? '?'} ${safeStringify(block.input).slice(0, TOOL_TEXT_CAP)}`,
+            toolName:
+              block.name === 'Skill' && typeof block.input?.skill === 'string'
+                ? `Skill:${block.input.skill}`
+                : (block.name ?? undefined),
           })
       }
       break
@@ -110,6 +120,12 @@ export function parseLine(line: string): Parsed | null {
       break
   }
   return p
+}
+
+function userTextEntry(text: string): Entry {
+  if (!META_PROMPT.test(text)) return { lane: 'prompt', text }
+  const command = /<command-name>\/?([\w:-]+)<\/command-name>/.exec(text)?.[1]
+  return { lane: 'meta', text, ...(command ? { toolName: `command:${command}` } : {}) }
 }
 
 function toolResultText(content: unknown): string {

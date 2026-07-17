@@ -237,4 +237,30 @@ describe('indexDocs', () => {
     expect(searchDocs(db, 'frobnicator', { limit: 10 })).toHaveLength(2)
     expect(searchDocs(db, 'frobnicator', { repo: 'two', limit: 10 })).toHaveLength(1)
   })
+
+  // The dotfiles#34 gap: canon merged upstream after the last local fetch is
+  // invisible to every re-index — the ref-diff runs against refs that never
+  // moved. fetch: true is the cure; without it the stale result must persist.
+  test('upstream canon is invisible until fetch moves the origin refs', async () => {
+    const root = tempDir()
+    const origin = join(root, 'up-origin')
+    initRepo(origin)
+    writeFileSync(join(origin, 'README.md'), 'v1 canon\n')
+    sh(origin, 'git add -A && git commit -qm v1', '2026-07-01T10:00:00')
+    sh(root, 'git clone -q up-origin up')
+    writeFileSync(join(origin, 'DOCTRINE.md'), 'The zanzibar doctrine lands upstream.\n')
+    sh(origin, 'git add -A && git commit -qm v2', '2026-07-02T10:00:00')
+
+    const db = memDb()
+    const stale = await indexDocs(db, { codeDir: root, exclude: ['up-origin'] })
+    expect(stale.reposFetched).toBeUndefined()
+    expect(searchDocs(db, 'zanzibar', { limit: 5 })).toHaveLength(0)
+
+    const fresh = await indexDocs(db, { codeDir: root, exclude: ['up-origin'], fetch: true })
+    expect(fresh.reposFetched).toBe(1)
+    expect(fresh.reposIndexed).toBe(1)
+    const hits = searchDocs(db, 'zanzibar', { limit: 5 })
+    expect(hits).toHaveLength(1)
+    expect(hits[0]?.ref).toStartWith('origin/')
+  })
 })

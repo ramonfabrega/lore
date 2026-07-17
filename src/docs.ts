@@ -72,6 +72,42 @@ async function git(repo: string, ...args: string[]): Promise<{ ok: boolean; out:
   return { ok: r.exitCode === 0, out: r.text() }
 }
 
+// Origin refs only move when something fetches — canon detection is a
+// ref-diff, so a stale clone hides upstream canon indefinitely (dotfiles#34:
+// merged upstream, invisible to every re-index until a manual fetch). Failures
+// degrade to stale refs, never break the index — offline is a normal state.
+const FETCH_CONCURRENCY = 8
+const FETCH_TIMEOUT_MS = 15_000
+
+export type FetchStats = { reposFetched: number; fetchFailed: number; fetchSkipped: number }
+
+export async function fetchOrigins(repoPaths: string[]): Promise<FetchStats> {
+  const stats: FetchStats = { reposFetched: 0, fetchFailed: 0, fetchSkipped: 0 }
+  let next = 0
+  const worker = async () => {
+    while (next < repoPaths.length) {
+      const repo = repoPaths[next++]
+      if (!repo) continue
+      const remotes = await git(repo, 'remote')
+      if (!remotes.ok || !remotes.out.split('\n').includes('origin')) {
+        stats.fetchSkipped++
+        continue
+      }
+      const proc = Bun.spawn(['git', '-C', repo, 'fetch', '--quiet', 'origin'], {
+        stdout: 'ignore',
+        stderr: 'ignore',
+      })
+      const timer = setTimeout(() => proc.kill(), FETCH_TIMEOUT_MS)
+      const code = await proc.exited
+      clearTimeout(timer)
+      if (code === 0) stats.reposFetched++
+      else stats.fetchFailed++
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, repoPaths.length) }, worker))
+  return stats
+}
+
 type RefInfo = { ref: string; sha: string; commitTs: number }
 
 async function refInfo(repo: string, ref: string): Promise<RefInfo | null> {
@@ -151,16 +187,17 @@ export type DocsIndexStats = {
   reposPruned: number
   docs: number
   durationMs: number
-}
+} & Partial<FetchStats>
 
 const ExistingRepo = z.object({ ref: z.string(), commit_sha: z.string(), ownership: z.string() }).nullish()
 
 export async function indexDocs(
   db: Database,
-  opts: { codeDir: string; exclude?: string[]; assisted?: string[]; full?: boolean },
+  opts: { codeDir: string; exclude?: string[]; assisted?: string[]; full?: boolean; fetch?: boolean },
 ): Promise<DocsIndexStats> {
   const started = performance.now()
   const repoPaths = listRepoPaths(opts.codeDir, { exclude: opts.exclude })
+  const fetchStats = opts.fetch ? await fetchOrigins(repoPaths) : undefined
 
   const findRepo = db.prepare('SELECT ref, commit_sha, ownership FROM repos WHERE path = ?')
   const upsertRepo = db.prepare(
@@ -236,6 +273,7 @@ export async function indexDocs(
 
   return {
     repos: repoPaths.length,
+    ...fetchStats,
     reposIndexed,
     reposSkipped,
     reposPruned,
