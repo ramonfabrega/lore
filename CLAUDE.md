@@ -162,7 +162,19 @@ checkout). Fallback was the sanctioned ad-hoc lane (general-purpose +
 explicit sonnet). Consequences: (1) the frontmatter model-pin remains
 UNVERIFIED — retest from an interactive session; (2) completion notifications
 carry no model field, so ledger model columns are spawn-parameter assertions,
-not verification (golf-sim's "fable (!)" was inference). Also shaken out:
+not verification (golf-sim's "fable (!)" was inference) — POST-HOC FIX: model
+ids are grep-able from the task transcript JSONL (`"model":"..."` in
+`/tmp/claude-*/…/tasks/*.output`); this run verified all 3 miners =
+claude-sonnet-5 and retroactively confirmed golf-sim's = claude-fable-5.
+Registration failure triaged against docs (2026-07-17): `model: sonnet` IS a
+valid frontmatter alias and discovery officially walks cwd→repo-root (both
+worktree and parent .claude/agents/ in scope) — frontmatter is NOT the
+culprit; suspicion narrows to background-job sessions skipping project agent
+discovery (undocumented). **Debug next from an INTERACTIVE session in this
+repo**: run `/doctor` first, then spawn `lore-miner` by agentType with prompt
+"report your model and thinking mode, then stop" and verify via transcript
+grep. If it registers interactively, bg-job discovery is the bug; file it
+upstream and launch future ingests interactively. Also shaken out:
 `database is locked` transient under parallel miners (add WAL/busy_timeout
 to openDb) and text-lane truncation mid-message (--token-limit should cut at
 message boundaries). Headline: 820b6f21 carries the verbatim origin quote of
