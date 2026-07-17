@@ -193,6 +193,12 @@ docs.command('index', {
     'Scan repos and index their canon .md files (incremental by commit sha; prunes gone repos). Ownership is auto-detected per repo: foreign (`upstream` remote — a fork, docs skipped), assisted (zero commits under the user identity — indexed but flagged: not the user\'s doctrine), mine. Overrides: LORE_DOCS_EXCLUDE skips repos entirely, LORE_DOCS_ASSISTED force-flags.',
   options: z.object({
     full: z.boolean().optional().describe('Reindex every repo, ignoring the commit-sha skip'),
+    fetch: z
+      .boolean()
+      .optional()
+      .describe(
+        'Run `git fetch origin` in each repo first. Canon detection is a ref-diff and origin refs only move when something fetches — without this, upstream merges stay invisible to every re-index. Offline-safe: fetch failures degrade to stale refs.',
+      ),
   }),
   run: async (c) => {
     const db = openDb(DB_PATH)
@@ -201,6 +207,7 @@ docs.command('index', {
       exclude: [WIKI_DIR, ...DOCS_EXCLUDE],
       assisted: DOCS_ASSISTED,
       full: c.options.full,
+      fetch: c.options.fetch,
     })
     return c.ok(stats, {
       cta: {

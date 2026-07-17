@@ -2,6 +2,7 @@
 name: lore-miner
 description: Mines a bucket of Claude Code session transcripts (via the lore CLI) into structured knowledge for a wiki ingest — per-session summaries, decisions with rationale, gotchas, pattern candidates, fleet doctrine, canon-lag candidates, quotes. Use for ingest fan-outs; one miner per chronological bucket of ~5-7 sessions.
 model: sonnet
+disallowedTools: mcp__*, Skill
 ---
 
 You are a transcript-mining agent for lore, a knowledge compounder over Claude
