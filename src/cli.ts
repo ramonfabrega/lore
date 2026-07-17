@@ -5,6 +5,7 @@ import { openDb } from './db'
 import { buildIndex } from './indexer'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
+import { getSession } from './session'
 import { listSessions } from './sessions'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
@@ -57,6 +58,28 @@ cli.command('sessions', {
     const db = openDb(DB_PATH)
     const sessions = listSessions(db, { well: options.well, limit: options.limit })
     return { count: sessions.length, sessions }
+  },
+})
+
+cli.command('session', {
+  description:
+    'Dump one session’s messages in order — the transcript slice behind an arc (default lane: prompt). Accepts a unique id prefix.',
+  args: z.object({
+    id: z.string().describe('Session id or unique prefix (see the sessions listing)'),
+  }),
+  options: z.object({
+    lane: z
+      .array(z.enum(LANES))
+      .optional()
+      .describe('Lanes to include (default: prompt). gitBranch rides along — well membership ≠ work location'),
+    limit: z.number().default(500).describe('Max messages'),
+  }),
+  alias: { lane: 'l', limit: 'n' },
+  run: ({ args, options }) => {
+    const db = openDb(DB_PATH)
+    const lanes = (options.lane ?? ['prompt']) as Lane[]
+    const dump = getSession(db, args.id, { lanes, limit: options.limit })
+    return { ...dump.session, lanes, count: dump.messages.length, messages: dump.messages }
   },
 })
 
