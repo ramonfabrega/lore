@@ -68,15 +68,24 @@ stable consumers.
 - Fan-out mining requires a structured run ledger (per agent: well, tokens, duration,
   pages touched, outcome) — it will be tuned live.
 
-## Open unknowns — deliberately undecided; arrive at these from first principles
+## Status (2026-07-17) & open unknowns
 
-- **Stack.** Not discussed. No JS/Swift default assumed.
-- **JSONL format edge-to-edge** — sidechains, compaction summaries,
-  `subagents/workflows/` dirs. Spelunk real wells before designing the parser.
-- Graduation UX; one vs two pipelines for memories vs transcripts; dedup across
-  worktree wells of one repo.
-- First working session: JSONL spelunk + an interview/blindspot pass on the user
-  (they operate suggest-first — challenge premises, propose alternatives).
+Done: JSONL spelunk (docs/notes/), interview pass, v0 CLI (archive/index/search/
+stats/wells — all working, tests green, `lore-*` skills synced), first archive
+(1.6GB → ~/.lore/archive), wiki bootstrapped at `~/code/personal/lore-wiki`
+(its CLAUDE.md is the maintainer schema).
+
+**Next: first ingest.** Small and by hand — one well → one project page in the
+wiki (mux or disk are the richest), to calibrate conventions before any subagent
+fan-out. Drive it with the lore CLI, log it in the wiki's log.md.
+
+Still open (arrive from data, not guesses):
+- Graduation UX (landing on a non-master branch in the target repo is the leading
+  shape; prototype it).
+- `lore docs` — canon corpus scan/index (third corpus, decided but unbuilt).
+- One vs two pipelines for memories vs transcripts; dedup across a repo's
+  main + worktree wells; run-ledger implementation for fan-out mining.
+- The user operates suggest-first — challenge premises, propose alternatives.
 
 ## References
 
