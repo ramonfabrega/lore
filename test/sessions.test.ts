@@ -71,6 +71,19 @@ describe('listSessions', () => {
     expect(byPath.map((r) => r.sessionId)).toEqual(['s-tv'])
   })
 
+  test('exact well filter isolates a prefix well that substring cannot', () => {
+    const db = seedDb()
+    db.exec(`
+      INSERT INTO wells(id, dir, real_path) VALUES (3, '-u-code', '/u/code');
+      INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts)
+        VALUES (3, 's-root', 10, 0, 1, '2026-07-13T10:00:00Z', '2026-07-13T10:00:00Z');
+    `)
+    // '-u-code' is a prefix of every well dir — substring matches all four
+    expect(listSessions(db, { well: '-u-code', limit: 100 })).toHaveLength(4)
+    const exact = listSessions(db, { well: '-u-code', exact: true, limit: 100 })
+    expect(exact.map((r) => r.sessionId)).toEqual(['s-root'])
+  })
+
   test('long first prompt is truncated with ellipsis; no prompts → null', () => {
     const rows = listSessions(seedDb(), { limit: 100 })
     const long = rows.find((r) => r.sessionId === 's-new')!

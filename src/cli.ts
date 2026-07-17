@@ -8,6 +8,7 @@ import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
 import { getSession } from './session'
 import { listSessions } from './sessions'
+import { indexSpawns, listSpawns } from './spawns'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
 
@@ -52,12 +53,16 @@ cli.command('sessions', {
   description: 'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt)',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
     limit: z.number().default(100).describe('Max results'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
-    const sessions = listSessions(db, { well: options.well, limit: options.limit })
+    const sessions = listSessions(db, { well: options.well, exact: options.exact, limit: options.limit })
     return { count: sessions.length, sessions }
   },
 })
@@ -92,7 +97,8 @@ cli.command('index', {
   run: async (c) => {
     const db = openDb(DB_PATH)
     const stats = await buildIndex(db, { projectsDir: PROJECTS_DIR, historyPath: HISTORY_PATH, full: c.options.full })
-    return c.ok(stats, {
+    const spawns = await indexSpawns(db, { projectsDir: PROJECTS_DIR, full: c.options.full })
+    return c.ok({ ...stats, spawns }, {
       cta: {
         description: 'Next:',
         commands: [{ command: 'search', description: 'Search the index' }, 'stats'],
@@ -112,6 +118,10 @@ cli.command('search', {
       .optional()
       .describe('Lanes to search (default: prompt, text). thinking/tool/event/meta are opt-in'),
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
     limit: z.number().default(20).describe('Max results'),
     history: z.boolean().optional().describe('Also search history.jsonl (every prompt ever typed, survives retention)'),
   }),
@@ -119,9 +129,36 @@ cli.command('search', {
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
     const lanes = (options.lane ?? ['prompt', 'text']) as Lane[]
-    const hits = searchMessages(db, args.query, { lanes, well: options.well, limit: options.limit })
+    const hits = searchMessages(db, args.query, { lanes, well: options.well, exact: options.exact, limit: options.limit })
     const history = options.history ? searchHistory(db, args.query, { limit: options.limit }) : undefined
     return { query: args.query, lanes, count: hits.length, hits, ...(history ? { history } : {}) }
+  },
+})
+
+cli.command('spawns', {
+  description:
+    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope, totals. Newest first, with a per-agentType rollup. Populated by `lore index`.',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+    agent: z.string().optional().describe('Filter to this agentType (e.g. lore-miner, general-purpose)'),
+    since: z.string().optional().describe('Only spawns on/after this ISO date (e.g. 2026-07-15)'),
+    limit: z.number().default(50).describe('Max spawn rows (the rollup always covers all matches)'),
+  }),
+  alias: { well: 'w', agent: 'a', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const { spawns, byAgentType } = listSpawns(db, {
+      well: options.well,
+      exact: options.exact,
+      agent: options.agent,
+      since: options.since,
+      limit: options.limit,
+    })
+    return { count: spawns.length, byAgentType, spawns }
   },
 })
 

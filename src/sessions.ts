@@ -19,8 +19,17 @@ export type SessionRow = z.infer<typeof Row>
 // workDir is the modal per-message cwd — the ground truth for where work
 // happened (well membership only records the creation-time cwd); workDirs > 1
 // flags a session that moved (e.g. entered a worktree mid-session).
-export function listSessions(db: Database, opts: { well?: string; limit: number }): SessionRow[] {
-  const wellClause = opts.well ? 'WHERE (w.dir LIKE ? OR w.real_path LIKE ?)' : ''
+export function listSessions(
+  db: Database,
+  opts: { well?: string; exact?: boolean; limit: number },
+): SessionRow[] {
+  // exact matters when the target well's name is a substring of others — the
+  // ~/code root well is a prefix of every other well and LIKE can't isolate it.
+  const wellClause = opts.well
+    ? opts.exact
+      ? 'WHERE (w.dir = ? OR w.real_path = ?)'
+      : 'WHERE (w.dir LIKE ? OR w.real_path LIKE ?)'
+    : ''
   const sql = `
     SELECT w.dir AS well, s.session_id AS sessionId, s.first_ts AS first, s.last_ts AS last, s.lines,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.session_id AND m.lane = 'prompt') AS prompts,
@@ -33,7 +42,10 @@ export function listSessions(db: Database, opts: { well?: string; limit: number 
     ${wellClause}
     ORDER BY s.first_ts LIMIT ?`
   const params: (string | number)[] = []
-  if (opts.well) params.push(`%${opts.well}%`, `%${opts.well}%`)
+  if (opts.well) {
+    const v = opts.exact ? opts.well : `%${opts.well}%`
+    params.push(v, v)
+  }
   params.push(opts.limit)
   return z
     .array(Row)

@@ -26,10 +26,14 @@ export type HistoryHit = z.infer<typeof HistoryHit>
 export function searchMessages(
   db: Database,
   query: string,
-  opts: { lanes: Lane[]; well?: string; limit: number },
+  opts: { lanes: Lane[]; well?: string; exact?: boolean; limit: number },
 ): Hit[] {
   const laneMarks = opts.lanes.map(() => '?').join(',')
-  const wellClause = opts.well ? 'AND (w.dir LIKE ? OR w.real_path LIKE ?)' : ''
+  const wellClause = opts.well
+    ? opts.exact
+      ? 'AND (w.dir = ? OR w.real_path = ?)'
+      : 'AND (w.dir LIKE ? OR w.real_path LIKE ?)'
+    : ''
   const sql = `
     SELECT w.dir AS well, w.real_path AS realPath, m.session_id AS sessionId, m.ts,
            m.lane, m.git_branch AS gitBranch,
@@ -41,7 +45,10 @@ export function searchMessages(
     WHERE messages_fts MATCH ? AND m.lane IN (${laneMarks}) ${wellClause}
     ORDER BY rank LIMIT ?`
   const params: (string | number)[] = [query, ...opts.lanes]
-  if (opts.well) params.push(`%${opts.well}%`, `%${opts.well}%`)
+  if (opts.well) {
+    const v = opts.exact ? opts.well : `%${opts.well}%`
+    params.push(v, v)
+  }
   params.push(opts.limit)
   return z.array(Hit).parse(db.prepare(sql).all(...params))
 }

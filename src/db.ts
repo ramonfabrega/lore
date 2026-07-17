@@ -14,8 +14,12 @@ import { z } from 'zod'
 // v5: is_foreign generalizes to ownership (mine/assisted/foreign) — assisted
 // repos (helped someone else; zero commits under the user's identity) index
 // but are flagged so their canon never reads as the user's doctrine.
-const SCHEMA_VERSION = 5
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts']
+// v6: spawns — the subagent observatory. One row per spawn transcript under
+// <session>/subagents/; `model` is VERIFIED from the first request (the spawn
+// parameter and completion notification are never trusted), `requested_model`
+// is the parameter from meta.json when one was passed.
+const SCHEMA_VERSION = 6
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -73,6 +77,26 @@ CREATE TABLE IF NOT EXISTS docs(
 );
 CREATE INDEX IF NOT EXISTS idx_docs_repo ON docs(repo_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(text);
+CREATE TABLE IF NOT EXISTS spawns(
+  id INTEGER PRIMARY KEY,
+  well_dir TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  agent_id TEXT UNIQUE NOT NULL,
+  agent_type TEXT,
+  description TEXT,
+  spawn_depth INTEGER,
+  requested_model TEXT,
+  model TEXT,
+  boot_tokens INTEGER,
+  requests INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  tool_uses INTEGER NOT NULL DEFAULT 0,
+  first_ts TEXT,
+  last_ts TEXT,
+  size INTEGER NOT NULL,
+  mtime_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_spawns_session ON spawns(session_id);
 `
 
 export function openDb(path: string): Database {
@@ -80,6 +104,9 @@ export function openDb(path: string): Database {
   const db = new Database(path)
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA synchronous = NORMAL')
+  // Parallel sessions (bg jobs, subagent fan-outs) share this db — wait out
+  // writer contention instead of throwing SQLITE_BUSY at the first overlap.
+  db.exec('PRAGMA busy_timeout = 5000')
   const { user_version: version } = z
     .object({ user_version: z.number() })
     .parse(db.prepare('PRAGMA user_version').get())
