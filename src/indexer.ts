@@ -1,7 +1,11 @@
 import type { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
+import { z } from 'zod'
 import { parseLine } from './parse'
 import { listWells } from './wells'
+
+const WellId = z.object({ id: z.number() })
+const ExistingSession = z.object({ id: z.number(), size: z.number(), mtime_ms: z.number() }).nullish()
 
 export type IndexStats = {
   wells: number
@@ -46,11 +50,12 @@ export async function buildIndex(
   let messages = 0
 
   for (const well of wells) {
-    const wellId = (upsertWell.get(well.dir, well.realPath, well.isWorktree ? 1 : 0, well.hasMemory ? 1 : 0) as any)
-      .id as number
+    const wellId = WellId.parse(
+      upsertWell.get(well.dir, well.realPath, well.isWorktree ? 1 : 0, well.hasMemory ? 1 : 0),
+    ).id
 
     for (const s of well.sessions) {
-      const existing = findSession.get(s.sessionId) as any
+      const existing = ExistingSession.parse(findSession.get(s.sessionId))
       if (!opts.full && existing && existing.size === s.size && existing.mtime_ms === s.mtimeMs) {
         sessionsSkipped++
         continue

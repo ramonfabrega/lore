@@ -1,14 +1,16 @@
 import type { Database } from 'bun:sqlite'
+import { z } from 'zod'
 
-export type SessionRow = {
-  well: string
-  sessionId: string
-  first: string | null
-  last: string | null
-  lines: number
-  prompts: number
-  firstPrompt: string | null
-}
+const Row = z.object({
+  well: z.string(),
+  sessionId: z.string(),
+  first: z.string().nullable(),
+  last: z.string().nullable(),
+  lines: z.number(),
+  prompts: z.number(),
+  firstPrompt: z.string().nullable(),
+})
+export type SessionRow = z.infer<typeof Row>
 
 // The arc spine of a well: its sessions in order, each headed by the prompt
 // that opened it. Ingest reads this before touching any transcript.
@@ -25,14 +27,16 @@ export function listSessions(db: Database, opts: { well?: string; limit: number 
   const params: (string | number)[] = []
   if (opts.well) params.push(`%${opts.well}%`, `%${opts.well}%`)
   params.push(opts.limit)
-  const rows = db.prepare(sql).all(...params) as SessionRow[]
-  for (const r of rows) {
-    r.first = r.first?.slice(0, 10) ?? null
-    r.last = r.last?.slice(0, 10) ?? null
-    if (r.firstPrompt) {
-      const flat = r.firstPrompt.replace(/\s+/g, ' ').trim()
-      r.firstPrompt = flat.length > 140 ? `${flat.slice(0, 140)}…` : flat
-    }
-  }
-  return rows
+  return z
+    .array(Row)
+    .parse(db.prepare(sql).all(...params))
+    .map((r) => {
+      const flat = r.firstPrompt?.replace(/\s+/g, ' ').trim() ?? null
+      return {
+        ...r,
+        first: r.first?.slice(0, 10) ?? null,
+        last: r.last?.slice(0, 10) ?? null,
+        firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
+      }
+    })
 }

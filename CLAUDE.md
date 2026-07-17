@@ -36,6 +36,17 @@ and cross-app pattern drift against the wiki).
    the only ambient context footprint — no root `~/code/CLAUDE.md` map (rejected:
    ambient context must earn its per-session cost; the map is pull-based).
 
+## Code conventions (decided 2026-07-17, rationale in DESIGN.md)
+
+- **Bun-first**: Bun API when one exists (`Bun.file`, `Bun.write`, `Bun.$`,
+  `bun:sqlite`, `bun:test`); `node:fs`/`node:path`/`node:os` for the gaps
+  (sync dir ops, `join`, `homedir`) — that's idiomatic Bun, not a compromise.
+- **Boundary parsing, no casts**: DB rows, env, and JSONL get zod-parsed at the
+  edge; schemas colocated with the queries that produce them. Never `as X` on I/O.
+  Env is one validated object in `config.ts`.
+- **No ORM** over lore.db — it's a derived artifact (rebuild beats migrate) and
+  the load-bearing queries are FTS5. Revisit at run-ledger-era schema complexity.
+
 ## Hard constraints
 
 - **Subscription OAuth only.** Never an API key; never design around API billing.

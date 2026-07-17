@@ -105,21 +105,33 @@ cli.command('stats', {
   description: 'Index statistics: lanes, wells, date range',
   run: () => {
     const db = openDb(DB_PATH)
-    const lanes = db.prepare('SELECT lane, COUNT(*) AS n FROM messages GROUP BY lane ORDER BY n DESC').all()
-    const wells = db
-      .prepare(
-        `SELECT w.dir, COUNT(DISTINCT s.session_id) AS sessions, COUNT(m.id) AS messages
-         FROM wells w LEFT JOIN sessions s ON s.well_id = w.id LEFT JOIN messages m ON m.session_id = s.session_id
-         GROUP BY w.id ORDER BY messages DESC LIMIT 15`,
+    const lanes = z
+      .array(z.object({ lane: z.string(), n: z.number() }))
+      .parse(db.prepare('SELECT lane, COUNT(*) AS n FROM messages GROUP BY lane ORDER BY n DESC').all())
+    const wells = z
+      .array(z.object({ dir: z.string(), sessions: z.number(), messages: z.number() }))
+      .parse(
+        db
+          .prepare(
+            `SELECT w.dir, COUNT(DISTINCT s.session_id) AS sessions, COUNT(m.id) AS messages
+             FROM wells w LEFT JOIN sessions s ON s.well_id = w.id LEFT JOIN messages m ON m.session_id = s.session_id
+             GROUP BY w.id ORDER BY messages DESC LIMIT 15`,
+          )
+          .all(),
       )
-      .all()
-    const range = db.prepare('SELECT MIN(first_ts) AS earliest, MAX(last_ts) AS latest FROM sessions').get()
-    const totals = db
-      .prepare(
-        `SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM messages) AS messages,
-                (SELECT COUNT(*) FROM history) AS historyRows`,
+    const range = z
+      .object({ earliest: z.string().nullable(), latest: z.string().nullable() })
+      .parse(db.prepare('SELECT MIN(first_ts) AS earliest, MAX(last_ts) AS latest FROM sessions').get())
+    const totals = z
+      .object({ sessions: z.number(), messages: z.number(), historyRows: z.number() })
+      .parse(
+        db
+          .prepare(
+            `SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM messages) AS messages,
+                    (SELECT COUNT(*) FROM history) AS historyRows`,
+          )
+          .get(),
       )
-      .get()
     return { totals, range, lanes, topWells: wells }
   },
 })
@@ -135,7 +147,7 @@ wiki.command('commit', {
     message: z.string().optional().describe('Commit message (default: auto-generated from changed files)'),
   }),
   alias: { message: 'm' },
-  run: ({ options }) => wikiCommit(WIKI_DIR, options.message),
+  run: async ({ options }) => wikiCommit(WIKI_DIR, options.message),
 })
 
 cli.command(wiki)

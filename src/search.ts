@@ -1,22 +1,27 @@
 import type { Database } from 'bun:sqlite'
+import { z } from 'zod'
 import type { Lane } from './parse'
 
-export type Hit = {
-  well: string
-  realPath: string | null
-  sessionId: string
-  ts: string | null
-  lane: string
-  gitBranch: string | null
-  snippet: string
-}
+// Row schemas live next to the queries that produce them — results are parsed
+// at the boundary, never `as`-cast.
+const Hit = z.object({
+  well: z.string(),
+  realPath: z.string().nullable(),
+  sessionId: z.string(),
+  ts: z.string().nullable(),
+  lane: z.string(),
+  gitBranch: z.string().nullable(),
+  snippet: z.string(),
+})
+export type Hit = z.infer<typeof Hit>
 
-export type HistoryHit = {
-  ts: string | null
-  project: string | null
-  sessionId: string | null
-  snippet: string
-}
+const HistoryHit = z.object({
+  ts: z.string().nullable(),
+  project: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  snippet: z.string(),
+})
+export type HistoryHit = z.infer<typeof HistoryHit>
 
 export function searchMessages(
   db: Database,
@@ -38,7 +43,7 @@ export function searchMessages(
   const params: (string | number)[] = [query, ...opts.lanes]
   if (opts.well) params.push(`%${opts.well}%`, `%${opts.well}%`)
   params.push(opts.limit)
-  return db.prepare(sql).all(...params) as Hit[]
+  return z.array(Hit).parse(db.prepare(sql).all(...params))
 }
 
 export function searchHistory(db: Database, query: string, opts: { limit: number }): HistoryHit[] {
@@ -49,5 +54,5 @@ export function searchHistory(db: Database, query: string, opts: { limit: number
     JOIN history h ON h.id = f.rowid
     WHERE history_fts MATCH ?
     ORDER BY rank LIMIT ?`
-  return db.prepare(sql).all(query, opts.limit) as HistoryHit[]
+  return z.array(HistoryHit).parse(db.prepare(sql).all(query, opts.limit))
 }
