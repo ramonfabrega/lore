@@ -124,15 +124,24 @@ split-verdicts). Miner subagents defined in `.claude/agents/` (lore-miner,
 lore-canon-auditor — model: sonnet pinned; the 821k-Fable golf-sim run is the
 quality baseline to judge them against).
 
-**Next: `lore docs`** — canon corpus scan/index, with the gym requirement:
-canon can live only in git objects (husk checkouts), so the scanner must read
-via git, not walk working trees. Then: sonnet-miner calibration ingest (any
-mid-size well) scored against the Fable baseline.
+**`lore docs` done** — canon corpus scan/index (schema v3: repos/docs/docs_fts).
+Reads via git objects only (`ls-tree`/`cat-file`), never working trees — the gym
+requirement. Ref = newest commit among HEAD and origin's default branch; husk
+flag = local HEAD has zero canon while the chosen remote ref has some. Repos
+gone from disk are pruned (canon lives in git; no evaporation to guard).
+`lore docs index|search|list`; wiki dir excluded (middle tier ≠ canon). First
+real run: 30 repos, 1925 docs; gym + personal/site + work/acarreo flagged husk.
+Corpus-noise finding: sandbox/expo (vendored SDK clone) is 1435 of the 1925
+docs — exclusion/foreign-repo policy is an open call, filter with `-r` meanwhile.
+
+**Next: sonnet-miner calibration ingest** (any mid-size well) scored against
+the Fable baseline.
 
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
   shape; prototype it).
-- `lore docs` — canon corpus scan/index (third corpus, decided but unbuilt).
+- Foreign-repo policy for the docs corpus (vendored clones like sandbox/expo
+  drown searches; exclude, flag, or rank down — decide from usage).
 - One vs two pipelines for memories vs transcripts; dedup across a repo's
   main + worktree wells; run-ledger implementation for fan-out mining.
 - The user operates suggest-first — challenge premises, propose alternatives.

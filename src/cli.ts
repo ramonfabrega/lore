@@ -1,7 +1,8 @@
 import { Cli, z } from 'incur'
 import { archive } from './archive'
-import { ARCHIVE_DIR, CLAUDE_DIR, DB_PATH, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
+import { ARCHIVE_DIR, CLAUDE_DIR, CODE_DIR, DB_PATH, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
+import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { buildIndex } from './indexer'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
@@ -146,12 +147,19 @@ cli.command('stats', {
       .object({ earliest: z.string().nullable(), latest: z.string().nullable() })
       .parse(db.prepare('SELECT MIN(first_ts) AS earliest, MAX(last_ts) AS latest FROM sessions').get())
     const totals = z
-      .object({ sessions: z.number(), messages: z.number(), historyRows: z.number() })
+      .object({
+        sessions: z.number(),
+        messages: z.number(),
+        historyRows: z.number(),
+        repos: z.number(),
+        docs: z.number(),
+      })
       .parse(
         db
           .prepare(
             `SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM messages) AS messages,
-                    (SELECT COUNT(*) FROM history) AS historyRows`,
+                    (SELECT COUNT(*) FROM history) AS historyRows,
+                    (SELECT COUNT(*) FROM repos) AS repos, (SELECT COUNT(*) FROM docs) AS docs`,
           )
           .get(),
       )
@@ -174,6 +182,60 @@ wiki.command('commit', {
 })
 
 cli.command(wiki)
+
+const docs = Cli.create('docs', {
+  description:
+    'The canon corpus: git-committed .md files across the repos under ~/code, read from git objects (husk repos keep canon only at origin — the working tree is never trusted)',
+})
+
+docs.command('index', {
+  description: 'Scan repos and index their canon .md files (incremental by commit sha; prunes gone repos)',
+  options: z.object({
+    full: z.boolean().optional().describe('Reindex every repo, ignoring the commit-sha skip'),
+  }),
+  run: async (c) => {
+    const db = openDb(DB_PATH)
+    const stats = await indexDocs(db, { codeDir: CODE_DIR, exclude: [WIKI_DIR], full: c.options.full })
+    return c.ok(stats, {
+      cta: {
+        description: 'Next:',
+        commands: [{ command: 'docs search', description: 'Search the canon corpus' }, 'docs list'],
+      },
+    })
+  },
+})
+
+docs.command('search', {
+  description: 'Full-text search across indexed canon docs (FTS5 query syntax) — lint fodder and graduation dedup ("does canon already say this?")',
+  args: z.object({
+    query: z.string().describe('FTS5 match expression'),
+  }),
+  options: z.object({
+    repo: z.string().optional().describe('Filter to repos whose path contains this substring'),
+    limit: z.number().default(20).describe('Max results'),
+  }),
+  alias: { repo: 'r', limit: 'n' },
+  run: ({ args, options }) => {
+    const db = openDb(DB_PATH)
+    const hits = searchDocs(db, args.query, { repo: options.repo, limit: options.limit })
+    return { query: args.query, count: hits.length, hits }
+  },
+})
+
+docs.command('list', {
+  description: 'List indexed repos: ref canon was read from, commit, doc count, husk flag',
+  options: z.object({
+    husks: z.boolean().optional().describe('Only husk repos (canon exists solely in git objects at origin)'),
+  }),
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    let repos = listIndexedRepos(db)
+    if (options.husks) repos = repos.filter((r) => r.isHusk)
+    return { count: repos.length, repos }
+  },
+})
+
+cli.command(docs)
 
 cli.command('archive', {
   description: 'Additive mirror of ~/.claude data (projects, history, todos) — deleted sources stay preserved',
