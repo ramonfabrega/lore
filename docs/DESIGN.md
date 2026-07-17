@@ -63,6 +63,11 @@ Two layers:
 | 2026-07-17 | Infer arcs, don't impose clear semantics | User's `/clear` has two species (arc-spanning with transient plan.md; task-boundary). Plan-file lifecycles are fully recoverable from transcript Writes, so arcs reconstruct for free. Propose conventions only with evidence ("arcs are 3× easier to reconstruct when X"). |
 | 2026-07-17 | Worktree wells = durable satellites | User runs perma-worktrees per bg agent (main worktree reserved for the human). Well sync to parent repo is an ongoing op, not a rescue. |
 | 2026-07-17 | Run ledger is layer-1 plumbing | Fan-out mining will be tuned live; per-agent well/tokens/duration/pages/outcome in structured form (JSONL) + readable summary. lore can later mine its own ledgers. |
+| 2026-07-17 | Wiki home: separate local git repo | Private, git-based (the passage model: git as durability/diff engine, remote optional). Not inside the lore repo; not necessarily on GitHub. |
+| 2026-07-17 | One wiki, work + personal together | Max cross-pollination; graduation stays loud about destination repo (the privacy redline moves to the graduation gate, not the wiki wall). |
+| 2026-07-17 | Thinking blocks: indexed, own lane, excluded from default search | ~13% of records, reasoning gold + chaff; opt-in flag for rationale archaeology. |
+| 2026-07-17 | Stack: Bun + TypeScript; **incur as core CLI infra** (user call) | bun:sqlite (FTS5), native test runner, streaming JSONL, user fluency, `bun build --compile` later. incur (wevm) is the CLI framework from day one — agent-first surface (schema'd I/O, token-aware output, discovery) is lore's primary interface, and wevm engineering is trusted. Karpathy's llm-wiki is the guidance counterpart (docs/references/llm-wiki.md). Rust port noted only as a someday-if-daily-driver idea. |
+| 2026-07-17 | Graduation UX: OPEN | User: writing to a target repo's master is wrong; landing on a non-master branch they merge via normal flow is the leading shape. Needs more thinking — revisit with a working prototype. |
 
 ## Privacy redline
 

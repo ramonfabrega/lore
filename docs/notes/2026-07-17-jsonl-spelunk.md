@@ -77,6 +77,22 @@ the clear signal.
 - `memory-backups/` — prior memory snapshots (e.g. `cuanto-pre-dissolve`).
 - `todos/`, `debug/`, `stats-cache.json`, `plugins/`, `shell-snapshots/` — unexamined.
 
+## Addendum (same day, found while building v0)
+
+- **Thinking is not persisted.** Every `thinking` block on disk carries an empty
+  `thinking: ""` plus only the cryptographic `signature` — 0 non-empty across 6,335
+  sampled blocks in three wells. The "index thinking, off by default" decision is
+  moot in practice; the lane plumbing stays (free, future-proof) but the corpus has
+  no reasoning text. Rationale archaeology must come from assistant `text`.
+- **Bun auto-serve gotcha:** an entry module whose default export has `.fetch`
+  (every incur CLI) gets auto-served as an HTTP server by `bun run` and never
+  exits. Entrypoint (`src/main.ts`) must be separate from the CLI definition
+  (`src/cli.ts`, default-exported for `incur gen`).
+- **macOS ships openrsync** (not GNU rsync); `--stats` wording differs
+  ("Number of files transferred" vs "Number of regular files transferred").
+- Wells can have **memory but zero sessions** (crypto/*, fun-album, fun-disk main):
+  retention ate the transcripts, memory survived. The reverse of the worktree case.
+
 ## Preliminary implications for layer 1 (to validate, not gospel)
 
 1. **Archive first, verbatim** — rsync-style snapshot of `~/.claude/projects` +
