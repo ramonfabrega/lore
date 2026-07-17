@@ -118,10 +118,16 @@ graduation system (sort-before-you-write + closeout landing flow) — proto-lore
 the template for fleet-wide canon. Fan-out rule learned the hard way: subagents
 MUST get an explicit model (sonnet); omission inherits the main loop's Fable.
 
-**Next: first pattern pages from the golf-sim haul** (oklch-token-ssot — album
-canonical; expo-swiftui-sheet-kit — cuanto named as second consumer), and
-`lore docs` — with the gym requirement: canon can live only in git objects
-(husk checkouts), so the scanner must read via git, not walk working trees.
+Pattern pages 2+3 done (oklch-token-ssot, expo-swiftui-sheet-kit — species
+conventions stabilized: elements/sub-shapes/provenance-lineage/gotcha-ledger/
+split-verdicts). Miner subagents defined in `.claude/agents/` (lore-miner,
+lore-canon-auditor — model: sonnet pinned; the 821k-Fable golf-sim run is the
+quality baseline to judge them against).
+
+**Next: `lore docs`** — canon corpus scan/index, with the gym requirement:
+canon can live only in git objects (husk checkouts), so the scanner must read
+via git, not walk working trees. Then: sonnet-miner calibration ingest (any
+mid-size well) scored against the Fable baseline.
 
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
