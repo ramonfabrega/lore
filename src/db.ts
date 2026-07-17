@@ -10,8 +10,9 @@ import { z } from 'zod'
 // (rebuild beats migrate — the db is a derived artifact). v2: messages.cwd,
 // the ground truth for where work happened (well membership only records the
 // session's creation-time cwd). v3: the canon corpus (repos/docs/docs_fts) —
-// git-committed .md across repos, read from git objects.
-const SCHEMA_VERSION = 3
+// git-committed .md across repos, read from git objects. v4: repos.is_foreign
+// (fork-for-upstreaming detection — docs not indexed).
+const SCHEMA_VERSION = 4
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS repos(
   ref TEXT NOT NULL,
   commit_sha TEXT NOT NULL,
   commit_ts INTEGER NOT NULL,
-  is_husk INTEGER NOT NULL DEFAULT 0
+  is_husk INTEGER NOT NULL DEFAULT 0,
+  is_foreign INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS docs(
   id INTEGER PRIMARY KEY,

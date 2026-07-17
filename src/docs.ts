@@ -15,6 +15,7 @@ export type RepoScan = {
   sha: string
   commitTs: number
   isHusk: boolean // local HEAD carries zero canon while the chosen remote ref has some
+  isForeign: boolean // fork-for-upstreaming (has an `upstream` remote) — canon is someone else's, docs not indexed
   files: DocFile[]
 }
 
@@ -23,14 +24,20 @@ export type DocFile = { path: string; blobSha: string; size: number }
 const MAX_DOC_BYTES = 2_000_000
 const REMOTE_REFS = ['origin/HEAD', 'origin/main', 'origin/master']
 
+// Excludes match on the whole path or a `/`-bounded suffix — "sandbox/expo"
+// hits ~/code/sandbox/expo but not ~/code/sandbox/expo-sdk-54-repro.
+function isExcluded(dir: string, exclude: string[]): boolean {
+  return exclude.some((e) => dir === e || dir.endsWith(`/${e}`))
+}
+
 // Walk codeDir for git repos: prune at each .git (dir or file — worktrees and
 // submodules never scan as their own repos), skip hidden dirs and node_modules.
 export function listRepoPaths(root: string, opts?: { exclude?: string[]; maxDepth?: number }): string[] {
-  const exclude = new Set(opts?.exclude ?? [])
+  const exclude = opts?.exclude ?? []
   const maxDepth = opts?.maxDepth ?? 4
   const found: string[] = []
   const walk = (dir: string, depth: number) => {
-    if (exclude.has(dir)) return
+    if (isExcluded(dir, exclude)) return
     if (existsSync(join(dir, '.git'))) {
       found.push(dir)
       return
@@ -95,13 +102,20 @@ export async function scanRepo(repoPath: string): Promise<RepoScan | null> {
   const chosen = !local ? remote : remote && remote.commitTs > local.commitTs ? remote : local
   if (!chosen) return null
 
-  const files = (await listMdFiles(repoPath, chosen.ref)) ?? []
+  // An `upstream` remote marks a fork kept around to send PRs — its canon is
+  // the upstream project's doctrine, not the user's. Authorship share was
+  // probed and rejected: work repos where the user commits under another
+  // identity (or barely at all) misclassify; the remote never has.
+  const remotes = await git(repoPath, 'remote')
+  const isForeign = remotes.ok && remotes.out.split('\n').includes('upstream')
+
+  const files = isForeign ? [] : ((await listMdFiles(repoPath, chosen.ref)) ?? [])
   let isHusk = false
   if (chosen !== local && files.length > 0) {
     const localFiles = local ? await listMdFiles(repoPath, local.ref) : []
     isHusk = (localFiles ?? []).length === 0
   }
-  return { path: repoPath, ref: chosen.ref, sha: chosen.sha, commitTs: chosen.commitTs, isHusk, files }
+  return { path: repoPath, ref: chosen.ref, sha: chosen.sha, commitTs: chosen.commitTs, isHusk, isForeign, files }
 }
 
 export async function readBlob(repoPath: string, blobSha: string): Promise<string | null> {
@@ -118,7 +132,7 @@ export type DocsIndexStats = {
   durationMs: number
 }
 
-const ExistingRepo = z.object({ ref: z.string(), commit_sha: z.string() }).nullish()
+const ExistingRepo = z.object({ ref: z.string(), commit_sha: z.string(), is_foreign: z.number() }).nullish()
 
 export async function indexDocs(
   db: Database,
@@ -127,11 +141,11 @@ export async function indexDocs(
   const started = performance.now()
   const repoPaths = listRepoPaths(opts.codeDir, { exclude: opts.exclude })
 
-  const findRepo = db.prepare('SELECT ref, commit_sha FROM repos WHERE path = ?')
+  const findRepo = db.prepare('SELECT ref, commit_sha, is_foreign FROM repos WHERE path = ?')
   const upsertRepo = db.prepare(
-    `INSERT INTO repos(path, ref, commit_sha, commit_ts, is_husk) VALUES(?, ?, ?, ?, ?)
+    `INSERT INTO repos(path, ref, commit_sha, commit_ts, is_husk, is_foreign) VALUES(?, ?, ?, ?, ?, ?)
      ON CONFLICT(path) DO UPDATE SET ref=excluded.ref, commit_sha=excluded.commit_sha,
-       commit_ts=excluded.commit_ts, is_husk=excluded.is_husk
+       commit_ts=excluded.commit_ts, is_husk=excluded.is_husk, is_foreign=excluded.is_foreign
      RETURNING id`,
   )
   const deleteDocsFts = db.prepare('DELETE FROM docs_fts WHERE rowid IN (SELECT id FROM docs WHERE repo_id = ?)')
@@ -150,7 +164,13 @@ export async function indexDocs(
       continue
     }
     const existing = ExistingRepo.parse(findRepo.get(repoPath))
-    if (!opts.full && existing && existing.ref === scan.ref && existing.commit_sha === scan.sha) {
+    if (
+      !opts.full &&
+      existing &&
+      existing.ref === scan.ref &&
+      existing.commit_sha === scan.sha &&
+      existing.is_foreign === (scan.isForeign ? 1 : 0)
+    ) {
       reposSkipped++
       continue
     }
@@ -164,7 +184,7 @@ export async function indexDocs(
 
     db.transaction(() => {
       const repoId = z.object({ id: z.number() }).parse(
-        upsertRepo.get(scan.path, scan.ref, scan.sha, scan.commitTs, scan.isHusk ? 1 : 0),
+        upsertRepo.get(scan.path, scan.ref, scan.sha, scan.commitTs, scan.isHusk ? 1 : 0, scan.isForeign ? 1 : 0),
       ).id
       deleteDocsFts.run(repoId)
       deleteDocs.run(repoId)
@@ -234,6 +254,7 @@ const RepoRow = z.object({
   sha: z.string(),
   commitTs: z.number(),
   isHusk: z.number().transform(Boolean),
+  isForeign: z.number().transform(Boolean),
   docs: z.number(),
   bytes: z.number(),
 })
@@ -244,7 +265,7 @@ export function listIndexedRepos(db: Database): RepoRow[] {
     db
       .prepare(
         `SELECT r.path, r.ref, substr(r.commit_sha, 1, 8) AS sha, r.commit_ts AS commitTs, r.is_husk AS isHusk,
-                COUNT(d.id) AS docs, COALESCE(SUM(d.size), 0) AS bytes
+                r.is_foreign AS isForeign, COUNT(d.id) AS docs, COALESCE(SUM(d.size), 0) AS bytes
          FROM repos r LEFT JOIN docs d ON d.repo_id = r.id
          GROUP BY r.id ORDER BY r.path`,
       )

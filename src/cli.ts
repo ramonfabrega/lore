@@ -1,6 +1,6 @@
 import { Cli, z } from 'incur'
 import { archive } from './archive'
-import { ARCHIVE_DIR, CLAUDE_DIR, CODE_DIR, DB_PATH, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
+import { ARCHIVE_DIR, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { buildIndex } from './indexer'
@@ -189,13 +189,14 @@ const docs = Cli.create('docs', {
 })
 
 docs.command('index', {
-  description: 'Scan repos and index their canon .md files (incremental by commit sha; prunes gone repos)',
+  description:
+    'Scan repos and index their canon .md files (incremental by commit sha; prunes gone repos; forks with an `upstream` remote are flagged foreign and their docs skipped — LORE_DOCS_EXCLUDE skips repos entirely)',
   options: z.object({
     full: z.boolean().optional().describe('Reindex every repo, ignoring the commit-sha skip'),
   }),
   run: async (c) => {
     const db = openDb(DB_PATH)
-    const stats = await indexDocs(db, { codeDir: CODE_DIR, exclude: [WIKI_DIR], full: c.options.full })
+    const stats = await indexDocs(db, { codeDir: CODE_DIR, exclude: [WIKI_DIR, ...DOCS_EXCLUDE], full: c.options.full })
     return c.ok(stats, {
       cta: {
         description: 'Next:',
@@ -223,14 +224,16 @@ docs.command('search', {
 })
 
 docs.command('list', {
-  description: 'List indexed repos: ref canon was read from, commit, doc count, husk flag',
+  description: 'List indexed repos: ref canon was read from, commit, doc count, husk/foreign flags',
   options: z.object({
     husks: z.boolean().optional().describe('Only husk repos (canon exists solely in git objects at origin)'),
+    foreign: z.boolean().optional().describe('Only foreign repos (forks-for-upstreaming; docs not indexed)'),
   }),
   run: ({ options }) => {
     const db = openDb(DB_PATH)
     let repos = listIndexedRepos(db)
     if (options.husks) repos = repos.filter((r) => r.isHusk)
+    if (options.foreign) repos = repos.filter((r) => r.isForeign)
     return { count: repos.length, repos }
   },
 })
