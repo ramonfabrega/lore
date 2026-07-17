@@ -150,19 +150,25 @@ transcripts in an assisted repo's well remain theirs and stay minable.**
 Overrides: `LORE_DOCS_EXCLUDE` skips repos entirely, `LORE_DOCS_ASSISTED`
 force-flags (both comma-separated `/`-bounded path suffixes).
 
-**Next: sonnet-miner calibration ingest** — target well decided 2026-07-17:
-**tv/multicaster** (15 sessions, 157MB; mid-size, personal, canon-rich repo
-with 4 sibling wells). Protocol (user-ratified): bucket ~5 sessions per miner
-(→3 miners); launch ONE `lore-miner` first — by agentType, no per-call model
-override, no special-casing — and gate before the rest: completion
-notification confirms sonnet + sane tokens vs the golf-sim per-agent numbers,
-all 8 rubric sections present with session prefixes cited, spot-check 2–3
-claims against transcripts. Only then the remaining miners in one parallel
-batch. Ledger every spawn (run ledger in wiki log.md). Synthesis + scoring
-vs the 821k-Fable golf-sim baseline stays in the main loop. Note the felt-
-effort gap: mux/tv "feels bigger" than 15 sessions because its work is
-sharded across 5 wells (25 sessions, ~237MB total) and pre-June transcripts
-were lost to retention — session count ≠ work volume.
+**Fourth ingest done: tv/multicaster — the sonnet-miner calibration. PASS.**
+(projects/mux.md; full ledger + verdict in wiki log.md). 3 sonnet miners,
+gate-then-batch per the ratified protocol; ~453k tokens total vs golf-sim's
+821k Fable. Rubric 8/8 all miners, 5/5 spot-checks verified verbatim (session
+AND branch matches), cross-validation across buckets held. Sonnet miners are
+approved for fleet mining. BUT the defined-agent lane failed to resolve:
+spawning by agentType `lore-miner` was rejected — the background-job session
+never registered `.claude/agents/*.md` (defs present in worktree AND main
+checkout). Fallback was the sanctioned ad-hoc lane (general-purpose +
+explicit sonnet). Consequences: (1) the frontmatter model-pin remains
+UNVERIFIED — retest from an interactive session; (2) completion notifications
+carry no model field, so ledger model columns are spawn-parameter assertions,
+not verification (golf-sim's "fable (!)" was inference). Also shaken out:
+`database is locked` transient under parallel miners (add WAL/busy_timeout
+to openDb) and text-lane truncation mid-message (--token-limit should cut at
+message boundaries). Headline: 820b6f21 carries the verbatim origin quote of
+the subagent policy ("i just dont want fable subagents ever at least in this
+flow"). Queued follow-ups: canon-audit of ~/code/fun/tv (deliberately not run
+— calibration scoped to miners), sibling-well sync (4 unmined tv wells).
 
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
