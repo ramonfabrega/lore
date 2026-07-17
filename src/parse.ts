@@ -22,8 +22,10 @@ export type Parsed = {
 // we ran X", not enough to bloat the index with full file dumps.
 const TOOL_TEXT_CAP = 2_000
 
-// Harness-injected user content (command wrappers, caveats) — searchable but not a human prompt.
-const META_PROMPT = /^\s*<(local-command|command-name|command-message|system-remind|task-notification)/
+// Harness-injected user content (command wrappers, caveats, skill expansions,
+// interruption markers) — searchable but not a human prompt.
+const META_PROMPT =
+  /^\s*(<(local-command|command-name|command-message|system-remind|task-notification)|Base directory for this skill:|\[Request interrupted by user)/
 
 export function parseLine(line: string): Parsed | null {
   if (!line.trim()) return null

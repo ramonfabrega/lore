@@ -24,6 +24,15 @@ describe('parseLine laning', () => {
     expect(p.entries[0]!.lane).toBe('meta')
   })
 
+  test('skill expansions and interruption markers → meta lane', () => {
+    const skill = parseLine(
+      env({ type: 'user', message: { content: 'Base directory for this skill: /u/.claude/skills/expo-ui\n\n# Expo UI' } }),
+    )!
+    expect(skill.entries[0]!.lane).toBe('meta')
+    const interrupted = parseLine(env({ type: 'user', message: { content: '[Request interrupted by user]' } }))!
+    expect(interrupted.entries[0]!.lane).toBe('meta')
+  })
+
   test('tool_result user record → tool lane, capped', () => {
     const big = 'x'.repeat(5000)
     const p = parseLine(

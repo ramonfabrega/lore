@@ -41,7 +41,7 @@ export async function buildIndex(
     'DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE session_id = ?)',
   )
   const insertMsg = db.prepare(
-    'INSERT INTO messages(session_id, uuid, ts, lane, type, git_branch) VALUES(?, ?, ?, ?, ?, ?)',
+    'INSERT INTO messages(session_id, uuid, ts, lane, type, git_branch, cwd) VALUES(?, ?, ?, ?, ?, ?, ?)',
   )
   const insertFts = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES(?, ?)')
 
@@ -79,7 +79,7 @@ export async function buildIndex(
             lastTs = p.timestamp
           }
           for (const e of p.entries) {
-            const row = insertMsg.run(s.sessionId, p.uuid ?? null, p.timestamp ?? null, e.lane, p.type, p.gitBranch ?? null)
+            const row = insertMsg.run(s.sessionId, p.uuid ?? null, p.timestamp ?? null, e.lane, p.type, p.gitBranch ?? null, p.cwd ?? null)
             insertFts.run(row.lastInsertRowid, e.text)
             messages++
           }

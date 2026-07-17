@@ -79,7 +79,7 @@ cli.command('session', {
     const db = openDb(DB_PATH)
     const lanes = (options.lane ?? ['prompt']) as Lane[]
     const dump = getSession(db, args.id, { lanes, limit: options.limit })
-    return { ...dump.session, lanes, count: dump.messages.length, messages: dump.messages }
+    return { ...dump.session, workDirs: dump.workDirs, lanes, count: dump.messages.length, messages: dump.messages }
   },
 })
 

@@ -1,9 +1,17 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { z } from 'zod'
 
 // messages carries metadata only; the text lives once, in the FTS table, with
 // a shared rowid (plain FTS5 — deletable, no external-content bookkeeping).
+//
+// Schema changes bump SCHEMA_VERSION; openDb drops and recreates on mismatch
+// (rebuild beats migrate — the db is a derived artifact). v2: messages.cwd,
+// the ground truth for where work happened (well membership only records the
+// session's creation-time cwd).
+const SCHEMA_VERSION = 2
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -29,7 +37,8 @@ CREATE TABLE IF NOT EXISTS messages(
   ts TEXT,
   lane TEXT NOT NULL,
   type TEXT NOT NULL,
-  git_branch TEXT
+  git_branch TEXT,
+  cwd TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_lane ON messages(lane);
@@ -48,6 +57,13 @@ export function openDb(path: string): Database {
   const db = new Database(path)
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA synchronous = NORMAL')
+  const { user_version: version } = z
+    .object({ user_version: z.number() })
+    .parse(db.prepare('PRAGMA user_version').get())
+  if (version !== SCHEMA_VERSION) {
+    for (const t of TABLES) db.exec(`DROP TABLE IF EXISTS ${t}`)
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+  }
   db.exec(SCHEMA)
   return db
 }
