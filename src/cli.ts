@@ -1,11 +1,13 @@
 import { Cli, z } from 'incur'
 import { archive } from './archive'
-import { ARCHIVE_DIR, CLAUDE_DIR, DB_PATH, HISTORY_PATH, PROJECTS_DIR } from './config'
+import { ARCHIVE_DIR, CLAUDE_DIR, DB_PATH, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
 import { buildIndex } from './indexer'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
+import { listSessions } from './sessions'
 import { listWells } from './wells'
+import { wikiCommit } from './wiki'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta'] as const
 
@@ -41,6 +43,20 @@ cli.command('wells', {
         bytes: w.sessions.reduce((n, s) => n + s.size, 0),
       })),
     }
+  },
+})
+
+cli.command('sessions', {
+  description: 'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt)',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    limit: z.number().default(100).describe('Max results'),
+  }),
+  alias: { well: 'w', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const sessions = listSessions(db, { well: options.well, limit: options.limit })
+    return { count: sessions.length, sessions }
   },
 })
 
@@ -89,24 +105,52 @@ cli.command('stats', {
   description: 'Index statistics: lanes, wells, date range',
   run: () => {
     const db = openDb(DB_PATH)
-    const lanes = db.prepare('SELECT lane, COUNT(*) AS n FROM messages GROUP BY lane ORDER BY n DESC').all()
-    const wells = db
-      .prepare(
-        `SELECT w.dir, COUNT(DISTINCT s.session_id) AS sessions, COUNT(m.id) AS messages
-         FROM wells w LEFT JOIN sessions s ON s.well_id = w.id LEFT JOIN messages m ON m.session_id = s.session_id
-         GROUP BY w.id ORDER BY messages DESC LIMIT 15`,
+    const lanes = z
+      .array(z.object({ lane: z.string(), n: z.number() }))
+      .parse(db.prepare('SELECT lane, COUNT(*) AS n FROM messages GROUP BY lane ORDER BY n DESC').all())
+    const wells = z
+      .array(z.object({ dir: z.string(), sessions: z.number(), messages: z.number() }))
+      .parse(
+        db
+          .prepare(
+            `SELECT w.dir, COUNT(DISTINCT s.session_id) AS sessions, COUNT(m.id) AS messages
+             FROM wells w LEFT JOIN sessions s ON s.well_id = w.id LEFT JOIN messages m ON m.session_id = s.session_id
+             GROUP BY w.id ORDER BY messages DESC LIMIT 15`,
+          )
+          .all(),
       )
-      .all()
-    const range = db.prepare('SELECT MIN(first_ts) AS earliest, MAX(last_ts) AS latest FROM sessions').get()
-    const totals = db
-      .prepare(
-        `SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM messages) AS messages,
-                (SELECT COUNT(*) FROM history) AS historyRows`,
+    const range = z
+      .object({ earliest: z.string().nullable(), latest: z.string().nullable() })
+      .parse(db.prepare('SELECT MIN(first_ts) AS earliest, MAX(last_ts) AS latest FROM sessions').get())
+    const totals = z
+      .object({ sessions: z.number(), messages: z.number(), historyRows: z.number() })
+      .parse(
+        db
+          .prepare(
+            `SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM messages) AS messages,
+                    (SELECT COUNT(*) FROM history) AS historyRows`,
+          )
+          .get(),
       )
-      .get()
     return { totals, range, lanes, topWells: wells }
   },
 })
+
+const wiki = Cli.create('wiki', {
+  description: 'Operations on the lore wiki (the compounding middle tier)',
+})
+
+wiki.command('commit', {
+  description:
+    'Commit pending wiki changes — the passage model: a wiki mutation is not durable until committed, and the commit is the tool’s job. Call at the end of every wiki op.',
+  options: z.object({
+    message: z.string().optional().describe('Commit message (default: auto-generated from changed files)'),
+  }),
+  alias: { message: 'm' },
+  run: async ({ options }) => wikiCommit(WIKI_DIR, options.message),
+})
+
+cli.command(wiki)
 
 cli.command('archive', {
   description: 'Additive mirror of ~/.claude data (projects, history, todos) — deleted sources stay preserved',
