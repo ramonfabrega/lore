@@ -10,6 +10,7 @@ const env = z
     LORE_WIKI_DIR: z.string().default(join(homedir(), 'code', 'personal', 'lore-wiki')),
     LORE_CODE_DIR: z.string().default(join(homedir(), 'code')),
     LORE_DOCS_EXCLUDE: z.string().default(''),
+    LORE_DOCS_ASSISTED: z.string().default(''),
   })
   .parse(process.env)
 
@@ -20,6 +21,9 @@ export const CODE_DIR = env.LORE_CODE_DIR
 // Repos to skip in the docs scan entirely (comma-separated path suffixes),
 // on top of the automatic upstream-remote foreign flag.
 export const DOCS_EXCLUDE = env.LORE_DOCS_EXCLUDE.split(',').map((s) => s.trim()).filter(Boolean)
+// Repos to force-flag assisted (same suffix syntax) when the zero-authored
+// auto-signal gets one wrong.
+export const DOCS_ASSISTED = env.LORE_DOCS_ASSISTED.split(',').map((s) => s.trim()).filter(Boolean)
 
 export const PROJECTS_DIR = join(CLAUDE_DIR, 'projects')
 export const HISTORY_PATH = join(CLAUDE_DIR, 'history.jsonl')

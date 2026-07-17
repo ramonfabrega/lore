@@ -9,13 +9,22 @@ import { z } from 'zod'
 // CLAUDE.md, docs/ on origin/master with no working tree anywhere on disk —
 // so everything here reads via git plumbing, never the working tree.
 
+// Whose doctrine is this repo's canon?
+// - mine: the user commits here — index normally.
+// - assisted: helped on someone else's project (zero commits under the user's
+//   repo-local git identity) — index for context, but every hit carries the
+//   flag: this canon must never read as the user's, feed pattern-page
+//   provenance, or count in graduation dedup as "we already say this".
+// - foreign: fork-for-upstreaming (`upstream` remote) — docs not indexed.
+export type Ownership = 'mine' | 'assisted' | 'foreign'
+
 export type RepoScan = {
   path: string
   ref: string // the ref canon was read from — 'HEAD', or a remote ref when origin is newer
   sha: string
   commitTs: number
   isHusk: boolean // local HEAD carries zero canon while the chosen remote ref has some
-  isForeign: boolean // fork-for-upstreaming (has an `upstream` remote) — canon is someone else's, docs not indexed
+  ownership: Ownership
   files: DocFile[]
 }
 
@@ -92,7 +101,7 @@ async function listMdFiles(repo: string, ref: string): Promise<DocFile[] | null>
 
 // Canon is read from the newest commit among local HEAD and origin's default
 // branch — a husk repo's real state lives only at origin. Ties prefer HEAD.
-export async function scanRepo(repoPath: string): Promise<RepoScan | null> {
+export async function scanRepo(repoPath: string, opts?: { assisted?: string[] }): Promise<RepoScan | null> {
   const local = await refInfo(repoPath, 'HEAD')
   let remote: RefInfo | null = null
   for (const ref of REMOTE_REFS) {
@@ -102,20 +111,32 @@ export async function scanRepo(repoPath: string): Promise<RepoScan | null> {
   const chosen = !local ? remote : remote && remote.commitTs > local.commitTs ? remote : local
   if (!chosen) return null
 
-  // An `upstream` remote marks a fork kept around to send PRs — its canon is
-  // the upstream project's doctrine, not the user's. Authorship share was
-  // probed and rejected: work repos where the user commits under another
-  // identity (or barely at all) misclassify; the remote never has.
-  const remotes = await git(repoPath, 'remote')
-  const isForeign = remotes.ok && remotes.out.split('\n').includes('upstream')
+  const ownership = isExcluded(repoPath, opts?.assisted ?? [])
+    ? 'assisted'
+    : await detectOwnership(repoPath, chosen.ref)
 
-  const files = isForeign ? [] : ((await listMdFiles(repoPath, chosen.ref)) ?? [])
+  const files = ownership === 'foreign' ? [] : ((await listMdFiles(repoPath, chosen.ref)) ?? [])
   let isHusk = false
   if (chosen !== local && files.length > 0) {
     const localFiles = local ? await listMdFiles(repoPath, local.ref) : []
     isHusk = (localFiles ?? []).length === 0
   }
-  return { path: repoPath, ref: chosen.ref, sha: chosen.sha, commitTs: chosen.commitTs, isHusk, isForeign, files }
+  return { path: repoPath, ref: chosen.ref, sha: chosen.sha, commitTs: chosen.commitTs, isHusk, ownership, files }
+}
+
+// An `upstream` remote marks a fork kept around to send PRs — foreign, skip.
+// Otherwise ownership hangs on whether the user has ever committed here under
+// the repo-local git identity: zero authored commits on the canon ref means
+// they were assisting on someone else's project. A share threshold was probed
+// and rejected — cuanto is 34/5157 under the personal email yet unmistakably
+// the user's; the zero/nonzero line is the one the fleet actually draws.
+async function detectOwnership(repoPath: string, ref: string): Promise<Ownership> {
+  const remotes = await git(repoPath, 'remote')
+  if (remotes.ok && remotes.out.split('\n').includes('upstream')) return 'foreign'
+  const email = (await git(repoPath, 'config', 'user.email')).out.trim()
+  if (!email) return 'assisted'
+  const authored = await git(repoPath, 'rev-list', '--count', `--author=${email}`, ref, '--')
+  return authored.ok && Number(authored.out.trim()) > 0 ? 'mine' : 'assisted'
 }
 
 export async function readBlob(repoPath: string, blobSha: string): Promise<string | null> {
@@ -132,20 +153,20 @@ export type DocsIndexStats = {
   durationMs: number
 }
 
-const ExistingRepo = z.object({ ref: z.string(), commit_sha: z.string(), is_foreign: z.number() }).nullish()
+const ExistingRepo = z.object({ ref: z.string(), commit_sha: z.string(), ownership: z.string() }).nullish()
 
 export async function indexDocs(
   db: Database,
-  opts: { codeDir: string; exclude?: string[]; full?: boolean },
+  opts: { codeDir: string; exclude?: string[]; assisted?: string[]; full?: boolean },
 ): Promise<DocsIndexStats> {
   const started = performance.now()
   const repoPaths = listRepoPaths(opts.codeDir, { exclude: opts.exclude })
 
-  const findRepo = db.prepare('SELECT ref, commit_sha, is_foreign FROM repos WHERE path = ?')
+  const findRepo = db.prepare('SELECT ref, commit_sha, ownership FROM repos WHERE path = ?')
   const upsertRepo = db.prepare(
-    `INSERT INTO repos(path, ref, commit_sha, commit_ts, is_husk, is_foreign) VALUES(?, ?, ?, ?, ?, ?)
+    `INSERT INTO repos(path, ref, commit_sha, commit_ts, is_husk, ownership) VALUES(?, ?, ?, ?, ?, ?)
      ON CONFLICT(path) DO UPDATE SET ref=excluded.ref, commit_sha=excluded.commit_sha,
-       commit_ts=excluded.commit_ts, is_husk=excluded.is_husk, is_foreign=excluded.is_foreign
+       commit_ts=excluded.commit_ts, is_husk=excluded.is_husk, ownership=excluded.ownership
      RETURNING id`,
   )
   const deleteDocsFts = db.prepare('DELETE FROM docs_fts WHERE rowid IN (SELECT id FROM docs WHERE repo_id = ?)')
@@ -158,7 +179,7 @@ export async function indexDocs(
   let docs = 0
 
   for (const repoPath of repoPaths) {
-    const scan = await scanRepo(repoPath)
+    const scan = await scanRepo(repoPath, { assisted: opts.assisted })
     if (!scan) {
       reposSkipped++
       continue
@@ -169,7 +190,7 @@ export async function indexDocs(
       existing &&
       existing.ref === scan.ref &&
       existing.commit_sha === scan.sha &&
-      existing.is_foreign === (scan.isForeign ? 1 : 0)
+      existing.ownership === scan.ownership
     ) {
       reposSkipped++
       continue
@@ -184,7 +205,7 @@ export async function indexDocs(
 
     db.transaction(() => {
       const repoId = z.object({ id: z.number() }).parse(
-        upsertRepo.get(scan.path, scan.ref, scan.sha, scan.commitTs, scan.isHusk ? 1 : 0, scan.isForeign ? 1 : 0),
+        upsertRepo.get(scan.path, scan.ref, scan.sha, scan.commitTs, scan.isHusk ? 1 : 0, scan.ownership),
       ).id
       deleteDocsFts.run(repoId)
       deleteDocs.run(repoId)
@@ -228,6 +249,7 @@ const DocHit = z.object({
   path: z.string(),
   ref: z.string(),
   isHusk: z.number().transform(Boolean),
+  ownership: z.enum(['mine', 'assisted', 'foreign']),
   snippet: z.string(),
 })
 export type DocHit = z.infer<typeof DocHit>
@@ -235,7 +257,7 @@ export type DocHit = z.infer<typeof DocHit>
 export function searchDocs(db: Database, query: string, opts: { repo?: string; limit: number }): DocHit[] {
   const repoClause = opts.repo ? 'AND r.path LIKE ?' : ''
   const sql = `
-    SELECT r.path AS repo, d.path AS path, r.ref AS ref, r.is_husk AS isHusk,
+    SELECT r.path AS repo, d.path AS path, r.ref AS ref, r.is_husk AS isHusk, r.ownership AS ownership,
            snippet(docs_fts, 0, '«', '»', ' … ', 24) AS snippet
     FROM docs_fts f
     JOIN docs d ON d.id = f.rowid
@@ -254,7 +276,7 @@ const RepoRow = z.object({
   sha: z.string(),
   commitTs: z.number(),
   isHusk: z.number().transform(Boolean),
-  isForeign: z.number().transform(Boolean),
+  ownership: z.enum(['mine', 'assisted', 'foreign']),
   docs: z.number(),
   bytes: z.number(),
 })
@@ -265,7 +287,7 @@ export function listIndexedRepos(db: Database): RepoRow[] {
     db
       .prepare(
         `SELECT r.path, r.ref, substr(r.commit_sha, 1, 8) AS sha, r.commit_ts AS commitTs, r.is_husk AS isHusk,
-                r.is_foreign AS isForeign, COUNT(d.id) AS docs, COALESCE(SUM(d.size), 0) AS bytes
+                r.ownership, COUNT(d.id) AS docs, COALESCE(SUM(d.size), 0) AS bytes
          FROM repos r LEFT JOIN docs d ON d.repo_id = r.id
          GROUP BY r.id ORDER BY r.path`,
       )

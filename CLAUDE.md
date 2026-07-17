@@ -130,12 +130,20 @@ requirement. Ref = newest commit among HEAD and origin's default branch; husk
 flag = local HEAD has zero canon while the chosen remote ref has some. Repos
 gone from disk are pruned (canon lives in git; no evaporation to guard).
 `lore docs index|search|list`; wiki dir excluded (middle tier ≠ canon). First
-real run: 30 repos; gym + personal/site + work/acarreo flagged husk. Foreign
-repos (forks-for-upstreaming, detected by the `upstream` remote — sandbox/expo)
-are listed but their docs skipped; corpus is 490 docs, not 1925. Authorship
-share was probed and rejected as the signal: cuanto (34/5157 under the personal
-email) and bodas-app (0/118) would misclassify. `LORE_DOCS_EXCLUDE`
-(comma-separated, `/`-bounded path suffixes) skips repos entirely.
+real run: 30 repos, 490 docs; gym + personal/site + work/acarreo flagged husk.
+
+**Ownership** (auto-detected per repo, rides on every search hit): `foreign` =
+has an `upstream` remote (fork-for-upstreaming — sandbox/expo; docs not
+indexed); `assisted` = zero commits under the user's repo-local identity
+(bodas-app — helped a junior dev on someone else's project); else `mine`.
+The zero/nonzero line is the fleet's real boundary — cuanto is 34/5157 under
+the personal email yet mine (user commits there); a share threshold would
+misclassify it. **Redline (extends the privacy redline): assisted canon is
+context only — it must NEVER feed pattern-page provenance, count as the user's
+prior art in graduation dedup, or read as authored by the user. The user's
+transcripts in an assisted repo's well remain theirs and stay minable.**
+Overrides: `LORE_DOCS_EXCLUDE` skips repos entirely, `LORE_DOCS_ASSISTED`
+force-flags (both comma-separated `/`-bounded path suffixes).
 
 **Next: sonnet-miner calibration ingest** (any mid-size well) scored against
 the Fable baseline.
