@@ -20,7 +20,10 @@ import { z } from 'zod'
 // is the parameter from meta.json when one was passed.
 // v7: spawns.boot_cached — the cache_read share of the boot envelope (half of
 // all runs historically booted full-freight; the reuse rate is a lore#6 ask).
-const SCHEMA_VERSION = 7
+// v8: messages.tool_name — structured invocation names (tools, `Skill:<name>`,
+// `command:<name>`) feeding the ambient ROI ledger (lore#7): every roster
+// line's ambient cost scored against its actual usage.
+const SCHEMA_VERSION = 8
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -48,10 +51,12 @@ CREATE TABLE IF NOT EXISTS messages(
   lane TEXT NOT NULL,
   type TEXT NOT NULL,
   git_branch TEXT,
-  cwd TEXT
+  cwd TEXT,
+  tool_name TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_lane ON messages(lane);
+CREATE INDEX IF NOT EXISTS idx_messages_tool ON messages(tool_name) WHERE tool_name IS NOT NULL;
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text);
 CREATE TABLE IF NOT EXISTS history(
   id INTEGER PRIMARY KEY,

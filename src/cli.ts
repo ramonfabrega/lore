@@ -9,6 +9,7 @@ import { searchHistory, searchMessages } from './search'
 import { getSession } from './session'
 import { listSessions } from './sessions'
 import { indexSpawns, listSpawns } from './spawns'
+import { listToolUsage } from './tools'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
 
@@ -159,6 +160,36 @@ cli.command('spawns', {
       limit: options.limit,
     })
     return { count: spawns.length, byAgentType, byWeek, spawns }
+  },
+})
+
+cli.command('tools', {
+  description:
+    'Invocation usage counts — the evidence half of the ambient ROI ledger: how often each tool, MCP tool (mcp__…), skill (Skill:<name> via the Skill tool, command:<name> via slash invocation), was ACTUALLY used, over which wells and when. Score against the ambient roster to find zero-use items.',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+    since: z.string().optional().describe('Only invocations on/after this ISO date (e.g. 2026-06-17)'),
+    prefix: z
+      .string()
+      .optional()
+      .describe('Only names starting with this prefix (e.g. mcp__, Skill:, command:, mcp__argent)'),
+    limit: z.number().default(100).describe('Max rows'),
+  }),
+  alias: { well: 'w', prefix: 'p', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const tools = listToolUsage(db, {
+      well: options.well,
+      exact: options.exact,
+      since: options.since,
+      prefix: options.prefix,
+      limit: options.limit,
+    })
+    return { count: tools.length, tools }
   },
 })
 
