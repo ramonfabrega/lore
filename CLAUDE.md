@@ -54,7 +54,8 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   omission inherits the main loop's Fable.
 - VERIFY the model from the spawn's task-output JSONL (`"model":"..."` on the
   first request, ~15s in) — never trust the spawn parameter or completion
-  notification alone.
+  notification alone. Post-hoc this is mechanized: `lore spawns` reports the
+  verified model per spawn and flags requested-vs-served `drift`.
 - Bg-job sessions skip project-agent discovery at start (upstream bug);
   `/reload-plugins` fixes it; ad-hoc explicit-sonnet is the proven fallback.
 - Ledger every fan-out in the wiki log: per agent — scope, tokens, tools,

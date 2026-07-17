@@ -12,9 +12,14 @@ and `docs/DESIGN.md` for the design narrative and decision log.
 bun install
 
 bun src/main.ts archive   # additive mirror of ~/.claude data → ~/.lore/archive (job zero)
-bun src/main.ts index     # build/refresh the FTS5 index (~3s full, ~150ms incremental)
+bun src/main.ts index     # build/refresh the FTS5 index + spawns lane (~4s full, sub-second incremental)
 bun src/main.ts wells     # list wells: real path, worktree/memory flags, sizes
+bun src/main.ts sessions --well tv          # a well's arc spine; --exact for prefix wells
+bun src/main.ts session <id-prefix> --lane prompt
 bun src/main.ts search "sparkle notarization" --history
+bun src/main.ts spawns    # subagent observatory: verified model, drift, boot cost, weekly trend
+bun src/main.ts tools --prefix Skill:       # invocation usage — the ambient ROI evidence
+bun src/main.ts docs index --fetch          # canon corpus (git objects, never working trees)
 bun src/main.ts stats
 
 bun src/main.ts skills add  # install lore-* skills so agents discover the CLI
