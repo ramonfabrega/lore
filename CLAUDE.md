@@ -111,11 +111,17 @@ op ends with it. Harness auto-commit hooks were tried and rejected same day —
 they don't travel to `claude -p` or other drivers. Note: "mux" = `~/code/fun/tv`
 (Mux.xcodeproj); no well carries the name.
 
-**Next: golf-sim ingest** (35 sessions, 585MB — the first fan-out-scale ingest,
-and the canon-LAG test: 6 docs vs 35 dense sessions of drift; needs the run
-ledger, or at least a manual version of it), and `lore docs` — now with a hard
-requirement from gym: canon can live only in git objects (husk checkouts), so
-the scanner must read via git, not walk working trees.
+**Third ingest done: golf-sim** (35 sessions via 7-agent fan-out; run ledger v0
+in the wiki log — Agent-tool completion notifications carry per-agent tokens/
+duration for free). Headline: golf-sim's CLAUDE.md contains a hand-built
+graduation system (sort-before-you-write + closeout landing flow) — proto-lore,
+the template for fleet-wide canon. Fan-out rule learned the hard way: subagents
+MUST get an explicit model (sonnet); omission inherits the main loop's Fable.
+
+**Next: first pattern pages from the golf-sim haul** (oklch-token-ssot — album
+canonical; expo-swiftui-sheet-kit — cuanto named as second consumer), and
+`lore docs` — with the gym requirement: canon can live only in git objects
+(husk checkouts), so the scanner must read via git, not walk working trees.
 
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
