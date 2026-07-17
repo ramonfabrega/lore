@@ -1,12 +1,13 @@
 import { Cli, z } from 'incur'
 import { archive } from './archive'
-import { ARCHIVE_DIR, CLAUDE_DIR, DB_PATH, HISTORY_PATH, PROJECTS_DIR } from './config'
+import { ARCHIVE_DIR, CLAUDE_DIR, DB_PATH, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
 import { buildIndex } from './indexer'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
 import { listSessions } from './sessions'
 import { listWells } from './wells'
+import { wikiCommit } from './wiki'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta'] as const
 
@@ -122,6 +123,22 @@ cli.command('stats', {
     return { totals, range, lanes, topWells: wells }
   },
 })
+
+const wiki = Cli.create('wiki', {
+  description: 'Operations on the lore wiki (the compounding middle tier)',
+})
+
+wiki.command('commit', {
+  description:
+    'Commit pending wiki changes — the passage model: a wiki mutation is not durable until committed, and the commit is the tool’s job. Call at the end of every wiki op.',
+  options: z.object({
+    message: z.string().optional().describe('Commit message (default: auto-generated from changed files)'),
+  }),
+  alias: { message: 'm' },
+  run: ({ options }) => wikiCommit(WIKI_DIR, options.message),
+})
+
+cli.command(wiki)
 
 cli.command('archive', {
   description: 'Additive mirror of ~/.claude data (projects, history, todos) — deleted sources stay preserved',

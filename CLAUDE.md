@@ -65,19 +65,34 @@ stable consumers.
   knowledge to the parent repo well is an ongoing op.
 - Retention: `cleanupPeriodDays: 3650` set 2026-07-17; transcripts before ~2026-06-12
   were already lost to the old ~30-day default. Archiving is job zero.
+- Recording channels split by dir (found in the first ingest, 2026-07-17):
+  `history.jsonl` records the session's LAUNCH dir, the transcript shards to the
+  worktree the session works in, and memory shards to the launch dir — one project,
+  multiple wells. And "gone by id ≠ gone by content": job respawns and resume-forks
+  re-id sessions (`~/.claude/jobs/*/state.json` maps job → transcript via
+  `linkScanPath`; forked copies share message uuids), so measure loss by content
+  lineage, not missing session ids.
 - Fan-out mining requires a structured run ledger (per agent: well, tokens, duration,
   pages touched, outcome) — it will be tuned live.
 
 ## Status (2026-07-17) & open unknowns
 
 Done: JSONL spelunk (docs/notes/), interview pass, v0 CLI (archive/index/search/
-stats/wells — all working, tests green, `lore-*` skills synced), first archive
-(1.6GB → ~/.lore/archive), wiki bootstrapped at `~/code/personal/lore-wiki`
-(its CLAUDE.md is the maintainer schema).
+stats/wells/sessions/wiki-commit — all working, tests green, `lore-*` skills
+synced), first archive (1.6GB → ~/.lore/archive), wiki bootstrapped at
+`~/code/personal/lore-wiki` (its CLAUDE.md is the maintainer schema), **first
+ingest** (disk → projects/disk.md, hand-written calibration run; six pattern
+candidates flagged, process findings in the wiki's log.md).
 
-**Next: first ingest.** Small and by hand — one well → one project page in the
-wiki (mux or disk are the richest), to calibrate conventions before any subagent
-fan-out. Drive it with the lore CLI, log it in the wiki's log.md.
+Wiki durability is CLI-owned (`lore wiki commit`, the passage model): every wiki
+op ends with it. Harness auto-commit hooks were tried and rejected same day —
+they don't travel to `claude -p` or other drivers. Note: "mux" = `~/code/fun/tv`
+(Mux.xcodeproj); no well carries the name.
+
+**Next: first pattern page** (sqlite-streaming-scan-index; disk is canonical,
+lore itself is the second consumer), and a second calibration ingest on a
+canon-POOR well (golf-sim or gym) — disk's canon was too hand-graduated to
+exercise extraction.
 
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
