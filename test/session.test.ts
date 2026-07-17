@@ -10,7 +10,7 @@ function seedDb(): Database {
     CREATE TABLE sessions(id INTEGER PRIMARY KEY, well_id INTEGER NOT NULL, session_id TEXT UNIQUE NOT NULL,
       size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, uuid TEXT, ts TEXT,
-      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT);
+      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
   `)
   db.exec(`
@@ -20,18 +20,18 @@ function seedDb(): Database {
       (1, 'abd-222', 10, 0, 1, '2026-07-02T03:11:00Z', '2026-07-02T03:38:00Z');
   `)
   const insertMsg = db.prepare(
-    'INSERT INTO messages(id, session_id, ts, lane, type, git_branch) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO messages(id, session_id, ts, lane, type, git_branch, cwd) VALUES (?, ?, ?, ?, ?, ?, ?)',
   )
   const insertText = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES (?, ?)')
-  const rows: [number, string, string, string, string, string | null, string][] = [
-    [1, 'abc-111', '2026-07-01T19:13:00Z', 'prompt', 'user', 'master', 'i just init a new repo'],
-    [2, 'abc-111', '2026-07-01T19:14:00Z', 'text', 'assistant', 'master', 'here is a plan'],
-    [3, 'abc-111', '2026-07-01T21:00:00Z', 'prompt', 'user', 'worktree-gym-scaffold', 'push and keep going'],
-    [4, 'abc-111', '2026-07-01T21:01:00Z', 'thinking', 'assistant', 'worktree-gym-scaffold', 'hmm'],
-    [5, 'abd-222', '2026-07-02T03:11:00Z', 'prompt', 'user', null, 'lets explore llm-coach'],
+  const rows: [number, string, string, string, string, string | null, string | null, string][] = [
+    [1, 'abc-111', '2026-07-01T19:13:00Z', 'prompt', 'user', 'master', '/u/code/fun/gym', 'i just init a new repo'],
+    [2, 'abc-111', '2026-07-01T19:14:00Z', 'text', 'assistant', 'master', '/u/code/fun/gym', 'here is a plan'],
+    [3, 'abc-111', '2026-07-01T21:00:00Z', 'prompt', 'user', 'worktree-gym-scaffold', '/u/code/fun/gym/.claude/worktrees/gym-scaffold', 'push and keep going'],
+    [4, 'abc-111', '2026-07-01T21:01:00Z', 'thinking', 'assistant', 'worktree-gym-scaffold', '/u/code/fun/gym/.claude/worktrees/gym-scaffold', 'hmm'],
+    [5, 'abd-222', '2026-07-02T03:11:00Z', 'prompt', 'user', null, null, 'lets explore llm-coach'],
   ]
-  for (const [id, sid, ts, lane, type, branch, text] of rows) {
-    insertMsg.run(id, sid, ts, lane, type, branch)
+  for (const [id, sid, ts, lane, type, branch, cwd, text] of rows) {
+    insertMsg.run(id, sid, ts, lane, type, branch, cwd)
     insertText.run(id, text)
   }
   return db
@@ -44,6 +44,14 @@ describe('getSession', () => {
     expect(dump.session.first).toBe('2026-07-01T19:00:00Z')
     expect(dump.messages.map((m) => m.text)).toEqual(['i just init a new repo', 'push and keep going'])
     expect(dump.messages[1]!.gitBranch).toBe('worktree-gym-scaffold')
+  })
+
+  test('workDirs histogram spans all lanes, ordered by count', () => {
+    const dump = getSession(seedDb(), 'abc-111', { lanes: ['prompt'], limit: 500 })
+    expect(dump.workDirs).toEqual([
+      { cwd: '/u/code/fun/gym', n: 2 },
+      { cwd: '/u/code/fun/gym/.claude/worktrees/gym-scaffold', n: 2 },
+    ])
   })
 
   test('lane filter widens to requested lanes only', () => {

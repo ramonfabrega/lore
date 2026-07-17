@@ -101,7 +101,10 @@ candidates flagged, process findings in the wiki's log.md), **first pattern page
 **second ingest** (gym → projects/gym.md, the nascent-well calibration: for young
 wells ingest ≈ indexing the memory; husk-checkout + sharding findings above).
 `lore session <id>` (transcript slice, prefix-matched) was earned by both ingests
-needing raw sqlite3 for it twice.
+needing raw sqlite3 for it twice. Schema v2 indexes per-message cwd (openDb
+drops+rebuilds on version mismatch — rebuild beats migrate, mechanized):
+`sessions` lists workDir (modal cwd) + workDirs, `session` returns the full cwd
+histogram, and skill expansions / interruption markers route to the meta lane.
 
 Wiki durability is CLI-owned (`lore wiki commit`, the passage model): every wiki
 op ends with it. Harness auto-commit hooks were tried and rejected same day —

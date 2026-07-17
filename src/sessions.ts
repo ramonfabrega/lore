@@ -8,17 +8,25 @@ const Row = z.object({
   last: z.string().nullable(),
   lines: z.number(),
   prompts: z.number(),
+  workDir: z.string().nullable(),
+  workDirs: z.number(),
   firstPrompt: z.string().nullable(),
 })
 export type SessionRow = z.infer<typeof Row>
 
 // The arc spine of a well: its sessions in order, each headed by the prompt
 // that opened it. Ingest reads this before touching any transcript.
+// workDir is the modal per-message cwd — the ground truth for where work
+// happened (well membership only records the creation-time cwd); workDirs > 1
+// flags a session that moved (e.g. entered a worktree mid-session).
 export function listSessions(db: Database, opts: { well?: string; limit: number }): SessionRow[] {
   const wellClause = opts.well ? 'WHERE (w.dir LIKE ? OR w.real_path LIKE ?)' : ''
   const sql = `
     SELECT w.dir AS well, s.session_id AS sessionId, s.first_ts AS first, s.last_ts AS last, s.lines,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.session_id AND m.lane = 'prompt') AS prompts,
+           (SELECT m.cwd FROM messages m WHERE m.session_id = s.session_id AND m.cwd IS NOT NULL
+            GROUP BY m.cwd ORDER BY COUNT(*) DESC LIMIT 1) AS workDir,
+           (SELECT COUNT(DISTINCT m.cwd) FROM messages m WHERE m.session_id = s.session_id AND m.cwd IS NOT NULL) AS workDirs,
            (SELECT f.text FROM messages m JOIN messages_fts f ON f.rowid = m.id
             WHERE m.session_id = s.session_id AND m.lane = 'prompt' ORDER BY m.ts LIMIT 1) AS firstPrompt
     FROM sessions s JOIN wells w ON w.id = s.well_id

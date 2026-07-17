@@ -10,7 +10,7 @@ function seedDb(): Database {
     CREATE TABLE sessions(id INTEGER PRIMARY KEY, well_id INTEGER NOT NULL, session_id TEXT UNIQUE NOT NULL,
       size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, uuid TEXT, ts TEXT,
-      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT);
+      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
   `)
   db.exec(`
@@ -22,13 +22,13 @@ function seedDb(): Database {
       (1, 's-new', 10, 0, 50, '2026-07-12T10:00:00Z', '2026-07-12T11:00:00Z'),
       (2, 's-tv', 10, 0, 5, '2026-07-11T10:00:00Z', '2026-07-11T10:30:00Z');
   `)
-  const insertMsg = db.prepare('INSERT INTO messages(id, session_id, ts, lane, type) VALUES (?, ?, ?, ?, ?)')
+  const insertMsg = db.prepare('INSERT INTO messages(id, session_id, ts, lane, type, cwd) VALUES (?, ?, ?, ?, ?, ?)')
   const insertText = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES (?, ?)')
-  const rows: [number, string, string, string, string][] = [
-    [1, 's-old', '2026-07-09T10:00:00Z', 'prompt', 'user'],
-    [2, 's-old', '2026-07-09T10:05:00Z', 'text', 'assistant'],
-    [3, 's-old', '2026-07-09T11:00:00Z', 'prompt', 'user'],
-    [4, 's-new', '2026-07-12T10:00:00Z', 'prompt', 'user'],
+  const rows: [number, string, string, string, string, string | null][] = [
+    [1, 's-old', '2026-07-09T10:00:00Z', 'prompt', 'user', '/u/code/fun/disk'],
+    [2, 's-old', '2026-07-09T10:05:00Z', 'text', 'assistant', '/u/code/fun/disk/.claude/worktrees/scanner-spike'],
+    [3, 's-old', '2026-07-09T11:00:00Z', 'prompt', 'user', '/u/code/fun/disk/.claude/worktrees/scanner-spike'],
+    [4, 's-new', '2026-07-12T10:00:00Z', 'prompt', 'user', null],
   ]
   const texts: Record<number, string> = {
     1: 'i want to make a  disk\nutil tool',
@@ -42,6 +42,16 @@ function seedDb(): Database {
   }
   return db
 }
+
+test('workDir is the modal cwd across all lanes; workDirs counts distinct; no cwd → null/0', () => {
+  const rows = listSessions(seedDb(), { limit: 100 })
+  const old = rows.find((r) => r.sessionId === 's-old')!
+  expect(old.workDir).toBe('/u/code/fun/disk/.claude/worktrees/scanner-spike')
+  expect(old.workDirs).toBe(2)
+  const noCwd = rows.find((r) => r.sessionId === 's-new')!
+  expect(noCwd.workDir).toBeNull()
+  expect(noCwd.workDirs).toBe(0)
+})
 
 describe('listSessions', () => {
   test('chronological order, date-trimmed, prompt counts, flattened first prompt', () => {

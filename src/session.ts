@@ -10,6 +10,8 @@ const Meta = z.object({
   lines: z.number(),
 })
 
+const CwdRow = z.object({ cwd: z.string(), n: z.number() })
+
 const Msg = z.object({
   ts: z.string().nullable(),
   lane: z.string(),
@@ -17,7 +19,11 @@ const Msg = z.object({
   gitBranch: z.string().nullable(),
   text: z.string(),
 })
-export type SessionDump = { session: z.infer<typeof Meta>; messages: z.infer<typeof Msg>[] }
+export type SessionDump = {
+  session: z.infer<typeof Meta>
+  workDirs: z.infer<typeof CwdRow>[]
+  messages: z.infer<typeof Msg>[]
+}
 
 // The transcript slice behind an arc: one session's messages in order. Accepts a
 // unique id prefix (ids are uuids; the sessions listing is the usual source).
@@ -45,6 +51,17 @@ export function getSession(
       .get(sessionId),
   )
 
+  // The work-location histogram over ALL lanes (not just the requested ones):
+  // well membership records creation-time cwd; this is where work happened.
+  const workDirs = z.array(CwdRow).parse(
+    db
+      .prepare(
+        `SELECT cwd, COUNT(*) AS n FROM messages WHERE session_id = ? AND cwd IS NOT NULL
+         GROUP BY cwd ORDER BY n DESC, cwd`,
+      )
+      .all(sessionId),
+  )
+
   const placeholders = opts.lanes.map(() => '?').join(', ')
   const messages = z.array(Msg).parse(
     db
@@ -56,5 +73,5 @@ export function getSession(
       )
       .all(sessionId, ...opts.lanes, opts.limit),
   )
-  return { session, messages }
+  return { session, workDirs, messages }
 }
