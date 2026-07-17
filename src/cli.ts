@@ -5,6 +5,7 @@ import { openDb } from './db'
 import { buildIndex } from './indexer'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
+import { listSessions } from './sessions'
 import { listWells } from './wells'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta'] as const
@@ -41,6 +42,20 @@ cli.command('wells', {
         bytes: w.sessions.reduce((n, s) => n + s.size, 0),
       })),
     }
+  },
+})
+
+cli.command('sessions', {
+  description: 'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt)',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    limit: z.number().default(100).describe('Max results'),
+  }),
+  alias: { well: 'w', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const sessions = listSessions(db, { well: options.well, limit: options.limit })
+    return { count: sessions.length, sessions }
   },
 })
 
