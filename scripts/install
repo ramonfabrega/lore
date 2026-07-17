@@ -15,6 +15,8 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
+bun install --frozen-lockfile >/dev/null
+
 echo "gate: bun test" >&2
 bun test >/dev/null 2>&1 || { bun test; exit 1; }
 
