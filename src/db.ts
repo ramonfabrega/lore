@@ -9,9 +9,10 @@ import { z } from 'zod'
 // Schema changes bump SCHEMA_VERSION; openDb drops and recreates on mismatch
 // (rebuild beats migrate — the db is a derived artifact). v2: messages.cwd,
 // the ground truth for where work happened (well membership only records the
-// session's creation-time cwd).
-const SCHEMA_VERSION = 2
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts']
+// session's creation-time cwd). v3: the canon corpus (repos/docs/docs_fts) —
+// git-committed .md across repos, read from git objects.
+const SCHEMA_VERSION = 3
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -50,6 +51,24 @@ CREATE TABLE IF NOT EXISTS history(
   session_id TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS history_fts USING fts5(display);
+CREATE TABLE IF NOT EXISTS repos(
+  id INTEGER PRIMARY KEY,
+  path TEXT UNIQUE NOT NULL,
+  ref TEXT NOT NULL,
+  commit_sha TEXT NOT NULL,
+  commit_ts INTEGER NOT NULL,
+  is_husk INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS docs(
+  id INTEGER PRIMARY KEY,
+  repo_id INTEGER NOT NULL REFERENCES repos(id),
+  path TEXT NOT NULL,
+  blob_sha TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  UNIQUE(repo_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_docs_repo ON docs(repo_id);
+CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(text);
 `
 
 export function openDb(path: string): Database {
