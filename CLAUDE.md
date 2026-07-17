@@ -115,8 +115,13 @@ they don't travel to `claude -p` or other drivers. Note: "mux" = `~/code/fun/tv`
 in the wiki log — Agent-tool completion notifications carry per-agent tokens/
 duration for free). Headline: golf-sim's CLAUDE.md contains a hand-built
 graduation system (sort-before-you-write + closeout landing flow) — proto-lore,
-the template for fleet-wide canon. Fan-out rule learned the hard way: subagents
-MUST get an explicit model (sonnet); omission inherits the main loop's Fable.
+the template for fleet-wide canon. Fan-out model rule learned the hard way
+(accidental Fable swarms are recurring): defined agents (`.claude/agents/*.md`)
+carry a `model: sonnet` pin in frontmatter — spawn by agentType with NO
+per-call model override (no special-casing; rely on the official feature) and
+VERIFY the model from the completion notification; a pin that doesn't hold is
+a finding to surface, not to hack around. Ad-hoc spawns of generic agent types
+MUST pass an explicit model; omission inherits the main loop's Fable.
 
 Pattern pages 2+3 done (oklch-token-ssot, expo-swiftui-sheet-kit — species
 conventions stabilized: elements/sub-shapes/provenance-lineage/gotcha-ledger/
@@ -145,8 +150,19 @@ transcripts in an assisted repo's well remain theirs and stay minable.**
 Overrides: `LORE_DOCS_EXCLUDE` skips repos entirely, `LORE_DOCS_ASSISTED`
 force-flags (both comma-separated `/`-bounded path suffixes).
 
-**Next: sonnet-miner calibration ingest** (any mid-size well) scored against
-the Fable baseline.
+**Next: sonnet-miner calibration ingest** — target well decided 2026-07-17:
+**tv/multicaster** (15 sessions, 157MB; mid-size, personal, canon-rich repo
+with 4 sibling wells). Protocol (user-ratified): bucket ~5 sessions per miner
+(→3 miners); launch ONE `lore-miner` first — by agentType, no per-call model
+override, no special-casing — and gate before the rest: completion
+notification confirms sonnet + sane tokens vs the golf-sim per-agent numbers,
+all 8 rubric sections present with session prefixes cited, spot-check 2–3
+claims against transcripts. Only then the remaining miners in one parallel
+batch. Ledger every spawn (run ledger in wiki log.md). Synthesis + scoring
+vs the 821k-Fable golf-sim baseline stays in the main loop. Note the felt-
+effort gap: mux/tv "feels bigger" than 15 sessions because its work is
+sharded across 5 wells (25 sessions, ~237MB total) and pre-June transcripts
+were lost to retention — session count ≠ work volume.
 
 Still open (arrive from data, not guesses):
 - Graduation UX (landing on a non-master branch in the target repo is the leading
