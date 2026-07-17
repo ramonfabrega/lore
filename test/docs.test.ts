@@ -112,8 +112,29 @@ describe('scanRepo', () => {
     const repo = canonRepo(root, 'fork')
     sh(repo, 'git remote add upstream https://example.com/them/theirs.git')
     const scan = await scanRepo(repo)
-    expect(scan?.isForeign).toBe(true)
+    expect(scan?.ownership).toBe('foreign')
     expect(scan?.files).toEqual([])
+  })
+
+  test('zero commits under the user identity means assisted; any commit means mine', async () => {
+    const root = tempDir()
+    const theirs = join(root, 'theirs')
+    initRepo(theirs)
+    writeFileSync(join(theirs, 'CLAUDE.md'), 'their doctrine, not ours\n')
+    sh(theirs, 'git add -A && git -c user.email=junior@x -c user.name=junior commit -qm theirs')
+    expect((await scanRepo(theirs))?.ownership).toBe('assisted')
+    // One commit of ours flips it — the cuanto case: tiny share, still mine.
+    writeFileSync(join(theirs, 'fix.md'), 'our one fix\n')
+    sh(theirs, 'git add -A && git commit -qm fix')
+    expect((await scanRepo(theirs))?.ownership).toBe('mine')
+  })
+
+  test('assisted override forces the flag regardless of authorship', async () => {
+    const root = tempDir()
+    const repo = canonRepo(root, 'helped')
+    const scan = await scanRepo(repo, { assisted: ['helped'] })
+    expect(scan?.ownership).toBe('assisted')
+    expect(scan?.files.length).toBe(2)
   })
 
   test('repo with no commits returns null', async () => {
@@ -177,7 +198,7 @@ describe('indexDocs', () => {
     expect(first.reposIndexed).toBe(1)
     expect(first.docs).toBe(0)
     const row = listIndexedRepos(db)[0]
-    expect(row?.isForeign).toBe(true)
+    expect(row?.ownership).toBe('foreign')
     expect(row?.docs).toBe(0)
     expect(searchDocs(db, 'frobnicator', { limit: 10 })).toHaveLength(0)
 
@@ -187,8 +208,24 @@ describe('indexDocs', () => {
     const second = await indexDocs(db, { codeDir: root })
     expect(second.reposIndexed).toBe(1)
     expect(second.docs).toBe(2)
-    expect(listIndexedRepos(db)[0]?.isForeign).toBe(false)
+    expect(listIndexedRepos(db)[0]?.ownership).toBe('mine')
     expect(searchDocs(db, 'frobnicator', { limit: 10 })).toHaveLength(1)
+  })
+
+  test('assisted repo docs are indexed and every hit carries the flag', async () => {
+    const root = tempDir()
+    const theirs = join(root, 'theirs')
+    initRepo(theirs)
+    writeFileSync(join(theirs, 'CLAUDE.md'), 'the wombat convention is law here\n')
+    sh(theirs, 'git add -A && git -c user.email=junior@x -c user.name=junior commit -qm theirs')
+    const db = memDb()
+
+    const stats = await indexDocs(db, { codeDir: root })
+    expect(stats.docs).toBe(1)
+    expect(listIndexedRepos(db)[0]?.ownership).toBe('assisted')
+    const hits = searchDocs(db, 'wombat', { limit: 10 })
+    expect(hits).toHaveLength(1)
+    expect(hits[0]?.ownership).toBe('assisted')
   })
 
   test('repo filter narrows search', async () => {

@@ -1,6 +1,6 @@
 import { Cli, z } from 'incur'
 import { archive } from './archive'
-import { ARCHIVE_DIR, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
+import { ARCHIVE_DIR, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { buildIndex } from './indexer'
@@ -190,13 +190,18 @@ const docs = Cli.create('docs', {
 
 docs.command('index', {
   description:
-    'Scan repos and index their canon .md files (incremental by commit sha; prunes gone repos; forks with an `upstream` remote are flagged foreign and their docs skipped — LORE_DOCS_EXCLUDE skips repos entirely)',
+    'Scan repos and index their canon .md files (incremental by commit sha; prunes gone repos). Ownership is auto-detected per repo: foreign (`upstream` remote — a fork, docs skipped), assisted (zero commits under the user identity — indexed but flagged: not the user\'s doctrine), mine. Overrides: LORE_DOCS_EXCLUDE skips repos entirely, LORE_DOCS_ASSISTED force-flags.',
   options: z.object({
     full: z.boolean().optional().describe('Reindex every repo, ignoring the commit-sha skip'),
   }),
   run: async (c) => {
     const db = openDb(DB_PATH)
-    const stats = await indexDocs(db, { codeDir: CODE_DIR, exclude: [WIKI_DIR, ...DOCS_EXCLUDE], full: c.options.full })
+    const stats = await indexDocs(db, {
+      codeDir: CODE_DIR,
+      exclude: [WIKI_DIR, ...DOCS_EXCLUDE],
+      assisted: DOCS_ASSISTED,
+      full: c.options.full,
+    })
     return c.ok(stats, {
       cta: {
         description: 'Next:',
@@ -207,7 +212,8 @@ docs.command('index', {
 })
 
 docs.command('search', {
-  description: 'Full-text search across indexed canon docs (FTS5 query syntax) — lint fodder and graduation dedup ("does canon already say this?")',
+  description:
+    'Full-text search across indexed canon docs (FTS5 query syntax) — lint fodder and graduation dedup ("does canon already say this?"). Hits carry ownership: treat `assisted` hits as someone else\'s doctrine — context only, never user provenance.',
   args: z.object({
     query: z.string().describe('FTS5 match expression'),
   }),
@@ -224,16 +230,19 @@ docs.command('search', {
 })
 
 docs.command('list', {
-  description: 'List indexed repos: ref canon was read from, commit, doc count, husk/foreign flags',
+  description: 'List indexed repos: ref canon was read from, commit, doc count, husk flag, ownership',
   options: z.object({
     husks: z.boolean().optional().describe('Only husk repos (canon exists solely in git objects at origin)'),
-    foreign: z.boolean().optional().describe('Only foreign repos (forks-for-upstreaming; docs not indexed)'),
+    ownership: z
+      .enum(['mine', 'assisted', 'foreign'])
+      .optional()
+      .describe('Only repos with this ownership (assisted/foreign canon is not the user\'s doctrine)'),
   }),
   run: ({ options }) => {
     const db = openDb(DB_PATH)
     let repos = listIndexedRepos(db)
     if (options.husks) repos = repos.filter((r) => r.isHusk)
-    if (options.foreign) repos = repos.filter((r) => r.isForeign)
+    if (options.ownership) repos = repos.filter((r) => r.ownership === options.ownership)
     return { count: repos.length, repos }
   },
 })

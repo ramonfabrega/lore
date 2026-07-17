@@ -10,9 +10,11 @@ import { z } from 'zod'
 // (rebuild beats migrate — the db is a derived artifact). v2: messages.cwd,
 // the ground truth for where work happened (well membership only records the
 // session's creation-time cwd). v3: the canon corpus (repos/docs/docs_fts) —
-// git-committed .md across repos, read from git objects. v4: repos.is_foreign
-// (fork-for-upstreaming detection — docs not indexed).
-const SCHEMA_VERSION = 4
+// git-committed .md across repos, read from git objects. v4: repos.is_foreign.
+// v5: is_foreign generalizes to ownership (mine/assisted/foreign) — assisted
+// repos (helped someone else; zero commits under the user's identity) index
+// but are flagged so their canon never reads as the user's doctrine.
+const SCHEMA_VERSION = 5
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -59,7 +61,7 @@ CREATE TABLE IF NOT EXISTS repos(
   commit_sha TEXT NOT NULL,
   commit_ts INTEGER NOT NULL,
   is_husk INTEGER NOT NULL DEFAULT 0,
-  is_foreign INTEGER NOT NULL DEFAULT 0
+  ownership TEXT NOT NULL DEFAULT 'mine' CHECK(ownership IN ('mine', 'assisted', 'foreign'))
 );
 CREATE TABLE IF NOT EXISTS docs(
   id INTEGER PRIMARY KEY,
