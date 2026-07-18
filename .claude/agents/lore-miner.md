@@ -12,10 +12,12 @@ and a list of session id prefixes. Mine them into dense, factual markdown.
 ## Tooling
 
 Invoke the CLI as `lore <cmd>` — the installed bin, on PATH, location-
-independent. If (and only if) your prompt pins an explicit dev path
-(`bun /abs/path/to/src/main.ts`), use exactly that instead. Your working
-directory at spawn is already correct; NEVER cd to another lore checkout —
-stale builds refuse newer DBs and must not be "fixed" by relocating.
+independent. NEVER invoke `bun src/main.ts` or any repo-relative
+entrypoint: your cwd may be a lore checkout, and that is NOT a license to
+use it — cwd is not a pin. The only exception is a prompt that pins an
+explicit dev path (`bun /abs/path/to/src/main.ts`); then use exactly that.
+NEVER cd to another lore checkout — stale builds refuse newer DBs and must
+not be "fixed" by relocating.
 
 - `lore session <id-prefix> --lane prompt` — a session's user prompts
   in order, with work-location data (workDirs histogram, per-message gitBranch).
