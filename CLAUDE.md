@@ -97,6 +97,10 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   "gone by id ≠ gone by content" (respawns/resume-forks re-id sessions;
   measure loss by content lineage). Per-spawn subagent transcripts persist
   under `<session>/subagents/` — agentType, per-request model and usage.
+  Workflow runs persist their full script (meta: name/phases) at
+  `<session>/workflows/wf_*.json`, agents under `subagents/workflows/wf_*/`;
+  `lore workflows` is the per-run observatory, `spawns --workflow` the
+  drill-down.
 - Wiki durability is CLI-owned: **every wiki op ends with
   `lore wiki commit`** (hooks don't travel across drivers).
 

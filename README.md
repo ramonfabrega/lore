@@ -23,6 +23,7 @@ bun src/main.ts sessions --well tv          # a well's arc spine; --exact for pr
 bun src/main.ts session <id-prefix> --lane prompt
 bun src/main.ts search "sparkle notarization" --history
 bun src/main.ts spawns    # subagent observatory: verified model, drift, boot cost, weekly trend
+bun src/main.ts workflows # workflow runs: script meta, agents, tokens, model mix; drill: spawns --workflow
 bun src/main.ts tools --prefix Skill:       # invocation usage — the ambient ROI evidence
 bun src/main.ts docs index --fetch          # canon corpus (git objects, never working trees)
 bun src/main.ts stats

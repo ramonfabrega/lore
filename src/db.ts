@@ -24,8 +24,13 @@ import { z } from 'zod'
 // v8: messages.tool_name — structured invocation names (tools, `Skill:<name>`,
 // `command:<name>`) feeding the ambient ROI ledger (lore#7): every roster
 // line's ambient cost scored against its actual usage.
-const SCHEMA_VERSION = 8
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns']
+// v9: workflow_runs + spawns.workflow_run_id — Workflow orchestration runs as
+// first-class rows. A run persists its full script (meta: name/description/
+// phases) at <session>/workflows/wf_*.json and its agents under
+// <session>/subagents/workflows/wf_*/ — previously invisible to the spawn
+// observatory, which is exactly where the token-heavy fan-outs live.
+const SCHEMA_VERSION = 9
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -103,9 +108,26 @@ CREATE TABLE IF NOT EXISTS spawns(
   first_ts TEXT,
   last_ts TEXT,
   size INTEGER NOT NULL,
-  mtime_ms INTEGER NOT NULL
+  mtime_ms INTEGER NOT NULL,
+  workflow_run_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_spawns_session ON spawns(session_id);
+CREATE INDEX IF NOT EXISTS idx_spawns_workflow ON spawns(workflow_run_id) WHERE workflow_run_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS workflow_runs(
+  id INTEGER PRIMARY KEY,
+  run_id TEXT UNIQUE NOT NULL,
+  well_dir TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  name TEXT,
+  description TEXT,
+  phases TEXT,
+  task_id TEXT,
+  script TEXT NOT NULL,
+  recorded_ts TEXT,
+  size INTEGER NOT NULL,
+  mtime_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_session ON workflow_runs(session_id);
 `
 
 export function openDb(path: string): Database {

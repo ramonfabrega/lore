@@ -5,12 +5,16 @@ import { z } from 'zod'
 
 // The spawn observatory (lore#5): every subagent leaves a transcript at
 // <projectsDir>/<well>/<sessionId>/subagents/agent-<id>.jsonl plus a
-// meta.json. Indexed, they answer the fan-out doctrine's questions as a
-// query instead of hand-spelunked jq: which model ACTUALLY served the spawn
-// (first-request `message.model` — the spawn parameter and completion
-// notification are never trusted), what the boot envelope cost, and what the
-// run totaled. Assistant records are streaming snapshots — several lines per
-// API request sharing one `message.id` — so requests dedupe by that id.
+// meta.json. Workflow-orchestrated agents nest one level deeper —
+// subagents/workflows/wf_<runId>/agent-<id>.jsonl — and index as ordinary
+// spawn rows tagged with that workflow_run_id (the join key for the per-run
+// rollups in workflows.ts). Indexed, they answer the fan-out doctrine's
+// questions as a query instead of hand-spelunked jq: which model ACTUALLY
+// served the spawn (first-request `message.model` — the spawn parameter and
+// completion notification are never trusted), what the boot envelope cost,
+// and what the run totaled. Assistant records are streaming snapshots —
+// several lines per API request sharing one `message.id` — so requests
+// dedupe by that id.
 
 const Meta = z.object({
   agentType: z.string().nullish(),
@@ -47,6 +51,7 @@ type SpawnFile = {
   metaPath: string
   size: number
   mtimeMs: number
+  workflowRunId: string | null
 }
 
 export type SpawnIndexStats = {
@@ -70,19 +75,30 @@ function scanSpawnFiles(projectsDir: string): SpawnFile[] {
     for (const entry of entries) {
       const subDir = join(wellPath, entry, 'subagents')
       if (!existsSync(subDir)) continue
-      for (const f of readdirSync(subDir)) {
-        if (!f.startsWith('agent-') || !f.endsWith('.jsonl')) continue
-        const path = join(subDir, f)
-        const st = statSync(path)
-        files.push({
-          wellDir: well,
-          sessionId: entry,
-          agentId: f.slice('agent-'.length, -'.jsonl'.length),
-          path,
-          metaPath: join(subDir, f.replace(/\.jsonl$/, '.meta.json')),
-          size: st.size,
-          mtimeMs: st.mtimeMs,
-        })
+      const collect = (dir: string, workflowRunId: string | null) => {
+        for (const f of readdirSync(dir)) {
+          if (!f.startsWith('agent-') || !f.endsWith('.jsonl')) continue
+          const path = join(dir, f)
+          const st = statSync(path)
+          files.push({
+            wellDir: well,
+            sessionId: entry,
+            agentId: f.slice('agent-'.length, -'.jsonl'.length),
+            path,
+            metaPath: join(dir, f.replace(/\.jsonl$/, '.meta.json')),
+            size: st.size,
+            mtimeMs: st.mtimeMs,
+            workflowRunId,
+          })
+        }
+      }
+      collect(subDir, null)
+      // Workflow-orchestrated agents: subagents/workflows/wf_<runId>/agent-*.jsonl
+      const wfDir = join(subDir, 'workflows')
+      if (!existsSync(wfDir)) continue
+      for (const run of readdirSync(wfDir)) {
+        if (!run.startsWith('wf_')) continue
+        collect(join(wfDir, run), run)
       }
     }
   }
@@ -100,13 +116,13 @@ export async function indexSpawns(
   const Existing = z.object({ size: z.number(), mtime_ms: z.number() }).nullish()
   const upsert = db.prepare(
     `INSERT INTO spawns(well_dir, session_id, agent_id, agent_type, description, spawn_depth, requested_model,
-       model, boot_tokens, boot_cached, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       model, boot_tokens, boot_cached, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms, workflow_run_id)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(agent_id) DO UPDATE SET well_dir=excluded.well_dir, session_id=excluded.session_id, agent_type=excluded.agent_type,
        description=excluded.description, spawn_depth=excluded.spawn_depth, requested_model=excluded.requested_model,
        model=excluded.model, boot_tokens=excluded.boot_tokens, boot_cached=excluded.boot_cached, requests=excluded.requests,
        output_tokens=excluded.output_tokens, tool_uses=excluded.tool_uses, first_ts=excluded.first_ts,
-       last_ts=excluded.last_ts, size=excluded.size, mtime_ms=excluded.mtime_ms`,
+       last_ts=excluded.last_ts, size=excluded.size, mtime_ms=excluded.mtime_ms, workflow_run_id=excluded.workflow_run_id`,
   )
 
   let spawnsIndexed = 0
@@ -193,6 +209,7 @@ export async function indexSpawns(
       lastTs,
       f.size,
       f.mtimeMs,
+      f.workflowRunId,
     )
     spawnsIndexed++
   }
@@ -220,6 +237,7 @@ const Row = z.object({
   toolUses: z.number(),
   first: z.string().nullable(),
   durationMs: z.number().nullable(),
+  workflowRunId: z.string().nullable(),
 })
 export type SpawnRow = z.infer<typeof Row> & { drift?: boolean }
 
@@ -247,7 +265,7 @@ export type SpawnTrendRow = {
 // only computable when a model parameter was actually passed.
 export function listSpawns(
   db: Database,
-  opts: { well?: string; exact?: boolean; agent?: string; since?: string; limit: number },
+  opts: { well?: string; exact?: boolean; agent?: string; since?: string; workflow?: string; limit: number },
 ): { spawns: SpawnRow[]; byAgentType: SpawnSummary[]; byWeek: SpawnTrendRow[] } {
   const where: string[] = []
   const params: (string | number)[] = []
@@ -264,6 +282,11 @@ export function listSpawns(
     where.push('p.first_ts >= ?')
     params.push(opts.since)
   }
+  if (opts.workflow) {
+    // Run-id prefix match (run ids are long; `wf_390a` should just work).
+    where.push('p.workflow_run_id LIKE ?')
+    params.push(`${opts.workflow}%`)
+  }
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const base = `
     FROM spawns p
@@ -274,7 +297,8 @@ export function listSpawns(
            p.description, p.requested_model AS requestedModel, p.model, p.boot_tokens AS bootTokens,
            p.boot_cached AS bootCached,
            p.requests, p.output_tokens AS outputTokens, p.tool_uses AS toolUses, p.first_ts AS first,
-           CAST(ROUND((julianday(p.last_ts) - julianday(p.first_ts)) * 86400000) AS INTEGER) AS durationMs
+           CAST(ROUND((julianday(p.last_ts) - julianday(p.first_ts)) * 86400000) AS INTEGER) AS durationMs,
+           p.workflow_run_id AS workflowRunId
     ${base}
     ORDER BY p.first_ts DESC LIMIT ?`
   const spawns = z

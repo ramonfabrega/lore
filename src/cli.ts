@@ -12,6 +12,7 @@ import { indexSpawns, listSpawns } from './spawns'
 import { listToolUsage } from './tools'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
+import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta'] as const
 
@@ -99,7 +100,8 @@ cli.command('index', {
     const db = openDb(DB_PATH)
     const stats = await buildIndex(db, { projectsDir: PROJECTS_DIR, historyPath: HISTORY_PATH, full: c.options.full })
     const spawns = await indexSpawns(db, { projectsDir: PROJECTS_DIR, full: c.options.full })
-    return c.ok({ ...stats, spawns }, {
+    const workflows = await indexWorkflowRuns(db, { projectsDir: PROJECTS_DIR, full: c.options.full })
+    return c.ok({ ...stats, spawns, workflows }, {
       cta: {
         description: 'Next:',
         commands: [{ command: 'search', description: 'Search the index' }, 'stats'],
@@ -148,6 +150,10 @@ cli.command('spawns', {
       .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
     agent: z.string().optional().describe('Filter to this agentType (e.g. lore-miner, general-purpose)'),
     since: z.string().optional().describe('Only spawns on/after this ISO date (e.g. 2026-07-15)'),
+    workflow: z
+      .string()
+      .optional()
+      .describe('Only agents of one Workflow run — run id or prefix (see the workflows listing)'),
     limit: z.number().default(50).describe('Max spawn rows (the rollup always covers all matches)'),
   }),
   alias: { well: 'w', agent: 'a', limit: 'n' },
@@ -158,9 +164,37 @@ cli.command('spawns', {
       exact: options.exact,
       agent: options.agent,
       since: options.since,
+      workflow: options.workflow,
       limit: options.limit,
     })
     return { count: spawns.length, byAgentType, byWeek, spawns }
+  },
+})
+
+cli.command('workflows', {
+  description:
+    'The workflow observatory: one row per Workflow orchestration run — name/description/phases self-described by the persisted script meta, agent count, output tokens, boot cache reuse, verified model mix and drift count joined from spawns. Newest first, plus the byName rollup (the catalog: which workflows exist, how often they run, what a run costs). Drill into one run with `spawns --workflow <runId>`. Populated by `lore index`.',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+    name: z.string().optional().describe('Filter to runs whose workflow name contains this substring'),
+    since: z.string().optional().describe('Only runs recorded on/after this ISO date (e.g. 2026-07-15)'),
+    limit: z.number().default(25).describe('Max run rows (the rollup always covers all matches)'),
+  }),
+  alias: { well: 'w', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const { runs, byName } = listWorkflowRuns(db, {
+      well: options.well,
+      exact: options.exact,
+      name: options.name,
+      since: options.since,
+      limit: options.limit,
+    })
+    return { count: runs.length, byName, runs }
   },
 })
 
