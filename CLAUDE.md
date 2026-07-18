@@ -58,6 +58,9 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   verified model per spawn and flags requested-vs-served `drift`.
 - Bg-job sessions skip project-agent discovery at start (upstream bug);
   `/reload-plugins` fixes it; ad-hoc explicit-sonnet is the proven fallback.
+- Miner/auditor bucket prompts pin the CLI explicitly ("invoke as `lore`,
+  never `bun src/main.ts`") — def-only guidance proven insufficient
+  (ingest #8: 3/3 drifted via cwd affordance; #9 with pins: 0/6).
 - Ledger every fan-out in the wiki log: per agent — scope, tokens, tools,
   duration, verified model.
 
