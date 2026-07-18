@@ -109,9 +109,10 @@ cli.command('index', {
 })
 
 cli.command('search', {
-  description: 'Full-text search across indexed sessions (FTS5 query syntax)',
+  description:
+    'Full-text search across indexed sessions (FTS5 query syntax; plain terms with hyphens/apostrophes fall back to literal matching)',
   args: z.object({
-    query: z.string().describe('FTS5 match expression, e.g. "sparkle notarization" or sparkle NEAR(key, 5)'),
+    query: z.string().describe('FTS5 match expression, e.g. "sparkle notarization" or sparkle NEAR(key, 5); plain hyphenated terms like xcode-build-server work as-is'),
   }),
   options: z.object({
     lane: z
@@ -288,9 +289,9 @@ docs.command('index', {
 
 docs.command('search', {
   description:
-    'Full-text search across indexed canon docs (FTS5 query syntax) — lint fodder and graduation dedup ("does canon already say this?"). Hits carry ownership: treat `assisted` hits as someone else\'s doctrine — context only, never user provenance.',
+    'Full-text search across indexed canon docs (FTS5 query syntax; plain terms with hyphens/apostrophes fall back to literal matching) — lint fodder and graduation dedup ("does canon already say this?"). Hits carry ownership: treat `assisted` hits as someone else\'s doctrine — context only, never user provenance.',
   args: z.object({
-    query: z.string().describe('FTS5 match expression'),
+    query: z.string().describe('FTS5 match expression; plain hyphenated terms work as-is'),
   }),
   options: z.object({
     repo: z.string().optional().describe('Filter to repos whose path contains this substring'),

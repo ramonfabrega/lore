@@ -8,6 +8,11 @@ and `docs/DESIGN.md` for the design narrative and decision log.
 
 ## v0 — layer 1 CLI (model-free)
 
+The blessed bin: `scripts/install` builds the installed `lore` from a clean
+landed tree (test-gated, provenance on stderr) — sessions and subagents use
+that by default. The `bun src/main.ts` forms below are the dev lane, invoked
+from this checkout by explicit path only.
+
 ```sh
 bun install
 
