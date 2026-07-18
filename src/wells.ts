@@ -35,7 +35,7 @@ export async function listWells(projectsDir: string): Promise<Well[]> {
     wells.push({
       dir: name,
       path,
-      realPath: await resolveRealPath(sessions),
+      realPath: (await resolveRealPath(sessions)) ?? deslugWellDir(name),
       isWorktree: name.includes('--claude-worktrees-'),
       hasMemory: existsSync(join(path, 'memory')),
       sessions,
@@ -43,6 +43,48 @@ export async function listWells(projectsDir: string): Promise<Well[]> {
   }
   wells.sort((a, b) => a.dir.localeCompare(b.dir))
   return wells
+}
+
+// A memory-only well (album: live repo with memory, zero transcripts) has no
+// cwd record to resolve, and the dir name is lossy — '-' stands for '/', '.',
+// '_', and literal '-' alike (golf-sim, rf-studio, .claude). Reconstruct by
+// walking the filesystem: at each boundary try every joiner, and only an
+// existing directory disambiguates. A deleted source resolves null, same as
+// before — "gone by id ≠ gone by content" stays measurable.
+const JOINERS = ['/', '-', '.', '_'] as const
+const DESLUG_BUDGET = 50_000
+
+export function deslugWellDir(name: string): string | null {
+  if (!name.startsWith('-')) return null
+  const segs = name.slice(1).split('-')
+  let budget = DESLUG_BUDGET
+  const isDir = (p: string): boolean => {
+    try {
+      return statSync(p).isDirectory()
+    } catch {
+      return false
+    }
+  }
+  // base: confirmed-existing parent; comp: the in-progress path component.
+  const walk = (base: string, comp: string, i: number): string | null => {
+    if (budget-- <= 0) return null
+    if (i === segs.length) {
+      const full = join(base, comp)
+      return comp !== '' && isDir(full) ? full : null
+    }
+    for (const j of JOINERS) {
+      if (j === '/') {
+        if (comp === '' || !isDir(join(base, comp))) continue
+        const r = walk(join(base, comp), segs[i] ?? '', i + 1)
+        if (r) return r
+      } else {
+        const r = walk(base, `${comp}${j}${segs[i] ?? ''}`, i + 1)
+        if (r) return r
+      }
+    }
+    return null
+  }
+  return walk('/', segs[0] ?? '', 1)
 }
 
 // Peek the head of the newest session files for a record carrying `cwd` — the

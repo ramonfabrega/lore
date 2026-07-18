@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { ftsMatch } from './fts'
 import type { Lane } from './parse'
 
 // Row schemas live next to the queries that produce them — results are parsed
@@ -44,13 +45,13 @@ export function searchMessages(
     JOIN wells w ON w.id = s.well_id
     WHERE messages_fts MATCH ? AND m.lane IN (${laneMarks}) ${wellClause}
     ORDER BY rank LIMIT ?`
-  const params: (string | number)[] = [query, ...opts.lanes]
+  const params: (string | number)[] = [...opts.lanes]
   if (opts.well) {
     const v = opts.exact ? opts.well : `%${opts.well}%`
     params.push(v, v)
   }
   params.push(opts.limit)
-  return z.array(Hit).parse(db.prepare(sql).all(...params))
+  return ftsMatch(query, (q) => z.array(Hit).parse(db.prepare(sql).all(q, ...params)))
 }
 
 export function searchHistory(db: Database, query: string, opts: { limit: number }): HistoryHit[] {
@@ -61,5 +62,5 @@ export function searchHistory(db: Database, query: string, opts: { limit: number
     JOIN history h ON h.id = f.rowid
     WHERE history_fts MATCH ?
     ORDER BY rank LIMIT ?`
-  return z.array(HistoryHit).parse(db.prepare(sql).all(query, opts.limit))
+  return ftsMatch(query, (q) => z.array(HistoryHit).parse(db.prepare(sql).all(q, opts.limit)))
 }

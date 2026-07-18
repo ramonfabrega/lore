@@ -84,6 +84,15 @@ describe('listRepoPaths', () => {
     initRepo(join(repo, 'sub'))
     expect(listRepoPaths(root)).toEqual([repo])
   })
+
+  // The storage-atlas case: a linked worktree beside its main repo shares
+  // gitdir/remote/canon — listing it double-counts the project.
+  test('a top-level linked worktree checkout is not a repo', () => {
+    const root = tempDir()
+    const repo = canonRepo(root, 'main-repo')
+    sh(repo, `git worktree add -q ${join(root, 'side-checkout')} -b spike`)
+    expect(listRepoPaths(root)).toEqual([repo])
+  })
 })
 
 describe('scanRepo', () => {
@@ -226,6 +235,19 @@ describe('indexDocs', () => {
     const hits = searchDocs(db, 'wombat', { limit: 10 })
     expect(hits).toHaveLength(1)
     expect(hits[0]?.ownership).toBe('assisted')
+  })
+
+  test('hyphenated and apostrophe queries fall back to literal match instead of erroring', async () => {
+    const root = tempDir()
+    const repo = join(root, 'r')
+    initRepo(repo)
+    writeFileSync(join(repo, 'CLAUDE.md'), "the three-tier model; refute-don't-confirm applies\n")
+    sh(repo, 'git add -A && git commit -qm canon')
+    const db = memDb()
+    await indexDocs(db, { codeDir: root })
+    expect(searchDocs(db, 'three-tier', { limit: 5 })).toHaveLength(1)
+    expect(searchDocs(db, "refute-don't-confirm", { limit: 5 })).toHaveLength(1)
+    expect(searchDocs(db, 'absent-term', { limit: 5 })).toHaveLength(0)
   })
 
   test('repo filter narrows search', async () => {

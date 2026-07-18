@@ -1,8 +1,9 @@
 import type { Database } from 'bun:sqlite'
 import { $ } from 'bun'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { ftsMatch } from './fts'
 
 // The canon corpus: git-committed .md files across the repos under ~/code.
 // Canon may exist only in git objects — a husk checkout (gym) has README,
@@ -39,16 +40,32 @@ function isExcluded(dir: string, exclude: string[]): boolean {
   return exclude.some((e) => dir === e || dir.endsWith(`/${e}`))
 }
 
-// Walk codeDir for git repos: prune at each .git (dir or file — worktrees and
-// submodules never scan as their own repos), skip hidden dirs and node_modules.
+// A linked worktree carries a `.git` FILE whose gitdir points into the main
+// repo's `.git/worktrees/` — same objects, same remote, same canon. Treating
+// it as a repo double-counts one project (storage-atlas, a worktree of disk,
+// indexed as a sibling with identical sha/docs).
+function isLinkedWorktree(gitPath: string): boolean {
+  try {
+    if (!statSync(gitPath).isFile()) return false
+    return readFileSync(gitPath, 'utf8').includes('/worktrees/')
+  } catch {
+    return false
+  }
+}
+
+// Walk codeDir for git repos: prune at each .git (dir or file — nested
+// worktrees and submodules never scan as their own repos), skip hidden dirs
+// and node_modules. Top-level linked-worktree checkouts prune too — their
+// canon belongs to the main repo.
 export function listRepoPaths(root: string, opts?: { exclude?: string[]; maxDepth?: number }): string[] {
   const exclude = opts?.exclude ?? []
   const maxDepth = opts?.maxDepth ?? 4
   const found: string[] = []
   const walk = (dir: string, depth: number) => {
     if (isExcluded(dir, exclude)) return
-    if (existsSync(join(dir, '.git'))) {
-      found.push(dir)
+    const gitPath = join(dir, '.git')
+    if (existsSync(gitPath)) {
+      if (!isLinkedWorktree(gitPath)) found.push(dir)
       return
     }
     if (depth >= maxDepth) return
@@ -302,10 +319,10 @@ export function searchDocs(db: Database, query: string, opts: { repo?: string; l
     JOIN repos r ON r.id = d.repo_id
     WHERE docs_fts MATCH ? ${repoClause}
     ORDER BY rank LIMIT ?`
-  const params: (string | number)[] = [query]
+  const params: (string | number)[] = []
   if (opts.repo) params.push(`%${opts.repo}%`)
   params.push(opts.limit)
-  return z.array(DocHit).parse(db.prepare(sql).all(...params))
+  return ftsMatch(query, (q) => z.array(DocHit).parse(db.prepare(sql).all(q, ...params)))
 }
 
 const RepoRow = z.object({
