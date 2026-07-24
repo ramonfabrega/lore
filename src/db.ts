@@ -29,7 +29,7 @@ import { z } from 'zod'
 // phases) at <session>/workflows/wf_*.json and its agents under
 // <session>/subagents/workflows/wf_*/ — previously invisible to the spawn
 // observatory, which is exactly where the token-heavy fan-outs live.
-const SCHEMA_VERSION = 9
+const SCHEMA_VERSION = 10
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -109,7 +109,13 @@ CREATE TABLE IF NOT EXISTS spawns(
   last_ts TEXT,
   size INTEGER NOT NULL,
   mtime_ms INTEGER NOT NULL,
-  workflow_run_id TEXT
+  workflow_run_id TEXT,
+  -- stop_reason of the transcript's LAST assistant record (schema v10). A
+  -- healthy finished spawn ends 'end_turn'. Anything else means the totals are
+  -- a FLOOR, not a measurement: 'tool_use' = ended mid-tool with no final
+  -- answer (interrupted/killed), NULL = the terminal usage row never landed
+  -- (seen 2026-07-24: a final record held 22k chars but output_tokens 6).
+  last_stop_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_spawns_session ON spawns(session_id);
 CREATE INDEX IF NOT EXISTS idx_spawns_workflow ON spawns(workflow_run_id) WHERE workflow_run_id IS NOT NULL;

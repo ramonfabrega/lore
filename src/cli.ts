@@ -141,7 +141,7 @@ cli.command('search', {
 
 cli.command('spawns', {
   description:
-    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope + cache reuse, totals. Newest first, with per-agentType and per-week rollups (the trend: did a config change move boot cost). Populated by `lore index`.',
+    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope + cache reuse, totals. Newest first, with per-agentType and per-week rollups (the trend: did a config change move boot cost). `telemetryPartial` marks a spawn whose transcript never reached a terminal stop_reason (in flight, or its final usage row never landed) — its token totals are a FLOOR, not a measurement; `partialTelemetry` counts them across all matches. Populated by `lore index`.',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
@@ -159,7 +159,7 @@ cli.command('spawns', {
   alias: { well: 'w', agent: 'a', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
-    const { spawns, byAgentType, byWeek } = listSpawns(db, {
+    const { spawns, partialTelemetry, byAgentType, byWeek } = listSpawns(db, {
       well: options.well,
       exact: options.exact,
       agent: options.agent,
@@ -167,7 +167,7 @@ cli.command('spawns', {
       workflow: options.workflow,
       limit: options.limit,
     })
-    return { count: spawns.length, byAgentType, byWeek, spawns }
+    return { count: spawns.length, partialTelemetry, byAgentType, byWeek, spawns }
   },
 })
 
@@ -266,7 +266,18 @@ cli.command('stats', {
           )
           .get(),
       )
-    return { totals, range, lanes, topWells: wells }
+    // A corpus reading zero is almost never real — it means an indexer never
+    // ran for it. `lore index` does NOT populate the docs corpus (`lore docs
+    // index` is its own command), so a SCHEMA_VERSION bump's drop-and-rebuild
+    // silently empties docs until someone notices canon lint has gone blind
+    // (observed 2026-07-24, empty since the v9 bump). Rebuild-beats-migrate is
+    // supposed to make a wipe cheap, not invisible — so say it out loud.
+    const warnings: string[] = []
+    if (totals.docs === 0 || totals.repos === 0) {
+      warnings.push('docs corpus is EMPTY — canon lint and graduation dedup are blind. Run `lore docs index`.')
+    }
+    if (totals.sessions === 0) warnings.push('no sessions indexed — run `lore index`.')
+    return { totals, ...(warnings.length ? { warnings } : {}), range, lanes, topWells: wells }
   },
 })
 

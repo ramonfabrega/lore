@@ -37,11 +37,20 @@ const AssistantRecord = z.object({
     id: z.string().nullish(),
     model: z.string().nullish(),
     usage: Usage.nullish(),
+    stop_reason: z.string().nullish(),
     content: z
       .array(z.object({ type: z.string() }).loose())
       .nullish(),
   }),
 })
+
+// A finished spawn's last assistant record carries a terminal stop_reason.
+// Without one the transcript is mid-flight OR the terminal usage update never
+// landed (observed 2026-07-24: a final record held 22k chars of content but
+// output_tokens 6 and stop_reason null — the harness reported ~71.7k for the
+// same spawn). Either way the token totals are a floor, not a measurement, and
+// silently reporting them as fact corrupts the fan-out ledger.
+const TERMINAL_STOP = new Set(['end_turn', 'stop_sequence', 'max_tokens'])
 
 type SpawnFile = {
   wellDir: string
@@ -116,13 +125,15 @@ export async function indexSpawns(
   const Existing = z.object({ size: z.number(), mtime_ms: z.number() }).nullish()
   const upsert = db.prepare(
     `INSERT INTO spawns(well_dir, session_id, agent_id, agent_type, description, spawn_depth, requested_model,
-       model, boot_tokens, boot_cached, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms, workflow_run_id)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       model, boot_tokens, boot_cached, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms, workflow_run_id,
+       last_stop_reason)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(agent_id) DO UPDATE SET well_dir=excluded.well_dir, session_id=excluded.session_id, agent_type=excluded.agent_type,
        description=excluded.description, spawn_depth=excluded.spawn_depth, requested_model=excluded.requested_model,
        model=excluded.model, boot_tokens=excluded.boot_tokens, boot_cached=excluded.boot_cached, requests=excluded.requests,
        output_tokens=excluded.output_tokens, tool_uses=excluded.tool_uses, first_ts=excluded.first_ts,
-       last_ts=excluded.last_ts, size=excluded.size, mtime_ms=excluded.mtime_ms, workflow_run_id=excluded.workflow_run_id`,
+       last_ts=excluded.last_ts, size=excluded.size, mtime_ms=excluded.mtime_ms, workflow_run_id=excluded.workflow_run_id,
+       last_stop_reason=excluded.last_stop_reason`,
   )
 
   let spawnsIndexed = 0
@@ -150,6 +161,7 @@ export async function indexSpawns(
     let firstTs: string | null = null
     let lastTs: string | null = null
     let toolUses = 0
+    let lastStopReason: string | null = null
     // Per-request bookkeeping: streaming snapshots repeat usage, so keep the
     // max output_tokens seen per message.id and sum at the end.
     const outputByRequest = new Map<string, number>()
@@ -185,6 +197,7 @@ export async function indexSpawns(
       }
       const out = msg.usage?.output_tokens ?? 0
       if (out > (outputByRequest.get(reqId) ?? 0)) outputByRequest.set(reqId, out)
+      lastStopReason = msg.stop_reason ?? null
       for (const block of msg.content ?? []) if (block.type === 'tool_use') toolUses++
     }
 
@@ -210,6 +223,7 @@ export async function indexSpawns(
       f.size,
       f.mtimeMs,
       f.workflowRunId,
+      lastStopReason,
     )
     spawnsIndexed++
   }
@@ -238,8 +252,13 @@ const Row = z.object({
   first: z.string().nullable(),
   durationMs: z.number().nullable(),
   workflowRunId: z.string().nullable(),
+  lastStopReason: z.string().nullable(),
 })
-export type SpawnRow = z.infer<typeof Row> & { drift?: boolean }
+export type SpawnRow = Omit<z.infer<typeof Row>, 'lastStopReason'> & {
+  drift?: boolean
+  telemetryPartial?: true
+  lastStopReason?: string | null
+}
 
 export type SpawnSummary = {
   agentType: string | null
@@ -266,7 +285,12 @@ export type SpawnTrendRow = {
 export function listSpawns(
   db: Database,
   opts: { well?: string; exact?: boolean; agent?: string; since?: string; workflow?: string; limit: number },
-): { spawns: SpawnRow[]; byAgentType: SpawnSummary[]; byWeek: SpawnTrendRow[] } {
+): {
+  spawns: SpawnRow[]
+  partialTelemetry: number
+  byAgentType: SpawnSummary[]
+  byWeek: SpawnTrendRow[]
+} {
   const where: string[] = []
   const params: (string | number)[] = []
   if (opts.well) {
@@ -298,16 +322,34 @@ export function listSpawns(
            p.boot_cached AS bootCached,
            p.requests, p.output_tokens AS outputTokens, p.tool_uses AS toolUses, p.first_ts AS first,
            CAST(ROUND((julianday(p.last_ts) - julianday(p.first_ts)) * 86400000) AS INTEGER) AS durationMs,
-           p.workflow_run_id AS workflowRunId
+           p.workflow_run_id AS workflowRunId, p.last_stop_reason AS lastStopReason
     ${base}
     ORDER BY p.first_ts DESC LIMIT ?`
   const spawns = z
     .array(Row)
     .parse(db.prepare(sql).all(...params, opts.limit))
-    .map((r) => ({
+    .map(({ lastStopReason, ...r }) => ({
       ...r,
       ...(r.requestedModel && r.model ? { drift: !r.model.includes(r.requestedModel) } : {}),
+      // Surfaced only when the run didn't end cleanly — a floor-not-measurement
+      // warning plus the reason ('tool_use' = interrupted mid-tool, null = the
+      // terminal usage row never landed), not fields to skim past on every
+      // healthy row.
+      ...(TERMINAL_STOP.has(lastStopReason ?? '') ? {} : { telemetryPartial: true as const, lastStopReason }),
     }))
+  // Counted over ALL matches, not just the limited page: a ledger reader needs
+  // to know unreliable rows exist even when they fall past the row limit.
+  const terminalList = [...TERMINAL_STOP].map((s) => `'${s}'`).join(',')
+  const partialTelemetry = z
+    .object({ n: z.number() })
+    .parse(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n ${base} ${whereClause ? 'AND' : 'WHERE'}
+             (p.last_stop_reason IS NULL OR p.last_stop_reason NOT IN (${terminalList}))`,
+        )
+        .get(...params),
+    ).n
   // Boot cache reuse: what share of the boot envelope was served from cache
   // (0% = full-freight cache write — historically half of all runs).
   const reuse = `CAST(ROUND(100.0 * SUM(p.boot_cached) / NULLIF(SUM(p.boot_tokens), 0)) AS INTEGER)`
@@ -350,5 +392,5 @@ export function listSpawns(
       }),
     )
     .parse(db.prepare(trendSql).all(...params))
-  return { spawns, byAgentType, byWeek }
+  return { spawns, partialTelemetry, byAgentType, byWeek }
 }
