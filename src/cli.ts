@@ -53,7 +53,7 @@ cli.command('wells', {
 
 cli.command('sessions', {
   description:
-    'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt). `last` is the last line that produced an indexed entry, NOT the last line in the file: harness heartbeats keep timestamping a dormant session, so `idleUntil` (present only when it exceeds `last`) is how long it stayed open after the work stopped. --limit takes the NEWEST n and renders them oldest-first; use --since for delta ingests.',
+    'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt). `last` is the last WORK-lane line (prompt/text/thinking/tool), NOT the last line in the file: harness heartbeats keep timestamping a dormant session for weeks and they DO index (into the event lane), so `idleUntil` — present only when it exceeds `last` — is how long the session stayed open after the work stopped. --limit takes the NEWEST n and renders them oldest-first; use --since (activity-based) for delta ingests.',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
