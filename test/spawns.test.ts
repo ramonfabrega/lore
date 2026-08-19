@@ -142,6 +142,17 @@ describe('indexSpawns + listSpawns', () => {
     expect(listSpawns(db, { well: '-u-code-fun-app--claude-worktrees-x', exact: true, limit: 50 }).spawns).toHaveLength(2)
   })
 
+  test('--session filters to one session\'s spawns by id prefix', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seedProjectsDir()
+    await indexSpawns(db, { projectsDir })
+    // Attribution used to mean --well + --since and hoping only one session
+    // sat in the window (ingest #13 miner finding).
+    expect(listSpawns(db, { session: 'sess-1', limit: 50 }).spawns.length).toBeGreaterThan(0)
+    expect(listSpawns(db, { session: 'sess', limit: 50 }).spawns.length).toBeGreaterThan(0)
+    expect(listSpawns(db, { session: 'nope', limit: 50 }).spawns).toEqual([])
+  })
+
   test('missing projects dir and empty db are safe', async () => {
     const db = openDb(':memory:')
     const stats = await indexSpawns(db, { projectsDir: '/nonexistent/nowhere' })

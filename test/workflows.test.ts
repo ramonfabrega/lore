@@ -119,7 +119,11 @@ describe('indexWorkflowRuns + listWorkflowRuns', () => {
     expect(run.sessionId).toBe('sess-1')
     expect(run.name).toBe('storefront-review')
     expect(run.taskId).toBe('task-9')
-    expect(run.phases.map((p) => p.title)).toEqual(['Find', 'Refute'])
+    // phases render as flat strings so the md table formatter can't turn them
+    // into [object Object] — the whole point of the lane is that the phase list
+    // is readable in the format agents actually read.
+    expect(run.phases).toEqual(['Find — finders with {braces} in the detail', 'Refute'])
+    expect(run.phases.every((p) => typeof p === 'string')).toBe(true)
     expect(run.agents).toBe(2) // the direct spawn is not part of the run
     expect(run.outputTokens).toBe(100) // (50+30) + 20
     expect(run.bootTokens).toBe(30004) // 20002 + 10002 (first-request envelopes)

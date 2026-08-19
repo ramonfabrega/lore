@@ -1,8 +1,15 @@
 import type { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
 import { z } from 'zod'
+import type { Lane } from './parse'
 import { parseLine } from './parse'
 import { listWells } from './wells'
+
+// What counts as the session doing work, for last_activity_ts. Deliberately
+// excludes `event` (system records, bridge_status heartbeats, pr-links, titles,
+// summaries) and `meta` (slash commands, context dumps) — those keep ticking
+// long after the work stops, which is the whole bug.
+const ACTIVITY_LANES = new Set<Lane>(['prompt', 'text', 'thinking', 'tool'])
 
 const WellId = z.object({ id: z.number() })
 const ExistingSession = z.object({ id: z.number(), size: z.number(), mtime_ms: z.number() }).nullish()
@@ -31,10 +38,11 @@ export async function buildIndex(
   )
   const findSession = db.prepare('SELECT id, size, mtime_ms FROM sessions WHERE session_id = ?')
   const upsertSession = db.prepare(
-    `INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts)
-     VALUES(?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(session_id) DO UPDATE SET well_id=excluded.well_id, size=excluded.size,
-       mtime_ms=excluded.mtime_ms, lines=excluded.lines, first_ts=excluded.first_ts, last_ts=excluded.last_ts`,
+       mtime_ms=excluded.mtime_ms, lines=excluded.lines, first_ts=excluded.first_ts, last_ts=excluded.last_ts,
+       last_activity_ts=excluded.last_activity_ts`,
   )
   const deleteMsgs = db.prepare('DELETE FROM messages WHERE session_id = ?')
   const deleteFts = db.prepare(
@@ -69,6 +77,11 @@ export async function buildIndex(
         deleteMsgs.run(s.sessionId)
         let firstTs: string | null = null
         let lastTs: string | null = null
+        // last_ts moves on every timestamped line. last_activity_ts only moves
+        // on WORK lanes — a `system`/bridge_status heartbeat is a real indexed
+        // entry (it lands in the event lane), so "produced an entry" is not a
+        // strong enough test; it has to be "produced work". See db.ts v11.
+        let lastActivityTs: string | null = null
         let count = 0
         for (const line of lines) {
           const p = parseLine(line)
@@ -77,6 +90,7 @@ export async function buildIndex(
           if (p.timestamp) {
             firstTs ??= p.timestamp
             lastTs = p.timestamp
+            if (p.entries.some((e) => ACTIVITY_LANES.has(e.lane))) lastActivityTs = p.timestamp
           }
           for (const e of p.entries) {
             const row = insertMsg.run(s.sessionId, p.uuid ?? null, p.timestamp ?? null, e.lane, p.type, p.gitBranch ?? null, p.cwd ?? null, e.toolName ?? null)
@@ -84,7 +98,7 @@ export async function buildIndex(
             messages++
           }
         }
-        upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs)
+        upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs, lastActivityTs)
       })
       indexSession()
       sessionsIndexed++

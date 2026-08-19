@@ -8,7 +8,8 @@ function seedDb(): Database {
     CREATE TABLE wells(id INTEGER PRIMARY KEY, dir TEXT UNIQUE NOT NULL, real_path TEXT,
       is_worktree INTEGER NOT NULL DEFAULT 0, has_memory INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE sessions(id INTEGER PRIMARY KEY, well_id INTEGER NOT NULL, session_id TEXT UNIQUE NOT NULL,
-      size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT);
+      size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT,
+      last_activity_ts TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, uuid TEXT, ts TEXT,
       lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
@@ -17,10 +18,10 @@ function seedDb(): Database {
     INSERT INTO wells(id, dir, real_path) VALUES
       (1, '-u-code-fun-disk--claude-worktrees-scanner-spike', '/u/code/fun/disk/.claude/worktrees/scanner-spike'),
       (2, '-u-code-fun-tv', '/u/code/fun/tv');
-    INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts) VALUES
-      (1, 's-old', 10, 0, 100, '2026-07-09T10:00:00Z', '2026-07-10T10:00:00Z'),
-      (1, 's-new', 10, 0, 50, '2026-07-12T10:00:00Z', '2026-07-12T11:00:00Z'),
-      (2, 's-tv', 10, 0, 5, '2026-07-11T10:00:00Z', '2026-07-11T10:30:00Z');
+    INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts) VALUES
+      (1, 's-old', 10, 0, 100, '2026-07-09T10:00:00Z', '2026-08-01T10:00:00Z', '2026-07-10T10:00:00Z'),
+      (1, 's-new', 10, 0, 50, '2026-07-12T10:00:00Z', '2026-07-12T11:00:00Z', '2026-07-12T11:00:00Z'),
+      (2, 's-tv', 10, 0, 5, '2026-07-11T10:00:00Z', '2026-07-11T10:30:00Z', NULL);
   `)
   const insertMsg = db.prepare('INSERT INTO messages(id, session_id, ts, lane, type, cwd) VALUES (?, ?, ?, ?, ?, ?)')
   const insertText = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES (?, ?)')
@@ -60,6 +61,7 @@ describe('listSessions', () => {
     const old = rows[0]!
     expect(old.first).toBe('2026-07-09')
     expect(old.last).toBe('2026-07-10')
+    expect(old.idleUntil).toBe('2026-08-01')
     expect(old.prompts).toBe(2)
     expect(old.firstPrompt).toBe('i want to make a disk util tool')
   })
@@ -75,8 +77,8 @@ describe('listSessions', () => {
     const db = seedDb()
     db.exec(`
       INSERT INTO wells(id, dir, real_path) VALUES (3, '-u-code', '/u/code');
-      INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts)
-        VALUES (3, 's-root', 10, 0, 1, '2026-07-13T10:00:00Z', '2026-07-13T10:00:00Z');
+      INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts)
+        VALUES (3, 's-root', 10, 0, 1, '2026-07-13T10:00:00Z', '2026-07-13T10:00:00Z', '2026-07-13T10:00:00Z');
     `)
     // '-u-code' is a prefix of every well dir — substring matches all four
     expect(listSessions(db, { well: '-u-code', limit: 100 })).toHaveLength(4)
@@ -93,7 +95,41 @@ describe('listSessions', () => {
     expect(rows.find((r) => r.sessionId === 's-tv')!.prompts).toBe(0)
   })
 
-  test('limit caps results', () => {
-    expect(listSessions(seedDb(), { limit: 1 }).map((r) => r.sessionId)).toEqual(['s-old'])
+  test('limit takes the NEWEST n, then renders oldest-first', () => {
+    // The pre-v11 bug: LIMIT over an ascending sort returned the OLDEST n, so
+    // `-n 1` on a live well answered with last month. Ingest #13 measured a
+    // 66-session cuanto backlog as ~8 this way.
+    expect(listSessions(seedDb(), { limit: 1 }).map((r) => r.sessionId)).toEqual(['s-new'])
+    expect(listSessions(seedDb(), { limit: 2 }).map((r) => r.sessionId)).toEqual(['s-tv', 's-new'])
+  })
+
+  test('last reports activity, not heartbeats; idleUntil exposes the dormant tail', () => {
+    const rows = listSessions(seedDb(), { limit: 100 })
+    const old = rows.find((r) => r.sessionId === 's-old')!
+    // last_ts is 08-01 (a heartbeat); the work ended 07-10.
+    expect(old.last).toBe('2026-07-10')
+    expect(old.idleUntil).toBe('2026-08-01')
+    // A session with no heartbeat tail reports null rather than echoing last.
+    expect(rows.find((r) => r.sessionId === 's-new')!.idleUntil).toBeNull()
+    // No last_activity_ts at all → fall back to last_ts, and claim no tail.
+    const tv = rows.find((r) => r.sessionId === 's-tv')!
+    expect(tv.last).toBe('2026-07-11')
+    expect(tv.idleUntil).toBeNull()
+  })
+
+  test('since filters on activity, so a heartbeat-only tail does not qualify', () => {
+    // s-old pings until 08-01 but stopped working 07-10 — a delta window
+    // opening 07-11 must not pick it up.
+    expect(listSessions(seedDb(), { since: '2026-07-11', limit: 100 }).map((r) => r.sessionId)).toEqual([
+      's-tv',
+      's-new',
+    ])
+    expect(listSessions(seedDb(), { since: '2026-07-12', limit: 100 }).map((r) => r.sessionId)).toEqual(['s-new'])
+    expect(listSessions(seedDb(), { since: '2027-01-01', limit: 100 })).toEqual([])
+  })
+
+  test('since composes with the well filter', () => {
+    const rows = listSessions(seedDb(), { well: 'scanner-spike', since: '2026-07-11', limit: 100 })
+    expect(rows.map((r) => r.sessionId)).toEqual(['s-new'])
   })
 })

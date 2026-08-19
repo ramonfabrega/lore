@@ -284,7 +284,7 @@ export type SpawnTrendRow = {
 // only computable when a model parameter was actually passed.
 export function listSpawns(
   db: Database,
-  opts: { well?: string; exact?: boolean; agent?: string; since?: string; workflow?: string; limit: number },
+  opts: { well?: string; exact?: boolean; agent?: string; since?: string; workflow?: string; session?: string; limit: number },
 ): {
   spawns: SpawnRow[]
   partialTelemetry: number
@@ -310,6 +310,13 @@ export function listSpawns(
     // Run-id prefix match (run ids are long; `wf_390a` should just work).
     where.push('p.workflow_run_id LIKE ?')
     params.push(`${opts.workflow}%`)
+  }
+  if (opts.session) {
+    // "which agents did THIS session spawn" — id prefix, same ergonomics as
+    // `lore session`. Before this, attribution meant --well + --since and
+    // hoping only one session sat in the window.
+    where.push('p.session_id LIKE ?')
+    params.push(`${opts.session}%`)
   }
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const base = `

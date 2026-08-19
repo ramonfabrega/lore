@@ -8,7 +8,8 @@ function seedDb(): Database {
     CREATE TABLE wells(id INTEGER PRIMARY KEY, dir TEXT UNIQUE NOT NULL, real_path TEXT,
       is_worktree INTEGER NOT NULL DEFAULT 0, has_memory INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE sessions(id INTEGER PRIMARY KEY, well_id INTEGER NOT NULL, session_id TEXT UNIQUE NOT NULL,
-      size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT);
+      size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT,
+      last_activity_ts TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, uuid TEXT, ts TEXT,
       lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
@@ -68,5 +69,35 @@ describe('getSession', () => {
   test('limit caps messages', () => {
     const dump = getSession(seedDb(), 'abc-111', { lanes: ['prompt'], limit: 1 })
     expect(dump.messages.map((m) => m.text)).toEqual(['i just init a new repo'])
+  })
+
+  test('--well narrows an ambiguous prefix instead of erroring', () => {
+    const db = seedDb()
+    db.exec(`
+      INSERT INTO wells(id, dir, real_path) VALUES (2, '-u-code-fun-tv', '/u/code/fun/tv');
+      INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts)
+        VALUES (2, 'abe-333', 10, 0, 1, '2026-07-03T10:00:00Z', '2026-07-03T10:00:00Z', '2026-07-03T10:00:00Z');
+    `)
+    // 'ab' now matches three sessions across two wells.
+    expect(() => getSession(db, 'ab', { lanes: ['prompt'], limit: 500 })).toThrow(/ambiguous/)
+    // The well disambiguates it. Before v11 this flag errored `Unknown flag`
+    // even though the lore-miner agent def documented it (ingest #12 finding).
+    expect(getSession(db, 'ab', { lanes: ['prompt'], limit: 500, well: 'fun-tv' }).session.sessionId).toBe('abe-333')
+    expect(getSession(db, 'ab', { lanes: ['prompt'], limit: 500, well: '/u/code/fun/tv' }).session.sessionId).toBe(
+      'abe-333',
+    )
+    // A prefix that exists but not in the named well is a miss, not a wrong hit.
+    expect(() => getSession(db, 'abc', { lanes: ['prompt'], limit: 500, well: 'fun-tv' })).toThrow(
+      /no indexed session matches "abc" in a well matching "fun-tv"/,
+    )
+  })
+
+  test('last reports activity; idleUntil exposes a heartbeat tail', () => {
+    const db = seedDb()
+    // abc-111 stops working 07-02T03:00 but keeps getting pinged for a month.
+    db.exec("UPDATE sessions SET last_ts = '2026-08-02T03:00:00Z', last_activity_ts = '2026-07-02T03:00:00Z' WHERE session_id = 'abc-111'")
+    const dump = getSession(db, 'abc-111', { lanes: ['prompt'], limit: 500 })
+    expect(dump.session.last).toBe('2026-07-02T03:00:00Z')
+    expect(dump.session.idleUntil).toBe('2026-08-02T03:00:00Z')
   })
 })

@@ -7,6 +7,7 @@ const Meta = z.object({
   sessionId: z.string(),
   first: z.string().nullable(),
   last: z.string().nullable(),
+  idleUntil: z.string().nullable(),
   lines: z.number(),
 })
 
@@ -32,20 +33,52 @@ export type SessionDump = {
 export function getSession(
   db: Database,
   idPrefix: string,
-  opts: { lanes: Lane[]; limit: number },
+  opts: { lanes: Lane[]; limit: number; well?: string; exact?: boolean },
 ): SessionDump {
+  // --well narrows an ambiguous prefix. Ids are uuids so collisions are rare,
+  // but the miner agent def has always documented this flag; before v11 it
+  // errored `Unknown flag: --well` (ingest #12 finding).
+  const wellClause = opts.well
+    ? opts.exact
+      ? ' AND (w.dir = ? OR w.real_path = ?)'
+      : ' AND (w.dir LIKE ? OR w.real_path LIKE ?)'
+    : ''
+  const wellParams: string[] = []
+  if (opts.well) {
+    const v = opts.exact ? opts.well : `%${opts.well}%`
+    wellParams.push(v, v)
+  }
   const ids = z
     .array(z.object({ session_id: z.string() }))
-    .parse(db.prepare('SELECT session_id FROM sessions WHERE session_id LIKE ? LIMIT 5').all(`${idPrefix}%`))
-  if (ids.length === 0) throw new Error(`no indexed session matches "${idPrefix}"`)
+    .parse(
+      db
+        .prepare(
+          `SELECT s.session_id FROM sessions s JOIN wells w ON w.id = s.well_id
+           WHERE s.session_id LIKE ?${wellClause} LIMIT 5`,
+        )
+        .all(`${idPrefix}%`, ...wellParams),
+    )
+  if (ids.length === 0)
+    throw new Error(
+      opts.well
+        ? `no indexed session matches "${idPrefix}" in a well matching "${opts.well}"`
+        : `no indexed session matches "${idPrefix}"`,
+    )
   if (ids.length > 1)
-    throw new Error(`ambiguous prefix "${idPrefix}": ${ids.map((r) => r.session_id).join(', ')}`)
+    throw new Error(
+      `ambiguous prefix "${idPrefix}": ${ids.map((r) => r.session_id).join(', ')}` +
+        (opts.well ? '' : ' (narrow with --well)'),
+    )
   const sessionId = ids[0]!.session_id
 
   const session = Meta.parse(
     db
       .prepare(
-        `SELECT w.dir AS well, s.session_id AS sessionId, s.first_ts AS first, s.last_ts AS last, s.lines
+        `SELECT w.dir AS well, s.session_id AS sessionId, s.first_ts AS first,
+                COALESCE(s.last_activity_ts, s.last_ts) AS last,
+                CASE WHEN s.last_activity_ts IS NOT NULL AND s.last_ts > s.last_activity_ts
+                     THEN s.last_ts END AS idleUntil,
+                s.lines
          FROM sessions s JOIN wells w ON w.id = s.well_id WHERE s.session_id = ?`,
       )
       .get(sessionId),

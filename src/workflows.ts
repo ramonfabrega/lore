@@ -192,7 +192,18 @@ const Row = z.object({
   first: z.string().nullable(),
   durationMs: z.number().nullable(),
 })
-export type WorkflowRunRow = Omit<z.infer<typeof Row>, 'phases'> & { phases: z.infer<typeof Phase>[] }
+// phases ships as `"<title> — <detail>"` strings, not {title, detail} objects.
+// The md table formatter stringifies each cell, so an array of objects rendered
+// as `[object Object],[object Object]` — the self-describing phase list, which
+// is the entire point of this lane, was invisible in the format agents read
+// (ingest #12 finding; toon/json rendered it correctly all along, so the
+// original report overstated the blast radius). Structured drill-down is
+// `spawns --workflow <runId>`; this lane is the catalog.
+export type WorkflowRunRow = Omit<z.infer<typeof Row>, 'phases'> & { phases: string[] }
+
+export function formatPhases(phases: z.infer<typeof Phase>[]): string[] {
+  return phases.map((p) => (p.detail ? `${p.title} — ${p.detail}` : p.title))
+}
 
 export type WorkflowNameSummary = {
   name: string | null
@@ -251,7 +262,7 @@ export function listWorkflowRuns(
   const runs = z
     .array(Row)
     .parse(db.prepare(sql).all(...params, opts.limit))
-    .map((r) => ({ ...r, phases: r.phases ? z.array(Phase).parse(JSON.parse(r.phases)) : [] }))
+    .map((r) => ({ ...r, phases: r.phases ? formatPhases(z.array(Phase).parse(JSON.parse(r.phases))) : [] }))
   const summarySql = `
     WITH per_run AS (
       SELECT r.id, r.name, COUNT(s.id) AS agents, SUM(s.output_tokens) AS out,

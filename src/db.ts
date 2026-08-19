@@ -29,7 +29,22 @@ import { z } from 'zod'
 // phases) at <session>/workflows/wf_*.json and its agents under
 // <session>/subagents/workflows/wf_*/ — previously invisible to the spawn
 // observatory, which is exactly where the token-heavy fan-outs live.
-const SCHEMA_VERSION = 10
+// v10: spawns.last_stop_reason — telemetry honesty; a spawn that never reached
+// a terminal stop_reason has token totals that are a FLOOR, not a measurement.
+// v11: sessions.last_activity_ts — last_ts is the last line of ANY kind, and
+// harness heartbeats (bridge_status and other entry-less records) carry
+// timestamps, so a dormant session keeps ticking. Two ingest-#13 miners
+// independently misdated their buckets from it: fantasy's 3493ca55 reports
+// last_ts 08-17 for work that ended 07-25, and rafffle's aa620a02 reports a
+// last_ts matching no message in any lane. last_activity_ts is the last line
+// that produced an entry in a WORK lane (prompt/text/thinking/tool) — note
+// that `system`/bridge_status records DO index, into the event lane, so
+// "produced any entry" is not a strong enough test.
+// Known limit: a real-but-trivial exchange still counts as activity (a bare
+// "Continue from where you left off." + "No response requested." keeps the
+// clock running). Distinguishing that from real work needs content judgment,
+// not a timestamp rule, so it is deliberately out of scope.
+const SCHEMA_VERSION = 11
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -47,7 +62,8 @@ CREATE TABLE IF NOT EXISTS sessions(
   mtime_ms INTEGER NOT NULL,
   lines INTEGER NOT NULL DEFAULT 0,
   first_ts TEXT,
-  last_ts TEXT
+  last_ts TEXT,
+  last_activity_ts TEXT
 );
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY,

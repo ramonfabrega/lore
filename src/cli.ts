@@ -52,19 +52,29 @@ cli.command('wells', {
 })
 
 cli.command('sessions', {
-  description: 'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt)',
+  description:
+    'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt). `last` is the last line that produced an indexed entry, NOT the last line in the file: harness heartbeats keep timestamping a dormant session, so `idleUntil` (present only when it exceeds `last`) is how long it stayed open after the work stopped. --limit takes the NEWEST n and renders them oldest-first; use --since for delta ingests.',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
       .boolean()
       .optional()
       .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
-    limit: z.number().default(100).describe('Max results'),
+    since: z
+      .string()
+      .optional()
+      .describe('Only sessions with ACTIVITY on/after this ISO date (e.g. 2026-08-01) — heartbeat-only tails do not qualify'),
+    limit: z.number().default(100).describe('Max results (takes the newest n, then renders oldest-first)'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
-    const sessions = listSessions(db, { well: options.well, exact: options.exact, limit: options.limit })
+    const sessions = listSessions(db, {
+      well: options.well,
+      exact: options.exact,
+      since: options.since,
+      limit: options.limit,
+    })
     return { count: sessions.length, sessions }
   },
 })
@@ -80,19 +90,30 @@ cli.command('session', {
       .array(z.enum(LANES))
       .optional()
       .describe('Lanes to include (default: prompt). gitBranch rides along — well membership ≠ work location'),
+    well: z
+      .string()
+      .optional()
+      .describe('Narrow an ambiguous id prefix to wells whose dir or real path contains this substring'),
+    exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
     limit: z.number().default(500).describe('Max messages'),
   }),
-  alias: { lane: 'l', limit: 'n' },
+  alias: { lane: 'l', well: 'w', limit: 'n' },
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
     const lanes = (options.lane ?? ['prompt']) as Lane[]
-    const dump = getSession(db, args.id, { lanes, limit: options.limit })
+    const dump = getSession(db, args.id, {
+      lanes,
+      limit: options.limit,
+      well: options.well,
+      exact: options.exact,
+    })
     return { ...dump.session, workDirs: dump.workDirs, lanes, count: dump.messages.length, messages: dump.messages }
   },
 })
 
 cli.command('index', {
-  description: 'Build or refresh the search index (incremental by mtime/size)',
+  description:
+    'Build or refresh the search index over transcripts, spawns, and workflow runs (incremental by mtime/size). This is the DETERMINISTIC read layer — it is NOT a wiki ingest, and `lore wiki` has no `index` verb: mining sources into wiki pages is a session-driven op that costs a subagent fan-out. Confusing the two has cost a round-trip twice.',
   options: z.object({
     full: z.boolean().optional().describe('Reindex everything, ignoring the incremental skip'),
   }),
@@ -154,6 +175,10 @@ cli.command('spawns', {
       .string()
       .optional()
       .describe('Only agents of one Workflow run — run id or prefix (see the workflows listing)'),
+    session: z
+      .string()
+      .optional()
+      .describe('Only agents spawned by this session — id or unique prefix (see the sessions listing)'),
     limit: z.number().default(50).describe('Max spawn rows (the rollup always covers all matches)'),
   }),
   alias: { well: 'w', agent: 'a', limit: 'n' },
@@ -165,6 +190,7 @@ cli.command('spawns', {
       agent: options.agent,
       since: options.since,
       workflow: options.workflow,
+      session: options.session,
       limit: options.limit,
     })
     return { count: spawns.length, partialTelemetry, byAgentType, byWeek, spawns }
