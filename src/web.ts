@@ -9,6 +9,7 @@ import { type AgentRow, listAgents } from './agents'
 import { WIKI_DIR } from './config'
 import type { Lane } from './parse'
 import { searchSessions } from './search'
+import { resolveSessionId } from './session'
 import { listSessions } from './sessions'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
@@ -64,11 +65,32 @@ export function composeHandler(pages: (req: Request) => Response | Promise<Respo
   }
 }
 
-export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Database) => Promise<AgentRow[]>; wikiDir?: string } = {}) {
+export type Indexed = { at: string | null; busy: boolean; error: string | null }
+
+export function createApp(
+  getDb: Db,
+  opts: { build?: string; agents?: (db: Database) => Promise<AgentRow[]>; wikiDir?: string; indexed?: Indexed } = {},
+) {
   const app = new Hono()
   const startedAt = new Date().toISOString()
   const agents = opts.agents ?? listAgents
   const wikiDir = opts.wikiDir ?? WIKI_DIR
+  const indexed = opts.indexed ?? { at: null, busy: false, error: null }
+  const chrome = () => ({ indexedAt: indexed.at, indexError: indexed.error })
+
+  // A commit trailer's id → its transcript. `/s/session_X`, `/s/cse_X`, a
+  // bare suffix, or a transcript uuid prefix all land on /session/<uuid>.
+  app.get('/s/:id', (c) => {
+    const db = getDb()
+    let target: string | null = null
+    try {
+      target = resolveSessionId(db, c.req.param('id'), {})
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return c.text(`${msg}\n\n(interactive sessions write no jobs/<id>/state.json, so their trailers cannot resolve — only background jobs can)`, 404)
+    }
+    return c.redirect(`/session/${target}`, 302)
+  })
 
   app.get('/search', (c) => {
     const db = getDb()
@@ -117,7 +139,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
               </div>`,
             )}`
         : html`<p class="muted">Sessions ranked by their best hit, then hit count, then recency. A half-typed last word matches as a prefix. FTS5 syntax passes through.</p>`}`
-    return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q }))
+    return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q, ...chrome() }))
   })
 
   app.get('/agents', async (c) => {
@@ -157,7 +179,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
           </tbody>
         </table>
       </section>`
-    return c.html(page('agents · lore', body))
+    return c.html(page('agents · lore', body, chrome()))
   })
 
   // One background job across every /clear it produced — the conversation as
@@ -206,11 +228,11 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
           </tbody>
         </table>
       </section>`
-    return c.html(page(`job ${id.slice(0, 8)} · lore`, body))
+    return c.html(page(`job ${id.slice(0, 8)} · lore`, body, chrome()))
   })
 
   // Liveness + provenance for `lore server status`.
-  app.get('/_lore', (c) => c.json({ ok: true, build: opts.build ?? 'dev', pid: process.pid, startedAt }))
+  app.get('/_lore', (c) => c.json({ ok: true, build: opts.build ?? 'dev', pid: process.pid, startedAt, indexed }))
 
   app.get('/', (c) => {
     const db = getDb()
@@ -273,7 +295,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
         ${wells.unpriced.length ? html`<p class="muted">unpriced models: ${wells.unpriced.join(', ')}</p>` : ''}
       </section>
       <p class="muted">${wells.note}</p>`
-    return c.html(page('lore', body))
+    return c.html(page('lore', body, chrome()))
   })
 
   app.get('/usage', (c) => {
@@ -293,7 +315,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
       <section><h2>by week</h2>${usageTable(weeks.rows.slice().reverse(), { keyLabel: 'week' })}</section>
       <section><h2>by model</h2>${usageTable(models.rows, { keyLabel: 'model' })}</section>
       <p class="muted">${days.note}</p>`
-    return c.html(page('usage · lore', body))
+    return c.html(page('usage · lore', body, chrome()))
   })
 
   app.get('/well/:dir', (c) => {
@@ -334,7 +356,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
           </tbody>
         </table>
       </section>`
-    return c.html(page(`${dir} · lore`, body))
+    return c.html(page(`${dir} · lore`, body, chrome()))
   })
 
   app.get('/session/:id', (c) => {
@@ -406,7 +428,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
           </tbody>
         </table>
       </section>`
-    return c.html(page(`${s.sessionId.slice(0, 8)} · lore`, body))
+    return c.html(page(`${s.sessionId.slice(0, 8)} · lore`, body, chrome()))
   })
 
   return app
@@ -523,15 +545,28 @@ function shortWell(dir: string): string {
   const tail = i >= 0 ? dir.slice(i + '-code-'.length) : dir.replace(/^-/, '')
   return tail.replace('--claude-worktrees-', ' · ').replace(/^(fun|work|personal|games)-/, '$1/')
 }
+function agoText(msAgo: number): string {
+  if (msAgo < 60_000) return 'just now'
+  if (msAgo < 3_600_000) return `${Math.round(msAgo / 60_000)} min ago`
+  return `${(msAgo / 3_600_000).toFixed(1)} h ago`
+}
 function cut(s: string, n: number): string {
   const one = s.replace(/\s+/g, ' ').trim()
   return one.length > n ? `${one.slice(0, n - 1)}…` : one
 }
 
-function page(title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>, opts: { q?: string } = {}) {
+function page(
+  title: string,
+  body: HtmlEscapedString | Promise<HtmlEscapedString>,
+  opts: { q?: string; indexedAt?: string | null; indexError?: string | null } = {},
+) {
+  const ago = opts.indexedAt ? agoText(Date.now() - Date.parse(opts.indexedAt)) : null
   const nav = html`<nav class="nav">
     <a href="/">lore</a> <a href="/usage">usage</a> <a href="/agents">agents</a>
     <form method="get" action="/search" class="navsearch"><input type="search" name="q" value="${opts.q ?? ''}" placeholder="search sessions…" /></form>
+    <span class="muted small" title="${opts.indexedAt ?? 'the server has not refreshed the index; pages show the last lore index'}">${
+      opts.indexError ? html`<span class="err">index refresh failed</span>` : ago ? `indexed ${ago}` : 'index: last `lore index`'
+    }</span>
   </nav>`
   return html`<!doctype html>
 <html lang="en">

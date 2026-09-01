@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { resolveBridge } from './jobs'
 import type { Lane } from './parse'
 
 const Meta = z.object({
@@ -59,12 +60,17 @@ export function resolveSessionId(
         )
         .all(`${idPrefix}%`, ...wellParams),
     )
-  if (ids.length === 0)
+  if (ids.length === 0) {
+    // A commit trailer's claude.ai id (`session_X`, `cse_X`, or a URL ending
+    // in one) resolves through the jobs table when a background job wrote it.
+    const viaBridge = /(?:^|\/)(?:session|cse)_[\w-]+$/.test(idPrefix) ? resolveBridge(db, idPrefix) : null
+    if (viaBridge) return viaBridge
     throw new Error(
       opts.well
         ? `no indexed session matches "${idPrefix}" in a well matching "${opts.well}"`
         : `no indexed session matches "${idPrefix}"`,
     )
+  }
   if (ids.length > 1)
     throw new Error(
       `ambiguous prefix "${idPrefix}": ${ids.map((r) => r.session_id).join(', ')}` +

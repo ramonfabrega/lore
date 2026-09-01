@@ -165,3 +165,45 @@ describe('explorer pages: search, agents, job, anchors', () => {
     expect(home).toContain('action="/search"')
   })
 })
+
+describe('jobs: commit trailer → transcript', () => {
+  test('bridgeKey normalises every spelling; indexJobs reads state.json; /s/ redirects; trace resolves a trailer', async () => {
+    const { bridgeKey, indexJobs, resolveBridge } = await import('../src/jobs')
+    expect(bridgeKey('session_0145Qxeq')).toBe('0145Qxeq')
+    expect(bridgeKey('cse_0145Qxeq')).toBe('0145Qxeq')
+    expect(bridgeKey('https://claude.ai/code/session_0145Qxeq')).toBe('0145Qxeq')
+    expect(bridgeKey('0145Qxeq')).toBe('0145Qxeq')
+
+    const db = await seeded()
+    const claudeDir = mkdtempSync(join(tmpdir(), 'lore-jobs-'))
+    mkdirSync(join(claudeDir, 'jobs', 'ab12cd34'), { recursive: true })
+    writeFileSync(
+      join(claudeDir, 'jobs', 'ab12cd34', 'state.json'),
+      JSON.stringify({ sessionId: 'sess-1', bridgeSessionId: 'cse_0145Qxeq', name: 'lore', cwd: '/u/code/fun/app', state: 'working', createdAt: '2026-09-01T10:00:00.000Z', updatedAt: '2026-09-01T11:00:00.000Z' }),
+    )
+    mkdirSync(join(claudeDir, 'jobs', 'nostate'), { recursive: true })
+    const stats = await indexJobs(db, { claudeDir })
+    expect(stats).toMatchObject({ jobs: 1, withBridge: 1 })
+    expect(resolveBridge(db, 'session_0145Qxeq')).toBe('sess-1')
+    expect(resolveBridge(db, 'session_nope')).toBeNull()
+
+    const app = createApp(() => db, { wikiDir: '/nonexistent' })
+    const r = await app.request('/s/session_0145Qxeq', { redirect: 'manual' })
+    expect(r.status).toBe(302)
+    expect(r.headers.get('location')).toBe('/session/sess-1')
+    expect((await app.request('/s/sess-1', { redirect: 'manual' })).headers.get('location')).toBe('/session/sess-1')
+    expect((await app.request('/s/sess')).status).toBe(404) // ambiguous prefix, two sessions
+    expect((await app.request('/s/session_nope')).status).toBe(404)
+
+    const t = getTrace(db, 'https://claude.ai/code/session_0145Qxeq', { limit: 1 })
+    expect(t.session.sessionId).toBe('sess-1')
+  })
+
+  test('nav shows when the server last refreshed the index', async () => {
+    const db = await seeded()
+    const app = createApp(() => db, { wikiDir: '/nonexistent', indexed: { at: new Date(Date.now() - 120_000).toISOString(), busy: false, error: null } })
+    expect(await (await app.request('/usage')).text()).toContain('indexed 2 min ago')
+    const stale = createApp(() => db, { wikiDir: '/nonexistent' })
+    expect(await (await stale.request('/usage')).text()).toContain('last `lore index`')
+  })
+})

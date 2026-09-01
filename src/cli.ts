@@ -5,6 +5,7 @@ import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, 
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { buildIndex } from './indexer'
+import { indexJobs } from './jobs'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
 import { resolveHost, serverDown, serverLogs, serverRestart, serverStatus, serverUp } from './server'
@@ -142,6 +143,17 @@ cli.command('trace', {
   },
 })
 
+// One refresh = every lane the index has (transcripts + history, spawns,
+// workflow runs, jobs). `lore index` runs it once; `lore serve` runs it on a
+// timer so the pages stop being "as of the last lore index".
+async function refreshIndex(db: ReturnType<typeof openDb>, full?: boolean) {
+  const stats = await buildIndex(db, { projectsDir: PROJECTS_DIR, historyPath: HISTORY_PATH, full })
+  const spawns = await indexSpawns(db, { projectsDir: PROJECTS_DIR, full })
+  const workflows = await indexWorkflowRuns(db, { projectsDir: PROJECTS_DIR, full })
+  const jobs = await indexJobs(db, { claudeDir: CLAUDE_DIR })
+  return { ...stats, spawns, workflows, jobs }
+}
+
 cli.command('index', {
   description:
     'Build or refresh the search index over transcripts, spawns, and workflow runs (incremental by mtime/size). This is the DETERMINISTIC read layer — it is NOT a wiki ingest, and `lore wiki` has no `index` verb: mining sources into wiki pages is a session-driven op that costs a subagent fan-out. Confusing the two has cost a round-trip twice.',
@@ -150,10 +162,8 @@ cli.command('index', {
   }),
   run: async (c) => {
     const db = openDb(DB_PATH)
-    const stats = await buildIndex(db, { projectsDir: PROJECTS_DIR, historyPath: HISTORY_PATH, full: c.options.full })
-    const spawns = await indexSpawns(db, { projectsDir: PROJECTS_DIR, full: c.options.full })
-    const workflows = await indexWorkflowRuns(db, { projectsDir: PROJECTS_DIR, full: c.options.full })
-    return c.ok({ ...stats, spawns, workflows }, {
+    const result = await refreshIndex(db, c.options.full)
+    return c.ok(result, {
       cta: {
         description: 'Next:',
         commands: [{ command: 'search', description: 'Search the index' }, 'stats'],
@@ -323,7 +333,10 @@ cli.command('usage', {
 // /openapi.json; writers blocked). `api` mounts the pages as CLI commands via
 // incur's fetch mount, forcing JSON so agents get data, not markup. `server`
 // is the launchd wrapper that keeps `serve` alive.
-const web = createApp(() => openDb(DB_PATH), { build: BUILD_INFO })
+// The server refreshes the index itself (see `serve --refresh`); this holder
+// is how the pages learn when that last happened.
+const indexed: { at: string | null; busy: boolean; error: string | null } = { at: null, busy: false, error: null }
+const web = createApp(() => openDb(DB_PATH), { build: BUILD_INFO, indexed })
 
 cli.command('serve', {
   description:
@@ -331,6 +344,10 @@ cli.command('serve', {
   options: z.object({
     port: z.coerce.number().default(4949).describe('Port'),
     host: z.string().default('auto').describe('Bind address: auto (Tailscale IP, else 0.0.0.0), 127.0.0.1 (this machine only), or an address'),
+    refresh: z.coerce
+      .number()
+      .default(5)
+      .describe('Minutes between incremental index refreshes run by the server itself (0 = never; the pages then show the last `lore index`)'),
   }),
   alias: { port: 'p' },
   run: async ({ options }) => {
@@ -338,6 +355,28 @@ cli.command('serve', {
     const handler = composeHandler(web.fetch, (req) => cli.fetch(req))
     const server = Bun.serve({ hostname, port: options.port, fetch: handler })
     console.error(`lore serve ${BUILD_INFO} → http://${server.hostname}:${server.port}/  (tailnet: http://studio:${server.port}/)`)
+    // Incremental refresh in-process: sub-second when nothing changed, a few
+    // seconds after a busy hour; the shared db's busy_timeout covers a CLI
+    // `lore index` landing at the same moment. Never `full` — a schema bump
+    // is a reinstall + restart, not something a timer should trigger.
+    const refresh = async () => {
+      if (indexed.busy) return
+      indexed.busy = true
+      try {
+        await refreshIndex(openDb(DB_PATH))
+        indexed.at = new Date().toISOString()
+        indexed.error = null
+      } catch (e) {
+        indexed.error = e instanceof Error ? e.message : String(e)
+        console.error(`lore serve: index refresh failed: ${indexed.error}`)
+      } finally {
+        indexed.busy = false
+      }
+    }
+    if (options.refresh > 0) {
+      await refresh()
+      setInterval(refresh, options.refresh * 60_000)
+    }
     await new Promise<never>(() => {})
   },
 })
@@ -417,6 +456,7 @@ cli.command('stats', {
         repos: z.number(),
         docs: z.number(),
         requests: z.number(),
+        jobs: z.number(),
       })
       .parse(
         db
@@ -424,7 +464,8 @@ cli.command('stats', {
             `SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM messages) AS messages,
                     (SELECT COUNT(*) FROM history) AS historyRows,
                     (SELECT COUNT(*) FROM repos) AS repos, (SELECT COUNT(*) FROM docs) AS docs,
-                    (SELECT COUNT(*) FROM requests) AS requests`,
+                    (SELECT COUNT(*) FROM requests) AS requests,
+                    (SELECT COUNT(*) FROM jobs) AS jobs`,
           )
           .get(),
       )
