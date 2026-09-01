@@ -132,21 +132,27 @@ function feeByClass(txs: Transaction[]): Fee {
 // ---- the timeline -----------------------------------------------------
 
 // Every instruction at its wall-clock x, in the lane of its family, width
-// = latency (1.5px floor so a 40 ms Read still exists), errors in the
+// = latency (1.5‰ floor so a 40 ms Read still exists), errors in the
 // status color. `say` marks the assistant's notes and closing text — the
 // phase boundaries. Transactions are bands behind, numbered, linked.
+//
+// The plot is an SVG stretched to the panel (preserveAspectRatio none):
+// x in permille of the plot's width, y in CSS pixels. Only widths stretch,
+// and widths are time spans, so the stretch is exact. Type — lane labels,
+// band numbers, the axis — is HTML at 9px, positioned by percentage, so it
+// stays 9px whether the panel is 700px or 2000px wide.
 function timeline(trace: Trace, num: Map<Transaction, number>) {
   const s = trace.session
   if (!s.first || !s.last) return html``
   const t0 = Date.parse(s.first)
   const span = Math.max(1, Date.parse(s.last) - t0)
-  const W = 1200
-  const G = 40 // lane-label gutter
-  const TOP = 14 // transaction band labels
+  const PW = 1000 // permille
+  const TOP = 14 // transaction band numbers
   const LH = 12
   const AX = 14
-  const x = (ts: string | null) => (ts ? G + ((Date.parse(ts) - t0) / span) * (W - G) : null)
-  const w = (msv: number | null) => Math.max(1.5, ((msv ?? 0) / span) * (W - G))
+  const x = (ts: string | null) => (ts ? ((Date.parse(ts) - t0) / span) * PW : null)
+  const w = (msv: number | null) => Math.max(1.5, ((msv ?? 0) / span) * PW)
+  const pct = (v: number) => `${(v / 10).toFixed(2)}%`
 
   const present = new Set<string>()
   for (const tx of trace.transactions) {
@@ -160,31 +166,31 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
 
   const bands: H[] = []
   const marks: H[] = []
+  const labels: H[] = []
   trace.transactions.forEach((tx, i) => {
     const bx = x(tx.ts)
     if (bx == null || !tx.ms) return
-    const bw = Math.max(1, (tx.ms / span) * (W - G))
+    const bw = Math.max(1, (tx.ms / span) * PW)
     const href = tx.promptId ? `#tx-${tx.promptId}` : `#tx-${i}`
-    bands.push(html`<a href="${href}"><rect class="band ${i % 2 ? 'alt' : ''} ${tx.kind}" x="${bx.toFixed(1)}" y="0" width="${bw.toFixed(1)}" height="${H - AX}"><title>#${num.get(tx) ?? '–'} ${cut(tx.prompt, 80)} · ${ms(tx.ms)} · ${usd(tx.listUsd)}</title></rect>${
-      bw >= 10 && tx.kind === 'prompt' ? html`<text class="bandn" x="${(bx + 2).toFixed(1)}" y="10">${num.get(tx) ?? ''}</text>` : ''
-    }</a>`)
+    bands.push(html`<a href="${href}"><rect class="band ${i % 2 ? 'alt' : ''} ${tx.kind}" x="${bx.toFixed(2)}" y="0" width="${bw.toFixed(2)}" height="${H - AX}"><title>#${num.get(tx) ?? '–'} ${cut(tx.prompt, 80)} · ${ms(tx.ms)} · ${usd(tx.listUsd)}</title></rect></a>`)
+    if (bw >= 9 && tx.kind === 'prompt') labels.push(html`<span class="bandn" style="left:${pct(bx)}">${num.get(tx) ?? ''}</span>`)
     for (const ix of tx.instructions) {
       const mx = x(ix.ts)
       if (mx == null) continue
       const fam = family(ix.tool)
       const y = laneY.get(fam)
       if (y == null) continue
-      marks.push(html`<rect class="m ${fam} ${ix.error ? 'err' : ''}" x="${mx.toFixed(1)}" y="${y + 1}" width="${w(ix.ms).toFixed(1)}" height="${LH - 2}"><title>${hms(ix.ts)} ${ix.tool} · ${ms(ix.ms)}${ix.error ? ' · error' : ''}\n${cut(ix.input, 120)}</title></rect>`)
+      marks.push(html`<rect class="m ${fam} ${ix.error ? 'err' : ''}" x="${mx.toFixed(2)}" y="${y + 1}" width="${w(ix.ms).toFixed(2)}" height="${LH - 2}"><title>${hms(ix.ts)} ${ix.tool} · ${ms(ix.ms)}${ix.error ? ' · error' : ''}\n${cut(ix.input, 120)}</title></rect>`)
     }
     const sy = laneY.get('say')
     if (sy != null) {
       for (const n of tx.notes) {
         const nx = x(n.ts)
-        if (nx != null) marks.push(html`<rect class="m say" x="${nx.toFixed(1)}" y="${sy + 1}" width="2" height="${LH - 2}"><title>${hms(n.ts)} ${cut(n.text, 120)}</title></rect>`)
+        if (nx != null) marks.push(html`<rect class="m say" x="${nx.toFixed(2)}" y="${sy + 1}" width="1.5" height="${LH - 2}"><title>${hms(n.ts)} ${cut(n.text, 120)}</title></rect>`)
       }
       if (tx.reply && tx.ts && tx.ms) {
         const rx = x(new Date(Date.parse(tx.ts) + tx.ms).toISOString())
-        if (rx != null) marks.push(html`<rect class="m say reply" x="${(rx - 2).toFixed(1)}" y="${sy + 1}" width="2" height="${LH - 2}"><title>reply · ${cut(tx.reply, 120)}</title></rect>`)
+        if (rx != null) marks.push(html`<rect class="m say reply" x="${(rx - 1.5).toFixed(2)}" y="${sy + 1}" width="1.5" height="${LH - 2}"><title>reply · ${cut(tx.reply, 120)}</title></rect>`)
       }
     }
   })
@@ -192,19 +198,25 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
   // Axis: clock ticks at a nice step (≤ 12 across), labels HH:MM UTC.
   const stepMin = [1, 2, 5, 10, 15, 30, 60, 120, 240, 480].find((m) => span / (m * 60_000) <= 12) ?? 1440
   const ticks: H[] = []
+  const axis: H[] = []
   const first = Math.ceil(t0 / (stepMin * 60_000)) * stepMin * 60_000
   for (let tt = first; tt <= t0 + span; tt += stepMin * 60_000) {
-    const tx = G + ((tt - t0) / span) * (W - G)
-    ticks.push(html`<line class="tick" x1="${tx.toFixed(1)}" x2="${tx.toFixed(1)}" y1="${TOP}" y2="${H - AX}" />${tx <= W - 30 ? html`<text class="axis" x="${(tx + 2).toFixed(1)}" y="${H - 3}">${hm(new Date(tt).toISOString())}</text>` : ''}`)
+    const tx = ((tt - t0) / span) * PW
+    ticks.push(html`<line class="tick" x1="${tx.toFixed(2)}" x2="${tx.toFixed(2)}" y1="${TOP}" y2="${H - AX}" />`)
+    if (tx <= PW - 40) axis.push(html`<span class="axis" style="left:${pct(tx)}">${hm(new Date(tt).toISOString())}</span>`)
   }
 
   return html`<figure class="tl" role="img" aria-label="timeline of ${trace.totals.instructions} instructions over ${ms(trace.totals.ms)}">
-    <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMid meet">
-      ${bands}
-      ${ticks}
-      ${lanes.map((l) => html`<text class="lane" x="0" y="${(laneY.get(l) ?? 0) + LH - 3}">${l}</text><line class="lanel" x1="${G}" x2="${W}" y1="${(laneY.get(l) ?? 0) + LH}" y2="${(laneY.get(l) ?? 0) + LH}" />`)}
-      ${marks}
-    </svg>
+    <div class="lanes" style="padding-top:${TOP}px">${lanes.map((l) => html`<span>${l}</span>`)}</div>
+    <div class="plot" style="height:${H}px">
+      <svg viewBox="0 0 ${PW} ${H}" preserveAspectRatio="none">
+        ${bands}
+        ${ticks}
+        ${lanes.map((l) => html`<line class="lanel" x1="0" x2="${PW}" y1="${(laneY.get(l) ?? 0) + LH}" y2="${(laneY.get(l) ?? 0) + LH}" />`)}
+        ${marks}
+      </svg>
+      ${labels}${axis}
+    </div>
   </figure>`
 }
 

@@ -141,11 +141,13 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list .fee { margin: 0; display: inline-block; width: 100%; vertical-align: middle; } .list .feebar { height: 6px; }
 
 /* the block view (block.ts) */
-.tl { margin: 8px 0 0; } .tl svg { display: block; max-width: 100%; height: auto; }
+.tl { margin: 8px 0 0; display: grid; grid-template-columns: 40px minmax(0, 1fr); }
+.tl .lanes { display: flex; flex-direction: column; font: 9px/12px var(--mono); color: var(--ink-3); } .tl .lanes span { height: 12px; }
+.tl .plot { position: relative; } .tl svg { display: block; width: 100%; height: 100%; }
+.tl .bandn, .tl .axis { position: absolute; font: 9px/14px var(--mono); color: var(--ink-3); padding-left: 2px; white-space: nowrap; pointer-events: none; } .tl .bandn { top: 0; } .tl .axis { bottom: 0; }
 .tl .band { fill: var(--surface-2); } .tl .band.alt { fill: color-mix(in oklab, var(--surface-2) 50%, var(--surface)); } .tl .band.meta, .tl .band.command { fill: transparent; }
 .tl a:hover .band { fill: color-mix(in oklab, var(--series-1) 18%, var(--surface-2)); }
-.tl .bandn, .tl .lane, .tl .axis { fill: var(--ink-3); font-size: 9px; font-family: var(--mono); }
-.tl .lanel, .tl .tick { stroke: var(--line); stroke-width: 0.5; }
+.tl .lanel, .tl .tick { stroke: var(--line); stroke-width: 0.5; vector-effect: non-scaling-stroke; }
 .tl .m { fill: var(--ink-3); rx: 1; } .tl .m.read { fill: var(--series-1); } .tl .m.write { fill: var(--series-2); } .tl .m.run { fill: var(--series-3); }
 .tl .m.say { fill: var(--ink-2); } .tl .m.err { fill: var(--crit); }
 .spine .row { display: grid; grid-template-columns: 30px 64px minmax(0, 1fr) 48px 48px 36px 56px 112px 100px; gap: 0 8px; align-items: baseline; padding: 4px 8px; border-bottom: 1px solid var(--line); }
