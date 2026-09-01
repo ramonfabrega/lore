@@ -59,8 +59,12 @@ import { z } from 'zod'
 // instruction ↔ log pairing (latency is the timestamp pair); messages.
 // request_id — assistant rows' message.id, the join to `requests`;
 // sessions.job_session_id — the background job's id across its /clears.
-const SCHEMA_VERSION = 13
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests']
+// v14: jobs — `~/.claude/jobs/<id>/state.json`, the one file tying a
+// transcript uuid to the claude.ai session id in commit trailers
+// (`Claude-Session: …/session_X` ↔ `bridgeSessionId: cse_X`). Resolves a
+// commit to its transcript (`/s/<id>`, `lore trace session_X`).
+const SCHEMA_VERSION = 14
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -193,6 +197,19 @@ CREATE TABLE IF NOT EXISTS requests(
 );
 CREATE INDEX IF NOT EXISTS idx_requests_session ON requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts);
+CREATE TABLE IF NOT EXISTS jobs(
+  id INTEGER PRIMARY KEY,
+  job_id TEXT UNIQUE NOT NULL,
+  session_id TEXT,
+  bridge_key TEXT,
+  name TEXT,
+  cwd TEXT,
+  state TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_bridge ON jobs(bridge_key);
+CREATE INDEX IF NOT EXISTS idx_jobs_session ON jobs(session_id);
 `
 
 export function openDb(path: string): Database {

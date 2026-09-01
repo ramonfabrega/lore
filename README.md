@@ -31,6 +31,7 @@ bun src/main.ts agents                      # the live roster (claude agents + j
 bun src/main.ts serve                       # the explorer, foreground: http://studio:4949/ (binds the Tailscale IP); /usage, /well/<dir>, /session/<id>; read verbs under /cli/ (GET /cli/usage?by=week, /cli/openapi.json)
 bun src/main.ts api session <id-prefix>     # the pages as agent commands (JSON), via incur's fetch mount: api usage | api well <dir> | api session <id>
 lore server up|down|restart|status|logs     # the explorer always-on: a launchd user agent (KeepAlive); status says "restart owed" after scripts/install
+                                            # the server refreshes the index every 5 min (serve --refresh); /s/session_<X> opens the transcript behind a commit trailer
 bun src/main.ts docs index --fetch          # canon corpus (git objects, never working trees)
 bun src/main.ts stats
 

@@ -21,9 +21,12 @@ DESIGN.md's log.
 | **job** — one background job across every `/clear` | record-level `session_id` (≠ `sessionId`, the transcript's own id); the daemon roster's `sessionId` matches it | 2026-08 (bg sessions only) |
 | **links** — PRs, artifacts | `pr-link` records; the job's `state.json` children | varies |
 
-Not in the transcript: the claude.ai session id the commit trailer carries
-(`Claude-Session: …/session_…`). Nothing local maps it to a transcript UUID
-yet; until it does, "open the session from the commit" is a search, not a link.
+The claude.ai session id the commit trailer carries (`Claude-Session:
+…/session_X`) is in `~/.claude/jobs/<id>/state.json` as `bridgeSessionId:
+cse_X` — same suffix — for **background jobs** (13 of 16 on 2026-09-01).
+v14 indexes those files (`jobs`), so `/s/session_X` redirects to the
+transcript and `lore trace session_X` works. Interactive sessions write no
+such file; their trailers stay unresolved and the page says so.
 
 ## Layer 1 (v13)
 
@@ -115,10 +118,31 @@ the last `lore index`). Active first. Attach is a command to copy.
 across its `/clear`s, with fees — the conversation as the user lived it,
 which is never one transcript.
 
+## Freshness (landed)
+
+The server refreshes the index itself (`serve --refresh <min>`, default 5;
+0 = never): incremental, in-process, sub-second when nothing changed. The
+nav says `indexed N min ago`; `/_lore` carries the timestamp and the last
+error. Never `full` from the timer — a schema bump is a reinstall and a
+restart. Ran alongside a CLI `lore index`, the shared db's busy_timeout
+covers the overlap.
+
 ## Sequence
 
 1. v13 + `lore trace` — landed.
 2. `lore serve` skeleton — landed; `/cli/` + `lore server` — landed.
 3. Recent, search, annotations, agents, job — landed.
-4. A design pass, once the pages have earned it (the block view first).
-5. Native only if the web surface fails to earn itself.
+4. Jobs (trailer → transcript) + self-refresh — landed. Core complete.
+5. A design pass, once the pages have earned it (the block view first).
+6. Native only if the web surface fails to earn itself.
+
+## Not built, on purpose (candidates for later)
+
+- Root-page aggregates (~120 ms each ×3): a 60 s in-process cache if the
+  root ever needs to be instant.
+- A fuzzy/frecency session palette (fff-style) over titles — the design
+  pass decides whether search-as-you-type earns client code.
+- Interactive-session trailer resolution — no local file carries the
+  bridge id for them; would need the harness to write one.
+- MCP: `lore --mcp` already serves every verb (incur); the explorer's
+  routes are the same verbs, so nothing new is owed there.
