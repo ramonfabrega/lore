@@ -84,6 +84,7 @@ main.layout-usage { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-t
 .kpis .tile { container-type: inline-size; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; border: 1px solid var(--line); background: var(--surface); padding: 8px 10px 6px; }
 /* the value must hold eight tabular characters ($4849.51) in the tile's content box (cqi measures it): SF Mono advances 0.592em, so size = width / 4.75, capped at the scale's 20px */
 .kpis .tile .v { font: 500 clamp(14px, calc(100cqi / 4.75), var(--fs-20))/1.1 var(--mono); letter-spacing: -0.01em; } .kpis .tile .l { margin-top: 2px; } .kpis .tile .spark { margin-top: 8px; }
+.kpis .tile .states { display: flex; flex-direction: column; gap: 1px; white-space: nowrap; margin-top: 8px; } .kpis .tile .states .dot { width: 6px; height: 6px; margin-right: 5px; vertical-align: 0; }
 .kpis .tile .spark svg { display: block; width: 100%; } .kpis .tile .spark .mark { fill: var(--series-1); opacity: .55; } .kpis .tile .spark .mark.last { opacity: 1; }
 .tiles { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
 .tile { background: var(--surface-2); border-radius: 6px; padding: 4px 10px; min-width: 84px; }

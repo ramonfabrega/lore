@@ -294,7 +294,10 @@ export function createApp(
         ${stat('requests · wk', active.totals.requests.toLocaleString(), byDay, (d) => d.requests, (v) => v.toLocaleString())}
         ${stat('sessions · wk', String(active.totals.sessions), byDay, (d) => d.sessions, String)}
         ${stat('out · wk', tok(active.totals.output), byDay, (d) => d.output, tok)}
-        ${tile(blocked ? html`working · <span class="warn">${blocked} blocked</span>` : 'working', String(working), working ? 'good' : '')}
+        <div class="tile stat ${working ? 'good' : ''}">
+          <div><div class="v">${working + blocked}</div><div class="l">agents</div></div>
+          <div class="l states"><span><span class="dot st-working"></span>${working} working</span>${blocked ? html`<span class="warn"><span class="dot st-blocked"></span>${blocked} blocked</span>` : ''}</div>
+        </div>
       </div>
       <div class="area-chart panel">
         <header><h2>by day</h2><span>last 45, list $ by model</span>${modelLegend(days.rows)}</header>
@@ -356,7 +359,12 @@ export function createApp(
     const weeks = cached('usage.weeks', 300_000, indexKey(), () => listUsage(db, { by: 'week', limit: 52 }))
     const models = cached('usage.models', 300_000, indexKey(), () => listUsage(db, { by: 'model', limit: 20, split: true }))
     const wells = cached('usage.wells', 300_000, indexKey(), () => listUsage(db, { by: 'well', limit: 60, split: true }))
-    const data = { days, weeks, models, wells }
+    // "all time" is really "since the first indexed request" — say so.
+    const firstDay = cached('usage.firstDay', 300_000, indexKey(), () =>
+      z.object({ d: z.string().nullable() }).parse(db.prepare('SELECT substr(min(ts), 1, 10) AS d FROM requests').get()).d,
+    )
+    const since = firstDay ? `since ${firstDay}` : 'all time'
+    const data = { days, weeks, models, wells, firstDay }
     if (wantsJson(c.req.raw)) return c.json(data)
     const maxModel = Math.max(...models.rows.map((r) => r.listUsd ?? 0), 0)
     const maxWell = Math.max(...wells.rows.map((r) => r.listUsd ?? 0), 0)
@@ -366,11 +374,11 @@ export function createApp(
     const body = html`
       <div class="area-chart panel">
         <header><h2>by day</h2><span>last 90, list $ by model</span>${modelLegend(days.rows)}
-          <span class="sp">${usd(wells.totals.listUsd)} all time · ${wells.totals.requests.toLocaleString()} requests · ${wells.totals.sessions} sessions${wells.unpriced.length ? html` · <span class="err">unpriced: ${wells.unpriced.join(', ')}</span>` : ''}</span></header>
+          <span class="sp">${usd(wells.totals.listUsd)} ${since} · ${wells.totals.requests.toLocaleString()} requests · ${wells.totals.sessions} sessions${wells.unpriced.length ? html` · <span class="err">unpriced: ${wells.unpriced.join(', ')}</span>` : ''}</span></header>
         <div class="body">${dayChart(days.rows, 96)}</div>
       </div>
       <div class="area-models panel">
-        <header><h2>by model</h2><span>all time</span><span class="sp">${feeLegend()}</span></header>
+        <header><h2>by model</h2><span>${since}</span><span class="sp">${feeLegend()}</span></header>
         <div class="scroll list models">
           <div class="row head"><span>model</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span>fee by class</span><span class="num">list $</span></div>
           ${models.rows.map(
@@ -387,7 +395,7 @@ export function createApp(
         </div>
       </div>
       <div class="area-wells panel">
-        <header><h2>by well</h2><span>all time, top ${wells.rows.length}</span></header>
+        <header><h2>by well</h2><span>${since}, top ${wells.rows.length}</span></header>
         <div class="scroll list wells">
           <div class="row head"><span>well</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">list $</span></div>
           ${wells.rows.map(
