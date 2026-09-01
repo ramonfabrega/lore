@@ -14,7 +14,7 @@ import { listSessions } from './sessions'
 import { annotationLine, sessionBody, tile } from './block'
 import { cut, tok, usd } from './fmt'
 import { CSS } from './style'
-import { bars, feeBar, feeLegend, ibar, stackedBars } from './viz'
+import { bars, feeBar, feeLegend, ibar, spark, stackedBars } from './viz'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
 
@@ -80,7 +80,7 @@ export function createApp(
   const agents = opts.agents ?? listAgents
   const wikiDir = opts.wikiDir ?? WIKI_DIR
   const indexed = opts.indexed ?? { at: null, busy: false, error: null }
-  const chrome = () => ({ indexedAt: indexed.at, indexError: indexed.error })
+  const chrome = (c?: { req: { query: (k: string) => string | undefined } }) => ({ indexedAt: indexed.at, indexError: indexed.error, theme: c?.req.query('theme') ?? null })
 
   // In-process memo for the two slow things a page does: the whole-corpus
   // usage aggregates (~150 ms each; keyed on the index's timestamp, so a
@@ -157,7 +157,7 @@ export function createApp(
               </div>`,
             )}`
         : html`<p class="muted">Sessions ranked by their best hit, then hit count, then recency. A half-typed last word matches as a prefix. FTS5 syntax passes through.</p>`}`
-    return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q, ...chrome(), nav: 'search' }))
+    return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q, ...chrome(c), nav: 'search' }))
   })
 
   app.get('/agents', async (c) => {
@@ -199,7 +199,7 @@ export function createApp(
           )}
         </div>
       </div>`
-    return c.html(page('agents · lore', body, { ...chrome(), layout: 'one', nav: 'agents', bare: true }))
+    return c.html(page('agents · lore', body, { ...chrome(c), layout: 'one', nav: 'agents', bare: true }))
   })
 
   app.get('/job/:id', (c) => {
@@ -245,7 +245,7 @@ export function createApp(
           </div>`,
         )}
       </div></div>`
-    return c.html(page(`job ${id.slice(0, 8)} · lore`, body, { ...chrome(), layout: 'head' }))
+    return c.html(page(`job ${id.slice(0, 8)} · lore`, body, { ...chrome(c), layout: 'head' }))
   })
 
   // Liveness + provenance for `lore server status`.
@@ -285,13 +285,15 @@ export function createApp(
     const maxRecent = Math.max(...recent.map((s) => s.usage?.listUsd ?? 0), 0)
     const maxActive = Math.max(...active.rows.map((r) => r.listUsd ?? 0), 0)
     const maxLive = Math.max(...live.map((a) => a.liveTokens ?? 0), 0)
+    // The stat tiles' sparklines: the last 14 days, oldest first.
+    const byDay = days.rows.slice().sort((a, b) => (a.key < b.key ? -1 : 1)).slice(-14)
     const body = html`
       <div class="area-kpi kpis">
-        ${tile('today', usd(todayU.totals.listUsd))}
-        ${tile('this week', usd(active.totals.listUsd))}
-        ${tile('requests · wk', active.totals.requests.toLocaleString())}
-        ${tile('sessions · wk', String(active.totals.sessions))}
-        ${tile('out · wk', tok(active.totals.output))}
+        ${stat('today', usd(todayU.totals.listUsd), byDay, (d) => d.listUsd ?? 0, usd)}
+        ${stat('this week', usd(active.totals.listUsd), byDay, (d) => d.listUsd ?? 0, usd)}
+        ${stat('requests · wk', active.totals.requests.toLocaleString(), byDay, (d) => d.requests, (v) => v.toLocaleString())}
+        ${stat('sessions · wk', String(active.totals.sessions), byDay, (d) => d.sessions, String)}
+        ${stat('out · wk', tok(active.totals.output), byDay, (d) => d.output, tok)}
         ${tile('working', String(working), working ? 'good' : '')}
         ${blocked ? tile('blocked', String(blocked), 'warn') : ''}
       </div>
@@ -345,7 +347,7 @@ export function createApp(
           )}
         </div>
       </div>`
-    return c.html(page('lore', body, { ...chrome(), layout: 'root', nav: 'lore' }))
+    return c.html(page('lore', body, { ...chrome(c), layout: 'root', nav: 'lore' }))
   })
 
   app.get('/usage', (c) => {
@@ -428,7 +430,7 @@ export function createApp(
         </div>
         <p class="footnote">${days.note}</p>
       </div>`
-    return c.html(page('usage · lore', body, { ...chrome(), layout: 'usage', nav: 'usage' }))
+    return c.html(page('usage · lore', body, { ...chrome(c), layout: 'usage', nav: 'usage' }))
   })
 
   app.get('/well/:dir', (c) => {
@@ -474,7 +476,7 @@ export function createApp(
           </div>`,
         )}
       </div></div>`
-    return c.html(page(`${dir} · lore`, body, { ...chrome(), layout: 'head' }))
+    return c.html(page(`${dir} · lore`, body, { ...chrome(c), layout: 'head' }))
   })
 
   app.get('/session/:id', (c) => {
@@ -487,7 +489,7 @@ export function createApp(
     }
     if (wantsJson(c.req.raw)) return c.json(trace)
     // ?open=all unfolds every transaction and phase — one page to ⌘F or print.
-    return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), { ...chrome(), layout: 'head' }))
+    return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), { ...chrome(c), layout: 'head' }))
   })
 
   return app
@@ -531,6 +533,14 @@ function shortWell(dir: string): string {
   const tail = i >= 0 ? dir.slice(i + '-code-'.length) : dir.replace(/^-/, '')
   return tail.replace('--claude-worktrees-', ' · ').replace(/^(fun|work|personal|games)-/, '$1/')
 }
+// A stat tile: the number, its label, and the 14-day trend behind it.
+function stat(label: string, value: string, days: UsageRow[], pick: (d: UsageRow) => number, fmt: (v: number) => string) {
+  return html`<div class="tile stat"><div><div class="v">${value}</div><div class="l">${label}</div></div>${spark(
+    days.map(pick),
+    { title: (i) => `${days[i]!.key}: ${fmt(pick(days[i]!))}` },
+  )}</div>`
+}
+
 // "14:32" for today, "08-29" otherwise.
 function whenLabel(ts: string | null, today: string): string {
   if (!ts) return ''
@@ -574,15 +584,17 @@ type Layout = 'one' | 'head' | 'root' | 'usage'
 function page(
   title: string,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
-  opts: { q?: string; indexedAt?: string | null; indexError?: string | null; layout?: Layout; nav?: string; bare?: boolean } = {},
+  opts: { q?: string; indexedAt?: string | null; indexError?: string | null; layout?: Layout; nav?: string; bare?: boolean; theme?: string | null } = {},
 ) {
-  const ago = opts.indexedAt ? agoText(Date.now() - Date.parse(opts.indexedAt)) : null
+  const agoMs = opts.indexedAt ? Date.now() - Date.parse(opts.indexedAt) : null
+  const ago = agoMs != null ? agoText(agoMs) : null
   const layout = opts.layout ?? 'one'
+  const theme = opts.theme === 'light' || opts.theme === 'dark' ? opts.theme : null
   const link = (href: string, label: string) => html`<a href="${href}" class="${opts.nav === label ? 'on' : ''}">${label}</a>`
   const nav = html`<nav class="nav">
     ${link('/', 'lore')} ${link('/usage', 'usage')} ${link('/agents', 'agents')}
     <form method="get" action="/search" class="navsearch"><input type="search" name="q" value="${opts.q ?? ''}" placeholder="search sessions…" /></form>
-    <span class="muted small" title="${opts.indexedAt ?? 'the server has not refreshed the index; pages show the last lore index'}">${
+    <span class="muted small" title="${opts.indexedAt ?? 'the server has not refreshed the index; pages show the last lore index'}"><span class="led ${opts.indexError ? 'err' : agoMs != null && agoMs < 15 * 60_000 ? 'fresh' : ''}"></span>${
       opts.indexError ? html`<span class="err">index refresh failed</span>` : ago ? `indexed ${ago}` : 'index: last `lore index`'
     }</span>
   </nav>`
@@ -590,7 +602,7 @@ function page(
   // `bare` bodies bring their own panel.
   const main = layout === 'one' && !opts.bare ? html`<div class="panel"><div class="scroll body">${body}</div></div>` : body
   return html`<!doctype html>
-<html lang="en">
+<html lang="en"${theme ? html` data-theme="${theme}"` : ''}>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />

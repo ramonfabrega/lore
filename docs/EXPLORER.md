@@ -218,6 +218,22 @@ what the stacked chart and the per-model fee bars read.
 Deferred: a TUI. The web console at this density *is* the terminal-shaped
 explorer; a curses surface would re-implement it for one screen.
 
+### Theme (2026-09-01)
+
+Tokens are OKLCH with `light-dark()` pairs — one cool-tinted neutral scale
+(hue 265, the cdn pages') at symmetric lightness steps (album's rule), so
+lore, album, and the cdn read as siblings. The page is the darker ground;
+panels sit one step up, tiles one more. Series hues stay the dataviz
+reference palette, re-validated against the new surfaces (dark: all pass;
+light: the known sub-3:1 warning on orange/aqua/yellow, relieved by the
+labels and tables beside every mark). Type is mono-first — numbers,
+headers, nav, labels in `ui-monospace` (SF Mono here), sans only for prose
+(prompts, replies, notes) — which is where the terminal feel comes from,
+not from a downloaded font; no web font is loaded on purpose. KPI tiles
+carry a 14-day sparkline and stretch to the chart's height. A working
+agent's dot pulses (CSS only, off under reduced motion). `?theme=light|dark`
+pins the scheme — also how the light layout gets screenshot-checked.
+
 ## Sequence
 
 1. v13 + `lore trace` — landed.

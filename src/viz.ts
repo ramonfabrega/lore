@@ -104,3 +104,17 @@ export function feeLegend() {
 export function tokOrBlank(n: number | null | undefined): string {
   return n == null ? '' : tok(n)
 }
+
+// A sparkline for a stat tile: the trend behind the number, last bar
+// full-strength. No axis, no labels — the tile's label names it.
+export function spark(values: number[], o: { height?: number; title?: (i: number) => string } = {}) {
+  const n = values.length
+  if (n === 0) return html``
+  const h = o.height ?? 28
+  const W = n * 10
+  const max = Math.max(...values, 1e-9)
+  return html`<div class="spark"><svg viewBox="0 0 ${W} ${h}" height="${h}" preserveAspectRatio="none" aria-hidden="true">${values.map((v, i) => {
+    const bh = Math.max(1, (v / max) * h)
+    return html`<rect class="mark ${i === n - 1 ? 'last' : ''}" x="${i * 10}" y="${(h - bh).toFixed(2)}" width="8" height="${bh.toFixed(2)}">${o.title ? html`<title>${o.title(i)}</title>` : ''}</rect>`
+  })}</svg></div>`
+}
