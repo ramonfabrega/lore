@@ -300,7 +300,7 @@ export function createApp(
         </div>
       </div>
       <div class="area-chart panel">
-        <header><h2>by day</h2><span>last 45, list $ by model</span>${modelLegend(days.rows)}</header>
+        <header><h2>by day</h2><span class="sub">last 45, list $ by model</span>${modelLegend(days.rows)}</header>
         <div class="body">${dayChart(days.rows)}</div>
       </div>
       <div class="area-recent panel">
@@ -373,7 +373,7 @@ export function createApp(
     const feeOf = (r: UsageRow) => (r.usd ? feeBar(r.usd, { caption: false }) : html``)
     const body = html`
       <div class="area-chart panel">
-        <header><h2>by day</h2><span>last 90, list $ by model</span>${modelLegend(days.rows)}
+        <header><h2>by day</h2><span class="sub">last 90, list $ by model</span>${modelLegend(days.rows)}
           <span class="sp">${usd(wells.totals.listUsd)} ${since} · ${wells.totals.requests.toLocaleString()} requests · ${wells.totals.sessions} sessions${wells.unpriced.length ? html` · <span class="err">unpriced: ${wells.unpriced.join(', ')}</span>` : ''}</span></header>
         <div class="body">${dayChart(days.rows, 96)}</div>
       </div>

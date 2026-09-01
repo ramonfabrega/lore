@@ -75,15 +75,18 @@ main.layout-root { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-te
 main.layout-usage { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "chart chart" "models days" "wells days"; }
 .area-kpi { grid-area: kpi; } .area-chart { grid-area: chart; } .area-recent { grid-area: recent; } .area-agents { grid-area: agents; } .area-active { grid-area: active; }
 .area-models { grid-area: models; } .area-days { grid-area: days; } .area-wells { grid-area: wells; }
-.panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 0 oklch(0% 0 0 / 0.12); }
+.panel { container-type: inline-size; display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 0 oklch(0% 0 0 / 0.12); }
 .panel > header { flex: none; display: flex; align-items: baseline; gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--line); font: var(--fs-12) var(--mono); color: var(--ink-3); }
 .panel > header h2 { color: var(--ink); font: 600 var(--fs-125) var(--mono); } .panel > header .sp { margin-left: auto; }
+/* a header is one line: the title and subtitle never wrap, a legend truncates, and in a narrow panel the subtitle steps aside for the legend */
+.panel > header { white-space: nowrap; } .panel > header > * { flex: none; } .panel > header .legend { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (inline-size < 520px) { .panel > header .sub { display: none; } }
 .panel > .scroll { flex: 1; min-height: 0; overflow: auto; } .panel > .body { padding: 8px 10px; }
 .page-head { min-width: 0; } .crumbs { color: var(--ink-3); margin: 0 0 2px; font: var(--fs-12) var(--mono); }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; align-items: stretch; }
 .kpis .tile { container-type: inline-size; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; border: 1px solid var(--line); background: var(--surface); padding: 8px 10px 6px; }
 /* the value must hold eight tabular characters ($4849.51) in the tile's content box (cqi measures it): SF Mono advances 0.592em, so size = width / 4.75, capped at the scale's 20px */
-.kpis .tile .v { font: 500 clamp(14px, calc(100cqi / 4.75), var(--fs-20))/1.1 var(--mono); letter-spacing: -0.01em; } .kpis .tile .l { margin-top: 2px; } .kpis .tile .spark { margin-top: 8px; }
+.kpis .tile .v { font: 500 clamp(14px, calc(100cqi / 4.75), var(--fs-20))/1.1 var(--mono); letter-spacing: -0.01em; } .kpis .tile .l { margin-top: 2px; white-space: nowrap; font-size: clamp(9px, calc(100cqi / 8), var(--fs-105)); } .kpis .tile .spark { margin-top: 8px; }
 .kpis .tile .states { display: flex; flex-direction: column; gap: 1px; white-space: nowrap; margin-top: 8px; } .kpis .tile .states .dot { width: 6px; height: 6px; margin-right: 5px; vertical-align: 0; }
 .kpis .tile .spark svg { display: block; width: 100%; } .kpis .tile .spark .mark { fill: var(--series-1); opacity: .55; } .kpis .tile .spark .mark.last { opacity: 1; }
 .tiles { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
