@@ -294,8 +294,7 @@ export function createApp(
         ${stat('requests · wk', active.totals.requests.toLocaleString(), byDay, (d) => d.requests, (v) => v.toLocaleString())}
         ${stat('sessions · wk', String(active.totals.sessions), byDay, (d) => d.sessions, String)}
         ${stat('out · wk', tok(active.totals.output), byDay, (d) => d.output, tok)}
-        ${tile('working', String(working), working ? 'good' : '')}
-        ${blocked ? tile('blocked', String(blocked), 'warn') : ''}
+        ${tile(blocked ? html`working · <span class="warn">${blocked} blocked</span>` : 'working', String(working), working ? 'good' : '')}
       </div>
       <div class="area-chart panel">
         <header><h2>by day</h2><span>last 45, list $ by model</span>${modelLegend(days.rows)}</header>

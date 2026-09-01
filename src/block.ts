@@ -40,7 +40,7 @@ export function family(tool: string): string {
   return FAMILY[tool] ?? 'other'
 }
 
-export function tile(label: string, value: string, cls = '') {
+export function tile(label: string | H, value: string, cls = '') {
   return html`<div class="tile ${cls}"><div class="v">${value}</div><div class="l">${label}</div></div>`
 }
 
