@@ -145,7 +145,7 @@ one row. Three reads, top to bottom, all from `getTrace` — no client code,
    cache write. The exchange rate made visible per session.
 2. **The map.** A swimlane timeline of every instruction at its wall-clock
    x — one lane per tool family (`say`, `read`, `write`, `run`, `agent`,
-   `other`; only lanes present are drawn), width = latency (1.5px floor),
+   `other`; only lanes present are drawn), width = latency (1.5‰ floor),
    errors in the status color, the assistant's notes and closing text as
    ticks in `say`. Transactions are numbered bands behind, linked to their
    rows. Lane position carries identity; the three hues (blue / orange /
@@ -233,6 +233,53 @@ not from a downloaded font; no web font is loaded on purpose. KPI tiles
 carry a 14-day sparkline and stretch to the chart's height. A working
 agent's dot pulses (CSS only, off under reduced motion). `?theme=light|dark`
 pins the scheme — also how the light layout gets screenshot-checked.
+
+### Oomph (2026-09-01, branch `oomph`)
+
+Craft-level motion and scale, judged live in the browser with the user
+steering; every rule in `style.ts`, no client code.
+
+- **Fold.** `<details>` bodies ease open/closed over 220ms via
+  `::details-content` + `interpolate-size: allow-keywords` (Chrome 133+;
+  elsewhere they snap as before); the marker rotates instead of swapping
+  glyphs; row hover eases at 120ms. Off under reduced motion.
+- **View transitions.** `@view-transition { navigation: auto }` — same-origin
+  MPA, so every link and back/forward cross-fades at 180ms. The nav is
+  pinned (`view-transition-name: nav`), the active underline morphs to its
+  new place, the page head (well/job/session) rises in.
+- **Pulse.** The working dot beats at 1.8s: ring out in the first 55%, rest
+  for the remainder — a heartbeat, not a ripple.
+- **Scrollbars.** 6px on the panel edge, transparent track, thumb shown only
+  while the pointer is over its panel (webkit pseudos; Firefox gets the
+  standard thin themed bar). Cost: a 6px gutter per panel.
+- **Metered cells.** A cell with an inline bar is a flex row — bar pinned
+  left, number right — so bars line up down a column whatever the number's
+  width (they used to ride the right-aligned number, jittering 1ch).
+- **Timeline type is HTML.** The SVG holds geometry only, `preserveAspectRatio:
+  none`, x in permille and y in CSS px — widths are time spans, so the
+  horizontal stretch is exact. Lane labels, band numbers, and the axis are
+  HTML at 9px positioned by percentage, so they stay 9px whether the panel
+  is 700px or 2000px wide (they were SVG text: 8.4px at a third of the
+  Studio screen, 14.6px at two thirds).
+- **Fluid type scale.** One multiplier `--z` from the viewport — 1 up to
+  ~1170px (a third of the Studio screen), 1.18 from ~1640px (two thirds),
+  the Air between — via `tan(atan2(100vw, 2600px))` for a unitless ratio;
+  every font size is an `--fs-*` token on it. Spacing stays in px, so a wide
+  window reads denser, not airier; the grid columns that hold type scale
+  with it. Rejected: a modular ratio per level (jh3y/Utopia) — a console
+  wants its hierarchy compressed; hierarchy here is weight and ink.
+- **Container queries where they earn it.** KPI tile values are sized from
+  the tile's content box (`100cqi / 4.75` fits eight SF Mono characters; the
+  labels `100cqi / 8`), so they never overflow the padding. Panel headers
+  are one line: legend truncates, and below 520px the subtitle steps aside.
+- The agents tile matches its row (count over `agents`, one dotted line per
+  state where the sparkline sits); the usage page says `since <first indexed
+  day>`, not "all time" (a lie: it is since the logs begin).
+
+The four viewports this was checked against: a third of the Studio screen
+(~1146px, the daily driver), two thirds (~2000px), the 13" Air (1470px),
+and the phone (<900px, the stacked layout). Headless Chrome for the widths
+the live window is not at (memory `headless-chrome-layout-check`).
 
 ## Sequence
 
