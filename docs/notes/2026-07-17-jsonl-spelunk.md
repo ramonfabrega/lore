@@ -1,8 +1,8 @@
 # Spelunk notes — raw source census (2026-07-17)
 
 First-principles survey of the actual data before designing anything. Sampled wells:
-`work-cuanto--*-storefront-shell-refactor` (370M, 47 sessions), `fun-golf-sim--*-scaffold`
-(571M), `fun-tv` (37M, main), `~/code` root well. Claude Code ~v2.1.x era transcripts,
+a work-repo worktree well (370M, 47 sessions), a personal-project worktree well
+(571M), a main well (37M), the `~/code` root well. Claude Code ~v2.1.x era transcripts,
 2026-06-12 onward (everything older was lost to default retention before we raised it).
 
 ## Corpus shape
@@ -13,14 +13,14 @@ First-principles survey of the actual data before designing anything. Sampled we
 - Session files are `<uuid>.jsonl` at well root; each session may have a sibling dir
   `<uuid>/` containing `subagents/` (incl. `subagents/workflows/wf_*/agent-*.jsonl`)
   and `tool-results/` (large tool outputs offloaded as files, e.g.
-  `mcp-linear-server-list_issues-<ts>.txt`).
+  `mcp-<server>-<tool>-<ts>.txt`).
 
 ### Gotcha #1: leading-dash paths
 
-Well dir names encode absolute paths as `-Users-rf-studio-code-...` — they start with
+Well dir names encode absolute paths as `-Users-yourname-code-...` — they start with
 `-`. Naive `find`/`du`/CLI calls parse them as flags. Always `./`-prefix or use
 absolute paths. (Also: the encoding is lossy — `-` could be a path separator or a
-literal hyphen in a dir name; e.g. `fun-golf-sim` vs a hypothetical `fun/golf/sim`.
+literal hyphen in a dir name; e.g. `fun-my-app` vs a hypothetical `fun/my/app`.
 Resolution needs corroboration from record-level `cwd` fields, which carry the truth.)
 
 ## Session file anatomy
@@ -69,12 +69,12 @@ the clear signal.
 - **`history.jsonl`** — 12,340 rows: every prompt ever typed, with `display`,
   `pastedContents`, `project` (real path, not dash-mangled), `sessionId`, `timestamp`.
   **Survived the 30-day retention that killed old transcripts** — includes 6,060
-  cuanto prompts and 844 for `deck`, a project with no surviving well. This is both
+  prompts for one work project and 844 for a project with no surviving well. This is both
   the global spine (prompt → session → well join key) and the only archaeology for
   the pre-2026-06-12 era.
 - `sessions/*.json` — live session registry (pid, kind, name, jobId, cwd, status).
 - `file-history/` — checkpoint blobs backing rewind.
-- `memory-backups/` — prior memory snapshots (e.g. `cuanto-pre-dissolve`).
+- `memory-backups/` — prior memory snapshots (e.g. `<project>-pre-dissolve`).
 - `todos/`, `debug/`, `stats-cache.json`, `plugins/`, `shell-snapshots/` — unexamined.
 
 ## Addendum (same day, found while building v0)
@@ -90,7 +90,7 @@ the clear signal.
   (`src/cli.ts`, default-exported for `incur gen`).
 - **macOS ships openrsync** (not GNU rsync); `--stats` wording differs
   ("Number of files transferred" vs "Number of regular files transferred").
-- Wells can have **memory but zero sessions** (crypto/*, fun-album, fun-disk main):
+- Wells can have **memory but zero sessions** (several main wells in the sample):
   retention ate the transcripts, memory survived. The reverse of the worktree case.
 
 ## Preliminary implications for layer 1 (to validate, not gospel)

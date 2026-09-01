@@ -36,6 +36,9 @@ export async function listWells(projectsDir: string): Promise<Well[]> {
       dir: name,
       path,
       realPath: (await resolveRealPath(sessions)) ?? deslugWellDir(name),
+      // Detects wells born in Claude Code's own worktree home
+      // (<repo>/.claude/worktrees/, where EnterWorktree puts them) — worktrees
+      // added elsewhere by hand read as regular wells.
       isWorktree: name.includes('--claude-worktrees-'),
       hasMemory: existsSync(join(path, 'memory')),
       sessions,
@@ -53,9 +56,9 @@ export function slugWellDir(path: string): string {
   return path.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
-// A memory-only well (album: live repo with memory, zero transcripts) has no
+// A memory-only well (a live repo with memory but zero transcripts) has no
 // cwd record to resolve, and the dir name is lossy — '-' stands for '/', '.',
-// '_', and literal '-' alike (golf-sim, rf-studio, .claude). Reconstruct by
+// '_', and literal '-' alike (my-app, some_dir, .claude). Reconstruct by
 // walking the filesystem: at each boundary try every joiner, and only an
 // existing directory disambiguates. A deleted source resolves null, same as
 // before — "gone by id ≠ gone by content" stays measurable.

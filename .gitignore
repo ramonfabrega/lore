@@ -1,4 +1,5 @@
 .DS_Store
+.env
 .claude/worktrees/
 node_modules/
 .lore/

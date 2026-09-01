@@ -10,11 +10,11 @@ function promptLine(ts: string, text: string): string {
   return JSON.stringify({ type: 'user', timestamp: ts, message: { role: 'user', content: text } })
 }
 
-// The real shape, taken verbatim from fantasy's transcript tail: a `system`
-// record with subtype bridge_status. This DOES produce an indexed entry (the
-// event lane), which is why "produced an entry" was too weak a test for
-// activity — the first cut of v11 shipped that rule and did not move the
-// fantasy date at all.
+// The real shape, taken verbatim from a dormant session's transcript tail: a
+// `system` record with subtype bridge_status. This DOES produce an indexed
+// entry (the event lane), which is why "produced an entry" was too weak a test
+// for activity — the first cut of v11 shipped that rule and did not move the
+// misdated session at all.
 function heartbeatLine(ts: string): string {
   return JSON.stringify({
     type: 'system',
@@ -49,7 +49,7 @@ async function indexAnd(lines: string[]) {
 
 describe('buildIndex: last_ts vs last_activity_ts', () => {
   test('heartbeats advance last_ts but never last_activity_ts', async () => {
-    // The fantasy/rafffle shape: real work, then weeks of entry-less pings.
+    // The dormant-session shape: real work, then weeks of entry-less pings.
     const row = await indexAnd([
       promptLine('2026-07-23T02:39:00Z', 'gm gm, another day another project'),
       promptLine('2026-07-25T00:20:00Z', 'i think we are settled for now'),
