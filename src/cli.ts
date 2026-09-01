@@ -1,18 +1,19 @@
 import { Cli, z } from 'incur'
 import { archive } from './archive'
-import { ARCHIVE_DIR, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
+import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { buildIndex } from './indexer'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
+import { resolveHost, serverDown, serverLogs, serverRestart, serverStatus, serverUp } from './server'
 import { getSession } from './session'
 import { listSessions } from './sessions'
 import { indexSpawns, listSpawns } from './spawns'
 import { listToolUsage } from './tools'
 import { getTrace } from './trace'
 import { GROUPINGS, listUsage } from './usage'
-import { createApp } from './web'
+import { composeHandler, createApp } from './web'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
@@ -67,7 +68,7 @@ cli.command('sessions', {
       .string()
       .optional()
       .describe('Only sessions with ACTIVITY on/after this ISO date (e.g. 2026-08-01) — heartbeat-only tails do not qualify'),
-    limit: z.number().default(100).describe('Max results (takes the newest n, then renders oldest-first)'),
+    limit: z.coerce.number().default(100).describe('Max results (takes the newest n, then renders oldest-first)'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ options }) => {
@@ -98,7 +99,7 @@ cli.command('session', {
       .optional()
       .describe('Narrow an ambiguous id prefix to wells whose dir or real path contains this substring'),
     exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
-    limit: z.number().default(500).describe('Max messages'),
+    limit: z.coerce.number().default(500).describe('Max messages'),
   }),
   alias: { lane: 'l', well: 'w', limit: 'n' },
   run: ({ args, options }) => {
@@ -124,8 +125,8 @@ cli.command('trace', {
     well: z.string().optional().describe('Narrow an ambiguous id prefix to wells whose dir or real path contains this substring'),
     exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
     steps: z.boolean().optional().describe('Expand each transaction\'s API requests'),
-    head: z.number().default(160).describe('Characters kept of each prompt / input / result / reply'),
-    limit: z.number().default(200).describe('Max transactions (totals cover the whole session)'),
+    head: z.coerce.number().default(160).describe('Characters kept of each prompt / input / result / reply'),
+    limit: z.coerce.number().default(200).describe('Max transactions (totals cover the whole session)'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ args, options }) => {
@@ -176,7 +177,7 @@ cli.command('search', {
       .boolean()
       .optional()
       .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
-    limit: z.number().default(20).describe('Max results'),
+    limit: z.coerce.number().default(20).describe('Max results'),
     history: z.boolean().optional().describe('Also search history.jsonl (every prompt ever typed, survives retention)'),
   }),
   alias: { lane: 'l', well: 'w', limit: 'n' },
@@ -208,7 +209,7 @@ cli.command('spawns', {
       .string()
       .optional()
       .describe('Only agents spawned by this session — id or unique prefix (see the sessions listing)'),
-    limit: z.number().default(50).describe('Max spawn rows (the rollup always covers all matches)'),
+    limit: z.coerce.number().default(50).describe('Max spawn rows (the rollup always covers all matches)'),
   }),
   alias: { well: 'w', agent: 'a', limit: 'n' },
   run: ({ options }) => {
@@ -237,7 +238,7 @@ cli.command('workflows', {
       .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
     name: z.string().optional().describe('Filter to runs whose workflow name contains this substring'),
     since: z.string().optional().describe('Only runs recorded on/after this ISO date (e.g. 2026-07-15)'),
-    limit: z.number().default(25).describe('Max run rows (the rollup always covers all matches)'),
+    limit: z.coerce.number().default(25).describe('Max run rows (the rollup always covers all matches)'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ options }) => {
@@ -267,7 +268,7 @@ cli.command('tools', {
       .string()
       .optional()
       .describe('Only names starting with this prefix (e.g. mcp__, Skill:, command:, mcp__argent)'),
-    limit: z.number().default(100).describe('Max rows'),
+    limit: z.coerce.number().default(100).describe('Max rows'),
   }),
   alias: { well: 'w', prefix: 'p', limit: 'n' },
   run: ({ options }) => {
@@ -297,7 +298,7 @@ cli.command('usage', {
     model: z.string().optional().describe('Filter to models containing this substring (e.g. fable, opus-5, sonnet)'),
     since: z.string().optional().describe('Only requests on/after this ISO date (e.g. 2026-08-28)'),
     until: z.string().optional().describe('Only requests before this ISO date (exclusive)'),
-    limit: z.number().default(50).describe('Max rows (totals cover every matching row, not just the page)'),
+    limit: z.coerce.number().default(50).describe('Max rows (totals cover every matching row, not just the page)'),
   }),
   alias: { by: 'b', well: 'w', session: 's', model: 'm', limit: 'n' },
   run: ({ options }) => {
@@ -315,26 +316,56 @@ cli.command('usage', {
   },
 })
 
-// The explorer (docs/EXPLORER.md): one hono app, two surfaces. `serve` binds
-// it for the browser (0.0.0.0 so the tailnet reaches it as studio:<port>);
-// `api` mounts the same routes as CLI commands via incur's fetch mount,
-// forcing JSON so agents get data, not markup.
-const web = createApp(() => openDb(DB_PATH))
+// The explorer (docs/EXPLORER.md): one hono app, three surfaces. `serve`
+// binds the pages AND, on a 404, falls through to the CLI as a fetch handler
+// (incur's `Bun.serve(cli)` shape — every read verb a route, spec at
+// /openapi.json; writers blocked). `api` mounts the pages as CLI commands via
+// incur's fetch mount, forcing JSON so agents get data, not markup. `server`
+// is the launchd wrapper that keeps `serve` alive.
+const web = createApp(() => openDb(DB_PATH), { build: BUILD_INFO })
 
 cli.command('serve', {
   description:
-    'Serve the explorer (docs/EXPLORER.md): / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee). Binds 0.0.0.0 by default so the tailnet reaches it as http://studio:<port>/. Every page answers JSON with ?json=1 — the same routes `lore api` exposes to agents.',
+    'Serve the explorer (docs/EXPLORER.md) in the foreground: / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee); every page answers JSON with ?json=1. Under /cli/ the read verbs are routes with the JSON envelope (GET /cli/usage?by=week, GET /cli/trace/<id>, spec at /cli/openapi.json); writers (archive, index, wiki commit…) are not exposed. `--host auto` binds the Tailscale address so the tailnet reaches http://studio:<port>/ without binding the LAN; 0.0.0.0 when there is none. For always-on, use `lore server up`.',
   options: z.object({
-    port: z.number().default(4949).describe('Port'),
-    host: z.string().default('0.0.0.0').describe('Bind address (0.0.0.0 = every interface incl. the tailnet; 127.0.0.1 = this machine only)'),
+    port: z.coerce.number().default(4949).describe('Port'),
+    host: z.string().default('auto').describe('Bind address: auto (Tailscale IP, else 0.0.0.0), 127.0.0.1 (this machine only), or an address'),
   }),
   alias: { port: 'p' },
   run: async ({ options }) => {
-    const server = Bun.serve({ hostname: options.host, port: options.port, fetch: web.fetch })
-    console.error(`lore serve → http://${server.hostname}:${server.port}/  (tailnet: http://studio:${server.port}/)`)
+    const hostname = await resolveHost(options.host)
+    const handler = composeHandler(web.fetch, (req) => cli.fetch(req))
+    const server = Bun.serve({ hostname, port: options.port, fetch: handler })
+    console.error(`lore serve ${BUILD_INFO} → http://${server.hostname}:${server.port}/  (tailnet: http://studio:${server.port}/)`)
     await new Promise<never>(() => {})
   },
 })
+
+const serverCli = Cli.create('server', {
+  description:
+    'The always-on explorer as a launchd user agent (KeepAlive; logs under ~/.lore): up writes ~/Library/LaunchAgents/com.ramonfabrega.lore.plist and bootstraps it, down boots it out, restart kickstarts it, status compares the RUNNING build (the server\'s /_lore) with the installed bin — a frozen bundle does not follow scripts/install, so status says "restart owed" — and logs tails stdout/stderr.',
+})
+serverCli.command('up', {
+  description: 'Write the plist and bootstrap the agent (re-bootstraps if already loaded, so a changed port/host takes)',
+  options: z.object({
+    port: z.coerce.number().default(4949).describe('Port'),
+    host: z.string().default('auto').describe('Bind address: auto (Tailscale IP, else 0.0.0.0), 127.0.0.1, or an address — resolved once, written into the plist'),
+  }),
+  run: async ({ options }) => serverUp({ port: options.port, host: await resolveHost(options.host) }),
+})
+serverCli.command('down', { description: 'Boot the agent out (the plist stays; `up` reloads it)', run: () => serverDown() })
+serverCli.command('restart', { description: 'Kickstart the agent — after scripts/install, or when status says restart owed', run: () => serverRestart() })
+serverCli.command('status', {
+  description: 'launchd state, the URL, the running build vs the installed bin, and warnings (not loaded, not answering, restart owed)',
+  run: () => serverStatus({ installedBuild: BUILD_INFO }),
+})
+serverCli.command('logs', {
+  description: 'Tail the agent\'s stdout and stderr (~/.lore/serve.log, serve.err)',
+  options: z.object({ lines: z.coerce.number().default(40).describe('Lines from the end of each') }),
+  alias: { lines: 'n' },
+  run: ({ options }) => serverLogs(options.lines),
+})
+cli.command(serverCli)
 
 cli.command('api', {
   description:
@@ -460,7 +491,7 @@ docs.command('search', {
   }),
   options: z.object({
     repo: z.string().optional().describe('Filter to repos whose path contains this substring'),
-    limit: z.number().default(20).describe('Max results'),
+    limit: z.coerce.number().default(20).describe('Max results'),
   }),
   alias: { repo: 'r', limit: 'n' },
   run: ({ args, options }) => {
