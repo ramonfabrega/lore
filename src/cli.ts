@@ -10,6 +10,7 @@ import { getSession } from './session'
 import { listSessions } from './sessions'
 import { indexSpawns, listSpawns } from './spawns'
 import { listToolUsage } from './tools'
+import { getTrace } from './trace'
 import { GROUPINGS, listUsage } from './usage'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
@@ -109,6 +110,32 @@ cli.command('session', {
       exact: options.exact,
     })
     return { ...dump.session, workDirs: dump.workDirs, lanes, count: dump.messages.length, messages: dump.messages }
+  },
+})
+
+cli.command('trace', {
+  description:
+    'One session opened like a block (docs/EXPLORER.md): transactions (one user prompt and everything until the next; slash commands are `kind: command`), each with its steps (API requests), fee (four token classes + thinking, dated list-price `listUsd`), instructions (tool calls with the paired result\'s latency `ms` and `error` flag), the assistant\'s closing text, and wall time. Zero inference — every field is a transcript field or a join. Accepts a unique id prefix. `--steps` expands each transaction\'s requests (model, stop reason, per-request fee).',
+  args: z.object({
+    id: z.string().describe('Session id or unique prefix (see the sessions listing or `usage --by session`)'),
+  }),
+  options: z.object({
+    well: z.string().optional().describe('Narrow an ambiguous id prefix to wells whose dir or real path contains this substring'),
+    exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
+    steps: z.boolean().optional().describe('Expand each transaction\'s API requests'),
+    head: z.number().default(160).describe('Characters kept of each prompt / input / result / reply'),
+    limit: z.number().default(200).describe('Max transactions (totals cover the whole session)'),
+  }),
+  alias: { well: 'w', limit: 'n' },
+  run: ({ args, options }) => {
+    const db = openDb(DB_PATH)
+    return getTrace(db, args.id, {
+      well: options.well,
+      exact: options.exact,
+      steps: options.steps,
+      head: options.head,
+      limit: options.limit,
+    })
   },
 })
 
