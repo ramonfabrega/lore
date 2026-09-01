@@ -29,6 +29,10 @@ export type ServerConfig = { port: number; host: string }
 export function renderPlist(cfg: ServerConfig, opts: { bin?: string; home?: string } = {}): string {
   const bin = opts.bin ?? BIN
   const home = opts.home ?? homedir()
+  // PATH under launchd is bare: bun for the shim, ~/.local/bin for `claude`
+  // (the agents page shells out to `claude agents --json` — found missing on
+  // the first live check: "bun: command not found: claude"), homebrew for
+  // tailscale/git.
   const args = [bin, 'serve', '--port', String(cfg.port), '--host', cfg.host]
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -47,7 +51,7 @@ ${args.map((a) => `    <string>${escapeXml(a)}</string>`).join('\n')}
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>${escapeXml(`${home}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`)}</string>
+    <string>${escapeXml(`${home}/.bun/bin:${home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`)}</string>
     <key>HOME</key>
     <string>${escapeXml(home)}</string>
   </dict>

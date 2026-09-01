@@ -8,7 +8,7 @@ describe('launchd plist', () => {
     expect(xml).toContain('<string>com.ramonfabrega.lore</string>')
     expect(xml).toContain('<string>/u/.bun/bin/lore</string>\n    <string>serve</string>\n    <string>--port</string>\n    <string>4949</string>\n    <string>--host</string>\n    <string>100.81.87.24</string>')
     expect(xml).toContain('<key>KeepAlive</key>\n  <true/>')
-    expect(xml).toContain('<string>/u/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>')
+    expect(xml).toContain('<string>/u/.bun/bin:/u/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>')
     expect(xml).toContain('<string>/u/.lore/serve.log</string>')
     expect(readPlistConfig(xml)).toEqual({ port: 4949, host: '100.81.87.24' })
     expect(readPlistConfig('<plist></plist>')).toBeNull()
