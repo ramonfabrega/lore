@@ -1,37 +1,175 @@
 # lore
 
-Claude Code memory/conversation explorer and knowledge compounder.
+Search, index, and compound everything Claude Code has ever written on your
+machine.
 
-Conversations are the raw lore; the wiki is where it accumulates; graduation turns
-lore into canon (git-committed CLAUDE.mds and docs). See `CLAUDE.md` for the thesis
-and `docs/DESIGN.md` for the design narrative and decision log.
+```
+$ lore search "sparkle notarization" --history
+lore v0.1.0 b55 @ 31f477b
+hits[3]{well,sessionId,lane,ts,snippet}:
+  "-Users-you-code-fun-my-app",8f0c21d4,text,"2026-07-02","…hardened runtime blocks »sparkle notarization« unless the XPC services are…"
+  ...
 
-## v0 — layer 1 CLI (model-free)
-
-The blessed bin: `scripts/install` builds the installed `lore` from a clean
-landed tree (test-gated, provenance on stderr) — sessions and subagents use
-that by default. The `bun src/main.ts` forms below are the dev lane, invoked
-from this checkout by explicit path only.
-
-```sh
-bun install
-
-bun src/main.ts archive   # additive mirror of ~/.claude data → ~/.lore/archive (job zero)
-bun src/main.ts index     # build/refresh the FTS5 index + spawns lane (~4s full, sub-second incremental)
-bun src/main.ts wells     # list wells: real path, worktree/memory flags, sizes
-bun src/main.ts sessions --well tv          # a well's arc spine; --exact for prefix wells
-bun src/main.ts session <id-prefix> --lane prompt
-bun src/main.ts search "sparkle notarization" --history
-bun src/main.ts spawns    # subagent observatory: verified model, drift, boot cost, weekly trend
-bun src/main.ts workflows # workflow runs: script meta, agents, tokens, model mix; drill: spawns --workflow
-bun src/main.ts tools --prefix Skill:       # invocation usage — the ambient ROI evidence
-bun src/main.ts docs index --fetch          # canon corpus (git objects, never working trees)
-bun src/main.ts stats
-
-bun src/main.ts skills add  # install lore-* skills so agents discover the CLI
+$ lore stats
+totals:
+  sessions: 608
+  messages: 290487
+  historyRows: 15846
+lanes[6]{lane,n}:
+  tool,201153
+  event,48483
+  text,31672
+  prompt,5487
+  ...
 ```
 
-Built on [incur](https://github.com/wevm/incur) — agent-first CLI surface (TOON/JSON
-output, `--llms` manifest, token pagination, MCP via `--mcp`) — and `bun:sqlite` FTS5.
+## Why
 
-Env: `LORE_HOME` (default `~/.lore`), `LORE_CLAUDE_DIR` (default `~/.claude`).
+Claude Code records everything — and lets it rot. Three failure modes drove this
+tool:
+
+1. **Evaporation.** Default retention deletes transcripts after ~30 days. (Check
+   `cleanupPeriodDays` in your settings; this repo's author lost everything older
+   than a month before noticing.)
+2. **Path-sharding.** Memory and transcripts are keyed by directory: `~/code`,
+   each repo, and each git worktree get separate, mutually blind stores. What a
+   session learns in one place is invisible everywhere else.
+3. **No compounding.** Insights, corrections, and decisions sit inert in JSONL.
+   Nothing accumulates; every session re-learns.
+
+lore archives the raw data (additive mirror — deletions upstream never propagate),
+indexes it (SQLite FTS5), and gives sessions a query surface over their own
+history. Above the CLI sits an optional judgment layer: interactive Claude
+sessions maintaining a private wiki from the mined material and promoting matured
+knowledge into git-committed docs. The CLI is deterministic and model-free; the
+judgment layer is protocols, not code (see Architecture).
+
+## What Claude Code leaves on your disk
+
+A **well** is one directory's store under `~/.claude/projects/` — the dir name is
+your absolute path with every non-alphanumeric character flattened to `-`
+(`-Users-you-code-my-app`; lossy, and it bites). Inside: one `<uuid>.jsonl` per
+session — an **event log, not a chat log**. In a measured busy session, ~3–4% of
+lines are conversational signal; the rest is tool traffic, thinking envelopes
+(persisted *empty* — signature only), and harness events. Sibling dirs carry
+per-spawn subagent transcripts (`<session>/subagents/`, with per-request model and
+usage) and full Workflow scripts (`<session>/workflows/wf_*.json`). Separately,
+`~/.claude/history.jsonl` holds every prompt you ever typed — it survives the
+retention purge that eats transcripts.
+
+The full census, with numbers: [`docs/notes/2026-07-17-jsonl-spelunk.md`](docs/notes/2026-07-17-jsonl-spelunk.md).
+
+## Install
+
+Requires [Bun](https://bun.sh) and `rsync` (the archive step shells out to it;
+macOS's openrsync and GNU rsync both work).
+
+```sh
+git clone https://github.com/ramonfabrega/lore && cd lore
+bun install
+scripts/install     # builds the frozen `lore` bin -> ~/.bun/bin/lore (gates on tests)
+```
+
+`scripts/install` refuses a dirty tree: the installed bin is a reproducible
+artifact from a landed commit, and every invocation self-identifies on stderr
+(`lore v0.1.0 b55 @ <sha>`) so transcripts record which build did the work.
+During development, run `bun src/main.ts` from the checkout instead — deliberately
+never linked as `lore` (a live link silently runs stale/uncommitted state).
+
+## Quickstart
+
+```sh
+lore archive    # job zero: additive mirror of ~/.claude -> ~/.lore/archive
+lore index      # build/refresh the FTS5 index (~4s full, sub-second incremental)
+lore search "that thing we fixed in march"
+```
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `lore archive` | Additive mirror of `~/.claude` data → `~/.lore/archive`. Deleted sources stay preserved. |
+| `lore index` | Scan wells → parse JSONL → FTS5 index + spawns/workflows lanes. Incremental by mtime/size. |
+| `lore wells` | List wells: real path (de-slugged when needed), worktree/memory flags, sizes. |
+| `lore sessions` | A well's chronological arc spine; `--since` for delta windows, `--exact` for prefix wells. |
+| `lore session <id-prefix>` | Dump one session's messages in order, by lane. |
+| `lore search <query>` | FTS5 across lanes; `--history` includes the prompt spine. Hyphenated terms fall back to literal match. |
+| `lore spawns` | The subagent observatory: **verified** per-spawn model vs requested (drift flag), boot cost, partial-telemetry honesty. |
+| `lore workflows` | One row per Workflow orchestration run: script meta, agents, tokens, model mix. Drill down: `spawns --workflow <id>`. |
+| `lore tools` | Invocation counts per tool/skill/command — evidence for what ambient config actually earns its context cost. |
+| `lore docs index / search / list` | The canon corpus: git-committed .md across your repos, read from **git objects, never working trees**. |
+| `lore stats` | Corpus totals, lanes, date range — with `warnings[]` when a corpus reads empty. |
+| `lore wiki commit` | Commit pending wiki changes (the judgment layer's durability op). |
+| `lore skills add` | Generate + install per-command skills (via incur) so Claude Code sessions discover the CLI. |
+
+Every command supports `--help`.
+
+## Built for agents
+
+The primary consumer is a Claude Code session, so the surface is
+[incur](https://github.com/wevm/incur)-shaped: structured TOON/JSON output on
+stdout (provenance on stderr keeps it parseable), an `--llms` manifest,
+token-aware pagination (`--token-limit`/`--token-offset`), per-command generated
+skills for discovery, and an MCP server via `--mcp` when embedding beats
+shelling out. Humans get the same output; it reads fine.
+
+Two design consequences worth naming: search queries never require FTS5 grammar
+(raw query first, literal-phrase retry on parse error — operators work, hyphens
+don't explode), and *nothing* derived from transcripts is ever evaluated as code
+(workflow script metadata is extracted with a quote-aware brace matcher; a
+transcript's "pure object literal" still never meets `new Function`).
+
+## Architecture
+
+Three tiers: **raw sources** (immutable transcripts + memories, archived) →
+**wiki** (a separate private git repo of Claude-maintained markdown — the
+compounding middle layer) → **canon** (git-committed docs in your repos). Three
+corpora feed the index: transcripts, memories, and canon docs.
+
+**What's code vs what's protocol**: this repo is layer 1 — the deterministic,
+model-free CLI. The operations that make knowledge compound (**ingest** raw →
+wiki, **graduate** wiki → canon via human-approved PRs, **lint** for stale/
+drifted canon) are protocols an interactive Claude session performs *by driving
+the CLI* — documented in [`docs/DESIGN.md`](docs/DESIGN.md), not shipped as
+commands. The session is the brain; the CLI is the eyes. That inversion is also
+the billing model: judgment work runs inside a Claude subscription session, so
+the tool itself never needs an API key.
+
+## What it reads and writes
+
+- **Reads**: `~/.claude` (transcripts, memory, history), and — only for
+  `lore docs` — the git object stores of repos under your code root.
+- **Writes**: `~/.lore` (the archive and the rebuildable `lore.db`), and your
+  wiki repo if you configure one. Nothing else.
+- **Network**: none, except `git fetch` when you explicitly pass `--fetch` to
+  `lore docs index`. Nothing is uploaded anywhere. No model calls, no API key.
+
+The index is a derived artifact: it rebuilds from the archive, version-bumps
+instead of migrating, and refuses to touch a database written by a *newer* lore
+(stale builds fail loudly rather than destroying a good index).
+
+## Configuration
+
+All env vars, validated in one place (`src/config.ts`):
+
+| Var | Default | Purpose |
+|---|---|---|
+| `LORE_CLAUDE_DIR` | `~/.claude` | Claude Code's data dir. |
+| `LORE_HOME` | `~/.lore` | Archive + `lore.db`. |
+| `LORE_CODE_DIR` | `~/code` | Root scanned by `lore docs`. **Set this if your repos live elsewhere.** |
+| `LORE_WIKI_DIR` | `~/code/personal/lore-wiki` | The wiki repo for `lore wiki commit`. Optional. |
+| `LORE_DOCS_EXCLUDE` | — | Comma-separated `/`-bounded path suffixes to skip in the docs scan. |
+| `LORE_DOCS_ASSISTED` | — | Force-flag repos as assisted (someone else's project) when auto-detection misses. |
+
+## Status & non-goals
+
+v0, a personal tool published as-is: no UI, no server, no telemetry, and no plan
+to become a product. Design history — including the decisions that went wrong
+first (the schema-guard incident, the 40%-of-telemetry-was-a-floor audit) — is
+the readable part: [`docs/DESIGN.md`](docs/DESIGN.md). `CLAUDE.md` is the
+in-repo instruction file for the author's own Claude sessions; it documents how
+the tool governs the sessions that use it, and reads accordingly.
+
+## License
+
+[MIT](LICENSE)

@@ -40,14 +40,14 @@ function canonRepo(root: string, name: string): string {
   return dir
 }
 
-// gym's topology: origin/master carries the docs, the local clone sits on the
+// The husk topology: origin/master carries the docs, the local clone sits on the
 // empty root commit with a bare working tree — canon exists only in git objects.
 function huskRepo(root: string): string {
   const origin = join(root, 'husk-origin')
   initRepo(origin)
   sh(origin, 'git commit -q --allow-empty -m root', '2026-07-01T09:00:00')
   const rootSha = sh(origin, 'git rev-parse HEAD')
-  writeFileSync(join(origin, 'README.md'), 'The llm coach speaks only real exercise ids.\n')
+  writeFileSync(join(origin, 'README.md'), 'The onboarding coach guide lives only at origin.\n')
   sh(origin, 'git add -A && git commit -qm docs', '2026-07-01T22:00:00')
   const dir = join(root, 'husk')
   sh(root, `git clone -q ${origin} husk`)
@@ -70,11 +70,11 @@ describe('listRepoPaths', () => {
     expect(paths).toEqual([join(root, 'beta'), join(root, 'group', 'alpha')])
   })
 
-  test('exclude suffixes are /-bounded — sandbox/expo does not catch sandbox/expo-repro', () => {
+  test('exclude suffixes are /-bounded — tools/cli does not catch tools/cli-repro', () => {
     const root = tempDir()
-    canonRepo(root, join('sandbox', 'expo'))
-    const repro = canonRepo(root, join('sandbox', 'expo-repro'))
-    expect(listRepoPaths(root, { exclude: ['sandbox/expo'] })).toEqual([repro])
+    canonRepo(root, join('tools', 'cli'))
+    const repro = canonRepo(root, join('tools', 'cli-repro'))
+    expect(listRepoPaths(root, { exclude: ['tools/cli'] })).toEqual([repro])
   })
 
   test('does not descend into a repo (worktrees never scan separately)', () => {
@@ -85,7 +85,7 @@ describe('listRepoPaths', () => {
     expect(listRepoPaths(root)).toEqual([repo])
   })
 
-  // The storage-atlas case: a linked worktree beside its main repo shares
+  // The linked-worktree case: a worktree checkout beside its main repo shares
   // gitdir/remote/canon — listing it double-counts the project.
   test('a top-level linked worktree checkout is not a repo', () => {
     const root = tempDir()
@@ -132,7 +132,7 @@ describe('scanRepo', () => {
     writeFileSync(join(theirs, 'CLAUDE.md'), 'their doctrine, not ours\n')
     sh(theirs, 'git add -A && git -c user.email=junior@x -c user.name=junior commit -qm theirs')
     expect((await scanRepo(theirs))?.ownership).toBe('assisted')
-    // One commit of ours flips it — the cuanto case: tiny share, still mine.
+    // One commit of ours flips it — tiny share, still mine.
     writeFileSync(join(theirs, 'fix.md'), 'our one fix\n')
     sh(theirs, 'git add -A && git commit -qm fix')
     expect((await scanRepo(theirs))?.ownership).toBe('mine')
@@ -260,7 +260,7 @@ describe('indexDocs', () => {
     expect(searchDocs(db, 'frobnicator', { repo: 'two', limit: 10 })).toHaveLength(1)
   })
 
-  // The dotfiles#34 gap: canon merged upstream after the last local fetch is
+  // The stale-fetch gap: canon merged upstream after the last local fetch is
   // invisible to every re-index — the ref-diff runs against refs that never
   // moved. fetch: true is the cure; without it the stale result must persist.
   test('upstream canon is invisible until fetch moves the origin refs', async () => {

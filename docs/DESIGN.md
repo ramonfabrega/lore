@@ -27,10 +27,11 @@ Three tiers (per Karpathy's LLM-wiki pattern — `references/llm-wiki.md`):
 - **Raw sources**: transcripts + memory files. Immutable. Archived (job zero).
 - **Wiki**: markdown maintained by Claude via lore. The compounding middle layer.
   Page species: project pages, pattern pages, the map (`index.md`), `log.md`.
-- **Canon**: git-committed docs — per-repo CLAUDE.mds, `~/code/personal/site`,
+- **Canon**: git-committed docs — per-repo CLAUDE.mds, the personal site,
   future project templates. lore never owns canon; it *notices* (lint).
 
-Three operations:
+Three operations — these are protocols an interactive session performs by driving
+the CLI, not CLI commands:
 
 - **ingest** — mine raw sources into wiki updates. Batch = subagent fan-out inside an
   interactive session (sub-billed). Requires a run ledger from day one.
@@ -44,61 +45,332 @@ Two layers:
 - **Layer 1 (CLI, model-free)**: scan wells → parse JSONL → archive → SQLite FTS5
   index → search/stats/digest commands. Agent-first output design (incur conventions).
   Fully testable without any model. Includes the run ledger.
-- **Layer 2 (skill)**: `/lore` drives the CLI from any interactive session. The
-  inverted relationship — session is the brain, CLI is the eyes — makes the
-  subscription-only constraint structural rather than enforced.
+- **Layer 2 (judgment)**: interactive sessions drive the CLI (discovered via the
+  generated per-command skills). The inverted relationship — session is the brain,
+  CLI is the eyes — makes the subscription-only constraint structural rather than
+  enforced.
 
 ## Decision log
 
-| Date | Decision | Rationale / rejected alternatives |
-|------|----------|-----------------------------------|
-| 2026-07-16 | Name: **lore** | Fits `~/code/fun` naming (disk, deck, album, mux). Captures both halves: conversations are raw lore; graduation turns lore into canon. Rejected: memory/mem (generic, collides), recall (crowded), distill (crowded verb), dissolve (wrong direction). |
-| 2026-07-16 | Two layers; layer 1 model-free | Scanning/indexing is not an AI problem; testable alone; the model should query a digested index, never raw JSONL. |
-| 2026-07-16 | Inverted relationship: Claude Code drives the CLI | Sub-billing by construction; zero auth plumbing; human-in-loop for free. `claude -p` works on subscription OAuth today but `--bare` (API-key-only) may become its default — escape hatch, not foundation. |
-| 2026-07-17 | Wiki as compounding middle tier | One-off extraction produces reports that vanish; wiki updates accumulate. Answers filed back into the wiki compound too. |
-| 2026-07-17 | No Swift app in v1; no UI | The wiki is browsable in any editor/Obsidian; an explorer app comes later from usage, if ever. disk is style/technique reference only (no FTS; tree-specialized engine). |
-| 2026-07-17 | No Apple Intelligence | Dead once Swift is out; judgment work needs Claude anyway. Revisit only under real token pressure. |
-| 2026-07-17 | No root `~/code/CLAUDE.md` map | User rejected ambient cross-project context in every session. Map is pull-based via the wiki; the `/lore` skill's listing line is the free ambient pointer. |
-| 2026-07-17 | Pattern pages instead of shared packages (for now) | Wiki carries provenance + quality verdicts ("copy this" vs "style reference only" vs "don't inherit"); upstreaming = lint noticing drift. Real package extraction is earned when a pattern page shows several stable consumers — lore surfaces the *when*, user keeps the *whether*. Shared Sparkle release infra (mux ↔ disk) already works as convention. |
-| 2026-07-17 | Infer arcs, don't impose clear semantics | User's `/clear` has two species (arc-spanning with transient plan.md; task-boundary). Plan-file lifecycles are fully recoverable from transcript Writes, so arcs reconstruct for free. Propose conventions only with evidence ("arcs are 3× easier to reconstruct when X"). |
-| 2026-07-17 | Worktree wells = durable satellites | User runs perma-worktrees per bg agent (main worktree reserved for the human). Well sync to parent repo is an ongoing op, not a rescue. |
-| 2026-07-17 | Run ledger is layer-1 plumbing | Fan-out mining will be tuned live; per-agent well/tokens/duration/pages/outcome in structured form (JSONL) + readable summary. lore can later mine its own ledgers. |
-| 2026-07-17 | Wiki home: separate local git repo | Private, git-based (the passage model: git as durability/diff engine, remote optional). Not inside the lore repo; not necessarily on GitHub. |
-| 2026-07-17 | One wiki, work + personal together | Max cross-pollination; graduation stays loud about destination repo (the privacy redline moves to the graduation gate, not the wiki wall). |
-| 2026-07-17 | Thinking blocks: indexed, own lane, excluded from default search | ~13% of records, reasoning gold + chaff; opt-in flag for rationale archaeology. |
-| 2026-07-17 | Stack: Bun + TypeScript; **incur as core CLI infra** (user call) | bun:sqlite (FTS5), native test runner, streaming JSONL, user fluency, `bun build --compile` later. incur (wevm) is the CLI framework from day one — agent-first surface (schema'd I/O, token-aware output, discovery) is lore's primary interface, and wevm engineering is trusted. Karpathy's llm-wiki is the guidance counterpart (docs/references/llm-wiki.md). Rust port noted only as a someday-if-daily-driver idea. |
-| 2026-07-17 | Graduation UX: OPEN | User: writing to a target repo's master is wrong; landing on a non-master branch they merge via normal flow is the leading shape. Needs more thinking — revisit with a working prototype. |
-| 2026-07-17 | Third corpus: canon docs (.md files) | Raw sources aren't just transcripts + memories — the git-committed markdown across repos (CLAUDE.mds, docs/) is the "already internalized doctrine" and a first-class corpus. Indexing canon is what makes lint real (compare wiki against canon), deduplicates graduation ("does canon already say this?"), and feeds the map. Already parse-friendly. |
-| 2026-07-17 | Thinking lane: structurally empty (corpus fact) | Thinking blocks persist as empty strings + signature only (0 non-empty / 6,335 sampled). Lane plumbing kept as future-proofing; rationale mining must use assistant text. |
-| 2026-07-17 | Wiki durability is CLI-owned: `lore wiki commit` | The passage model — the mutation tool commits, not the harness. Harness auto-commit hooks (PostToolUse/Stop → autocommit.sh) were built, tested, and rejected same day: hooks are session-config-scoped and don't travel to `claude -p`, subagents in other cwds, or other drivers. Convention lives in the wiki's CLAUDE.md: every wiki op ends with `lore wiki commit`. |
-| 2026-07-17 | No ORM over lore.db (revisit trigger named) | The queries that matter are FTS5 (`MATCH`/`snippet()`/`rank`) and analytical aggregates — exactly what ORMs handle worst (Drizzle has no first-class FTS5; you end up in `sql.raw`). lore.db is a **derived artifact** (rebuilds from archive in ~200ms), so migrations — the main ORM payoff — don't apply: version-bump + rebuild, the disk lesson. Coherence comes from zod-parsing rows at the boundary instead (schemas colocated with queries; no `as X` casts). Revisit when the run-ledger/lineage/docs-corpus era brings ~10 tables with relational writes, or the first join bug types would have caught. |
-| 2026-07-17 | `lore docs` reads git objects, never working trees | The gym husk proved canon can exist only at origin (README/CLAUDE.md/docs on origin/master, bare working tree locally). Scanner picks the newest commit among HEAD and origin's default branch (ties prefer HEAD), lists blobs via `ls-tree -r -l -z`, reads via `cat-file`. Husk flag = local HEAD carries zero .md while the chosen remote ref has some — gym, personal/site, work/acarreo all flagged on first run. Gone repos are pruned, unlike transcripts: canon lives in git, there's no evaporation to guard. Wiki dir excluded (middle tier, not canon). Rejected: walking working trees (misses husks), additive-only (stale ghosts serve no one). |
-| 2026-07-17 | Repo ownership: mine / assisted / foreign (auto-detected) | Three-way, not a boolean. `foreign` = `upstream` remote (fork-for-upstreaming; sandbox/expo was 1435 of 1925 docs — docs not indexed). `assisted` = zero commits under the user's repo-local git identity (bodas-app: 0/118 — the user was helping on someone else's project; docs indexed for context but flagged on every hit). Else `mine`. The zero/nonzero authorship line is the fleet's real boundary: cuanto is 34/5157 under the personal email yet unmistakably mine, so any share *threshold* misclassifies — first probe rejected authorship entirely before the user's bodas-app correction revealed zero/nonzero as the signal. Foreign/assisted repos stay listed so `docs list` explains itself. Redline: assisted canon must never feed pattern provenance or read as the user's; their transcripts in that well remain theirs. Overrides: `LORE_DOCS_EXCLUDE` (skip entirely), `LORE_DOCS_ASSISTED` (force-flag) — comma-separated `/`-bounded path suffixes. |
-| 2026-07-17 | Graduation protocol v1 (supersedes "Graduation UX: OPEN"; prototyped as mux#73) | Upstream-PR model: lore is a contributor, the target repo owns its canon. Mechanics: temp worktree of the target repo cut from the **ref where the amended canon actually lives** (never assume the default branch or its NAME — the fleet is mostly `master`, mux is `main`, and storefront's CLAUDE.md exists only on the `storefront` branch; discover per repo, PR base and review base = that ref); one fact = one commit = one PR; "graduation trains" allowed for multiple small facts landing in the same doc together. Ratification splits in two: lore ratifies truth/durability (mined + verified); the repo side is checked by a **repo-lens sonnet reviewer** briefed as that repo's maintainer with ONLY the target ref's docs (`git show ref:path` — never the spawning session's loaded CLAUDE.mds, which may be the wrong repo/branch/subdir), answering: contradicts canon? duplicates? right doc+section? voice match? redline touch? The review is a gate, not an authority — on contradiction the repo wins and lore files a lint finding instead of forcing. Merge authority tiered by repo class: today, verbal "land it" from the user (any session) and lore performs the merge — same grammar as mux's release flow; later, personal toy repos may auto-merge on a passing review once the review ledger has earned trust; work repos never auto-merge (human always, ideally ratified from that repo's own context); assisted repos never receive graduations at all (existing redline). Endgame: CI-merge/nightly cadence fleet-wide, earned one toy repo at a time. Post-merge (v1.1): graduation inverts the fleet's sync assumption (origin ahead, local stale) and a graduated fact is invisible to the repo's own sessions until local catches up — so landing includes syncing the target checkout: fetch + `--ff-only` onto the base branch IF checked out on it and clean (else leave + report), and prune merged graduation branch refs. Never more than ff; never touches a mid-work checkout. Output shapes (v1.2): FACTS graduate as PRs (docs are lore's competence); WORK graduates as ISSUES on the target repo — its own sessions do the fix (lore is the instrument, not the wrench). First instance: dotfiles#33 (spawn-tax config scoping) filed, not PR'd. |
-| 2026-07-17 | Spawns lane: the observatory is a query (lore#5/#6) | Subagent transcripts (`<session>/subagents/agent-*.jsonl` + meta.json) indexed as a corpus: `lore spawns` reports per-spawn agentType, **verified model** (first-request `message.model` — the spawn parameter and completion notification are never trusted; `drift` flags requested-vs-served mismatch), boot envelope + cached share, totals, with per-agentType and per-week rollups. Streaming snapshots share `message.id` → requests dedupe by it. `well_dir` stored at scan time (spawns outlive parent-session rows). Reads the LIVE projects dir only — archive-side spawns (those outliving deleted sources) deferred until history-depth queries earn it. Fulfills the "run ledger is layer-1 plumbing" row: the ledger became a query. |
-| 2026-07-17 | Tools lane: invocation evidence for the ambient ROI ledger (lore#7) | `messages.tool_name` — raw tool_use names, Skill calls refined to `Skill:<name>`, slash-command wrappers to `command:<name>` (user-invoked skills flow through command wrappers; without the refinement they read as zero-use). Surfaced as `lore tools` (counts × session/well spread × first/last-used). Deliberately only the EVIDENCE half — scoring (ambient cost × scope vs usage, zero-use flags) is a judgment-layer read over this plus live rosters, run against post-diet rosters (dotfiles#35). Known blind spot, accepted: CLI-face skill loads via Bash don't register (FTS covers ad hoc). |
-| 2026-07-17 | Code conventions: Bun-first + boundary parsing | Bun API when one exists (`Bun.file`, `Bun.write`, `Bun.$`, `bun:sqlite`, `bun:test`); `node:fs`/`node:path`/`node:os` for the gaps (sync dir ops, `join`, `homedir`) — that's idiomatic Bun, not a compromise. All I/O boundaries (DB rows, env, JSONL) are zod-parsed, never `as`-cast; env is one validated object in config.ts (incur's per-command `env:` is for command-specific vars; ours are cross-cutting path roots). |
-| 2026-07-17 | openDb version guard: rebuild older, REFUSE newer | Drop-on-mismatch was symmetric and therefore destructive under mixed-version access: a stale checkout's build (schema v5) nuked the current v8 index mid-fan-out, twice (the checkout ping-pong incident). Rebuild is only ever safe downward — a NEWER db means a newer lore exists, so the stale build fails loudly with a pointer to reinstall. Derived-artifact philosophy unchanged; this is about WHO may rebuild, not whether. |
-| 2026-07-17 | Prod bin vs dev lane (the landing ritual) | Installed `lore` = frozen artifact from `scripts/install`: clean-tree-only, test-gated, provenance inlined via `--define LORE_BUILD_INFO` — mux/disk's release scheme (version + commit-count build + sha) in minimal form, making lore the third consumer of the fleet release-flow pattern. Default bundle (`--target=bun` single-file JS + PATH shim, ~KBs); `--compile` variant kept for startup comparison (`--bytecode`). Dev lane = `bun src/main.ts` by explicit ABSOLUTE path only. Rejected: `bun link` (live link runs uncommitted/stale checkout state ambiently — exactly the incident class); runtime auto-`git pull` (layer 1 must not mutate the user's checkout; the main checkout is the user's debugging home). Subagents default to the artifact; pinning a dev path in a spawn prompt is an explicit act. Every invocation prints provenance to stderr (stdout stays parseable) — transcripts self-describe which lore did the work, verifiable like spawn models. |
-| 2026-07-18 | FTS query fallback: raw first, quoted retry (lint sweep #1's own finding) | The first canon-wide lint sweep found its own tooling's top bug — 7 independent auditor reproductions: FTS5 misparses bare hyphenated terms as column filters (`three-tier` → `no such column: tier`) and leaks raw fts5 errors on apostrophes. Fix shape: the raw query ALWAYS runs first (real FTS5 syntax — phrases, `AND`/`OR`, `prefix*`, `col:term` — must never degrade), and only a parse error retries once with each whitespace token quoted as a literal phrase; double failure throws a clean `invalid FTS5 query`. Rejected: always-quote (kills operator queries, the documented interface); strict validation/rejection (agents shouldn't need FTS5 grammar to search a hyphenated word — the CLI is agent-first, the query language is a power lane not a toll). One helper (`fts.ts`) wired into all three MATCH sites. |
-| 2026-07-18 | Docs indexer: linked worktrees are not repos | storage-atlas — a `git worktree add` checkout of disk living beside it — indexed as a sibling repo with identical sha/docs, double-counting one project's canon (found by the lint sweep, opus-confirmed). A linked worktree announces itself: `.git` is a FILE whose gitdir points into `<main>/.git/worktrees/` — prune it in the walker; the main repo owns the canon. Nested worktrees/submodules were already pruned by never descending into repos; this closes the top-level case. Chosen over resolving `git-common-dir` per candidate (spawns git per dir during a pure-fs walk) — the pointer file is sync, cheap, and sufficient. |
-| 2026-07-18 | Workflows lane: orchestration runs are first-class (the storefront-review catalyst) | A Workflow run self-persists everything layer 1 needs: `<session>/workflows/wf_<runId>.json` (runId, taskId, completion timestamp, the FULL script whose leading `export const meta` literal carries name/description/phases) plus per-agent transcripts under `subagents/workflows/wf_<runId>/` — and the v8 spawn scanner never recursed there, so exactly the token-heaviest fan-outs were invisible (storefront-review alone: 122 agents, 588k output + 6.4M boot tokens, 0 rows). v9: scanner recurses and tags rows `workflow_run_id`; `workflow_runs` stores the script verbatim + extracted meta; `lore workflows` reports per-run agent count, tokens, boot reuse, verified model mix and drift joined from spawns, plus the byName catalog (same name across runs = one workflow evolving); drill-down via `spawns --workflow <id>`. Meta extraction is a quote-aware brace matcher + field regexes — transcript-derived JS is data, never evaluated (even `new Function` on a "pure literal" was rejected: the purity contract is the harness's, not the transcript's); format drift degrades to null fields, never a failed index. Deferred until the spine proves out: indexing journal `result` payloads (each agent's structured return — the storefront findings are sitting there as JSON) into FTS. No repass was needed — immutable sources + incremental scan meant all 13 historical runs (226 agents, 3 wells) appeared on the next `lore index`. |
-| 2026-07-18 | wells realPath: de-slug fallback for memory-only wells | Well dir names are lossy ('-' encodes '/', '.', '_', and literal '-') so realPath came only from transcript `cwd` — but a memory-only well (album: live repo, memory, zero transcripts ever) has no records, and `realPath: null` misread live repos as deleted (album, famous-foxes/missions, rafffle all resolved after the fix). Fallback: reconstruct by DFS over joiner choices, pruning on filesystem existence — only an existing directory disambiguates a split; budget-capped; deleted sources still resolve null, keeping "gone by id ≠ gone by content" measurable. cwd stays the ground truth when present (mid-session worktree entry, respawns). |
-| 2026-07-24 | Spawn telemetry honesty: a floor is not a measurement (v10) | The observatory was serving fabricated precision. A jadeslip-ingest miner reported 965 output tokens against the harness's ~71.7k; the cause is upstream, not arithmetic — its final assistant record carries 22,276 chars of content with `output_tokens: 6` and `stop_reason: null`, i.e. the terminal usage update never landed in the JSONL. The indexer summed incomplete data and presented it as fact. Sweeping all 616 spawn transcripts by last `stop_reason`: 369 `end_turn` (clean), 139 `tool_use` (ended mid-tool — interrupted/killed, no final answer), 108 `null` (usage never finalized) — **~40% of the historical fan-out ledger was a floor**, silently. v10 records `last_stop_reason` per spawn; rows surface `telemetryPartial: true` **plus the reason** only when the run didn't end cleanly (zero noise on healthy rows), and `partialTelemetry` counts them over ALL matches, not the `--limit` page — a ledger reader must know unreliable rows exist even when they fall off the page. Chose the reason over a bare boolean: `tool_use` and `null` are different diagnoses. Also killed a sibling silent-zero: `lore stats` now emits `warnings[]` when a corpus reads empty, after the v9 bump's drop-and-rebuild left the docs corpus at 0 for days (`lore docs index` is a separate command `lore index` does not chain) — canon lint and graduation dedup were blind and nothing said so. Rebuild-beats-migrate is meant to make a wipe cheap, not invisible. Doctrine note: this is the fleet's own rule — *agent-reported telemetry is untrusted until verified against ground truth* — turned on lore's instruments, which were the last thing anyone audited. |
+### 2026-07-16 — Name: lore
+
+Fits the one-word `~/code/fun` naming convention of the user's other tools. Captures
+both halves: conversations are raw lore; graduation turns lore into canon. Rejected:
+memory/mem (generic, collides), recall (crowded), distill (crowded verb), dissolve
+(wrong direction).
+
+### 2026-07-16 — Two layers; layer 1 model-free
+
+Scanning/indexing is not an AI problem; testable alone; the model should query a
+digested index, never raw JSONL.
+
+### 2026-07-16 — Inverted relationship: Claude Code drives the CLI
+
+Sub-billing by construction; zero auth plumbing; human-in-loop for free. `claude -p`
+works on subscription OAuth today but `--bare` (API-key-only) may become its default —
+escape hatch, not foundation.
+
+### 2026-07-17 — Wiki as compounding middle tier
+
+One-off extraction produces reports that vanish; wiki updates accumulate. Answers
+filed back into the wiki compound too.
+
+### 2026-07-17 — No Swift app in v1; no UI
+
+The wiki is browsable in any editor/Obsidian; an explorer app comes later from usage,
+if ever. An earlier macOS visualizer of the user's is style/technique reference only
+(no FTS; tree-specialized engine).
+
+### 2026-07-17 — No Apple Intelligence
+
+Dead once Swift is out; judgment work needs Claude anyway. Revisit only under real
+token pressure.
+
+### 2026-07-17 — No root `~/code/CLAUDE.md` map
+
+User rejected ambient cross-project context in every session. Map is pull-based via
+the wiki; the skill listing line is the free ambient pointer.
+
+### 2026-07-17 — Pattern pages instead of shared packages (for now)
+
+Wiki carries provenance + quality verdicts ("copy this" vs "style reference only" vs
+"don't inherit"); upstreaming = lint noticing drift. Real package extraction is earned
+when a pattern page shows several stable consumers — lore surfaces the *when*, user
+keeps the *whether*. Shared release infra across two sibling apps already works as
+convention.
+
+### 2026-07-17 — Infer arcs, don't impose clear semantics
+
+User's `/clear` has two species (arc-spanning with transient plan.md; task-boundary).
+Plan-file lifecycles are fully recoverable from transcript Writes, so arcs
+reconstruct for free. Propose conventions only with evidence ("arcs are 3× easier to
+reconstruct when X").
+
+### 2026-07-17 — Worktree wells = durable satellites
+
+User runs perma-worktrees per bg agent (main worktree reserved for the human). Well
+sync to parent repo is an ongoing op, not a rescue.
+
+### 2026-07-17 — Run ledger is layer-1 plumbing
+
+Fan-out mining will be tuned live; per-agent well/tokens/duration/pages/outcome in
+structured form (JSONL) + readable summary. lore can later mine its own ledgers.
+
+### 2026-07-17 — Wiki home: separate local git repo
+
+Private, git-based (the passage model: git as durability/diff engine, remote
+optional). Not inside the lore repo; not necessarily on GitHub.
+
+### 2026-07-17 — One wiki, work + personal together
+
+Max cross-pollination; graduation stays loud about destination repo (the privacy
+redline moves to the graduation gate, not the wiki wall).
+
+### 2026-07-17 — Thinking blocks: indexed, own lane, excluded from default search
+
+~13% of records, reasoning gold + chaff; opt-in flag for rationale archaeology.
+
+### 2026-07-17 — Stack: Bun + TypeScript; incur as core CLI infra (user call)
+
+bun:sqlite (FTS5), native test runner, streaming JSONL, user fluency,
+`bun build --compile` later. incur (wevm) is the CLI framework from day one —
+agent-first surface (schema'd I/O, token-aware output, discovery) is lore's primary
+interface, and wevm engineering is trusted. Karpathy's llm-wiki is the guidance
+counterpart (docs/references/llm-wiki.md). Rust port noted only as a
+someday-if-daily-driver idea.
+
+### 2026-07-17 — Third corpus: canon docs (.md files)
+
+Raw sources aren't just transcripts + memories — the git-committed markdown across
+repos (CLAUDE.mds, docs/) is the "already internalized doctrine" and a first-class
+corpus. Indexing canon is what makes lint real (compare wiki against canon),
+deduplicates graduation ("does canon already say this?"), and feeds the map. Already
+parse-friendly.
+
+### 2026-07-17 — Thinking lane: structurally empty (corpus fact)
+
+Thinking blocks persist as empty strings + signature only (0 non-empty / 6,335
+sampled). Lane plumbing kept as future-proofing; rationale mining must use assistant
+text.
+
+### 2026-07-17 — Wiki durability is CLI-owned: `lore wiki commit`
+
+The passage model — the mutation tool commits, not the harness. Harness auto-commit
+hooks (PostToolUse/Stop → autocommit.sh) were built, tested, and rejected same day:
+hooks are session-config-scoped and don't travel to `claude -p`, subagents in other
+cwds, or other drivers. Convention lives in the wiki's CLAUDE.md: every wiki op ends
+with `lore wiki commit`.
+
+### 2026-07-17 — No ORM over lore.db (revisit trigger named)
+
+The queries that matter are FTS5 (`MATCH`/`snippet()`/`rank`) and analytical
+aggregates — exactly what ORMs handle worst (Drizzle has no first-class FTS5; you end
+up in `sql.raw`). lore.db is a **derived artifact** (rebuilds from archive in
+~200ms), so migrations — the main ORM payoff — don't apply: version-bump + rebuild.
+Coherence comes from zod-parsing rows at the boundary instead (schemas colocated with
+queries; no `as X` casts). Revisit when the run-ledger/lineage/docs-corpus era brings
+~10 tables with relational writes, or the first join bug types would have caught.
+
+### 2026-07-17 — `lore docs` reads git objects, never working trees
+
+A husk repo proved canon can exist only at origin (README/CLAUDE.md/docs on
+origin/master, bare working tree locally). Scanner picks the newest commit among HEAD
+and origin's default branch (ties prefer HEAD), lists blobs via `ls-tree -r -l -z`,
+reads via `cat-file`. Husk flag = local HEAD carries zero .md while the chosen remote
+ref has some — three repos (a dormant personal app, the personal site, a work repo)
+flagged on first run. Gone repos are pruned, unlike transcripts: canon lives in git,
+there's no evaporation to guard. Wiki dir excluded (middle tier, not canon).
+Rejected: walking working trees (misses husks), additive-only (stale ghosts serve no
+one).
+
+### 2026-07-17 — Repo ownership: mine / assisted / foreign (auto-detected)
+
+Three-way, not a boolean. `foreign` = `upstream` remote (fork-for-upstreaming; one
+fork was 1435 of 1925 docs — docs not indexed). `assisted` = zero commits under the
+user's repo-local git identity (one assisted repo: 0/118 — the user was helping on
+someone else's project; docs indexed for context but flagged on every hit). Else
+`mine`. The zero/nonzero authorship line is the fleet's real boundary: one work repo
+is 34/5157 under the personal email yet unmistakably mine, so any share *threshold*
+misclassifies — first probe rejected authorship entirely before the user's correction
+on the assisted repo revealed zero/nonzero as the signal. Foreign/assisted repos stay
+listed so `docs list` explains itself. Redline: assisted canon must never feed
+pattern provenance or read as the user's; their transcripts in that well remain
+theirs. Overrides: `LORE_DOCS_EXCLUDE` (skip entirely), `LORE_DOCS_ASSISTED`
+(force-flag) — comma-separated `/`-bounded path suffixes.
+
+### 2026-07-17 — Graduation protocol v1 (supersedes "Graduation UX: OPEN")
+
+Upstream-PR model: lore is a contributor, the target repo owns its canon. Mechanics:
+temp worktree of the target repo cut from the **ref where the amended canon actually
+lives** (never assume the default branch or its NAME — the fleet is mostly `master`,
+one repo is `main`, and one repo's CLAUDE.md exists only on a feature branch;
+discover per repo, PR base and review base = that ref); one fact = one commit = one
+PR; "graduation trains" allowed for multiple small facts landing in the same doc
+together. Ratification splits in two: lore ratifies truth/durability (mined +
+verified); the repo side is checked by a **repo-lens sonnet reviewer** briefed as
+that repo's maintainer with ONLY the target ref's docs (`git show ref:path` — never
+the spawning session's loaded CLAUDE.mds, which may be the wrong repo/branch/subdir),
+answering: contradicts canon? duplicates? right doc+section? voice match? redline
+touch? The review is a gate, not an authority — on contradiction the repo wins and
+lore files a lint finding instead of forcing. Merge authority tiered by repo class:
+today, verbal "land it" from the user (any session) and lore performs the merge —
+same grammar as the fleet's release flow; later, personal toy repos may auto-merge on
+a passing review once the review ledger has earned trust; work repos never
+auto-merge (human always, ideally ratified from that repo's own context); assisted
+repos never receive graduations at all (existing redline). Endgame: CI-merge/nightly
+cadence fleet-wide, earned one toy repo at a time.
+
+Post-merge (v1.1): graduation inverts the fleet's sync assumption (origin ahead,
+local stale) and a graduated fact is invisible to the repo's own sessions until local
+catches up — so landing includes syncing the target checkout: fetch + `--ff-only`
+onto the base branch IF checked out on it and clean (else leave + report), and prune
+merged graduation branch refs. Never more than ff; never touches a mid-work checkout.
+
+Output shapes (v1.2): FACTS graduate as PRs (docs are lore's competence); WORK
+graduates as ISSUES on the target repo — its own sessions do the fix (lore is the
+instrument, not the wrench). First instance: a config-scoping issue filed on a
+personal repo, not PR'd.
+
+### 2026-07-17 — Spawns lane: the observatory is a query
+
+Subagent transcripts (`<session>/subagents/agent-*.jsonl` + meta.json) indexed as a
+corpus: `lore spawns` reports per-spawn agentType, **verified model** (first-request
+`message.model` — the spawn parameter and completion notification are never trusted;
+`drift` flags requested-vs-served mismatch), boot envelope + cached share, totals,
+with per-agentType and per-week rollups. Streaming snapshots share `message.id` →
+requests dedupe by it. `well_dir` stored at scan time (spawns outlive parent-session
+rows). Reads the LIVE projects dir only — archive-side spawns (those outliving
+deleted sources) deferred until history-depth queries earn it. Fulfills the "run
+ledger is layer-1 plumbing" row: the ledger became a query.
+
+### 2026-07-17 — Tools lane: invocation evidence for the ambient ROI ledger
+
+`messages.tool_name` — raw tool_use names, Skill calls refined to `Skill:<name>`,
+slash-command wrappers to `command:<name>` (user-invoked skills flow through command
+wrappers; without the refinement they read as zero-use). Surfaced as `lore tools`
+(counts × session/well spread × first/last-used). Deliberately only the EVIDENCE
+half — scoring (ambient cost × scope vs usage, zero-use flags) is a judgment-layer
+read over this plus live rosters. Known blind spot, accepted: CLI-face skill loads
+via Bash don't register (FTS covers ad hoc).
+
+### 2026-07-17 — Code conventions: Bun-first + boundary parsing
+
+Bun API when one exists (`Bun.file`, `Bun.write`, `Bun.$`, `bun:sqlite`,
+`bun:test`); `node:fs`/`node:path`/`node:os` for the gaps (sync dir ops, `join`,
+`homedir`) — that's idiomatic Bun, not a compromise. All I/O boundaries (DB rows,
+env, JSONL) are zod-parsed, never `as`-cast; env is one validated object in config.ts
+(incur's per-command `env:` is for command-specific vars; ours are cross-cutting path
+roots).
+
+### 2026-07-17 — openDb version guard: rebuild older, REFUSE newer
+
+Drop-on-mismatch was symmetric and therefore destructive under mixed-version access:
+a stale checkout's build (schema v5) nuked the current v8 index mid-fan-out, twice
+(the checkout ping-pong incident). Rebuild is only ever safe downward — a NEWER db
+means a newer lore exists, so the stale build fails loudly with a pointer to
+reinstall. Derived-artifact philosophy unchanged; this is about WHO may rebuild, not
+whether.
+
+### 2026-07-17 — Prod bin vs dev lane (the landing ritual)
+
+Installed `lore` = frozen artifact from `scripts/install`: clean-tree-only,
+test-gated, provenance inlined via `--define LORE_BUILD_INFO` — the fleet's release
+scheme (version + commit-count build + sha) in minimal form. Default bundle
+(`--target=bun` single-file JS + PATH shim, ~KBs); `--compile` variant kept for
+startup comparison (`--bytecode`). Dev lane = `bun src/main.ts` by explicit ABSOLUTE
+path only. Rejected: `bun link` (live link runs uncommitted/stale checkout state
+ambiently — exactly the incident class); runtime auto-`git pull` (layer 1 must not
+mutate the user's checkout; the main checkout is the user's debugging home).
+Subagents default to the artifact; pinning a dev path in a spawn prompt is an
+explicit act. Every invocation prints provenance to stderr (stdout stays parseable) —
+transcripts self-describe which lore did the work, verifiable like spawn models.
+
+### 2026-07-18 — FTS query fallback: raw first, quoted retry
+
+The first canon-wide lint sweep found its own tooling's top bug — 7 independent
+auditor reproductions: FTS5 misparses bare hyphenated terms as column filters
+(`three-tier` → `no such column: tier`) and leaks raw fts5 errors on apostrophes.
+Fix shape: the raw query ALWAYS runs first (real FTS5 syntax — phrases, `AND`/`OR`,
+`prefix*`, `col:term` — must never degrade), and only a parse error retries once with
+each whitespace token quoted as a literal phrase; double failure throws a clean
+`invalid FTS5 query`. Rejected: always-quote (kills operator queries, the documented
+interface); strict validation/rejection (agents shouldn't need FTS5 grammar to search
+a hyphenated word — the CLI is agent-first, the query language is a power lane not a
+toll). One helper (`fts.ts`) wired into all three MATCH sites.
+
+### 2026-07-18 — Docs indexer: linked worktrees are not repos
+
+A `git worktree add` checkout of one repo living beside it indexed as a sibling repo
+with identical sha/docs, double-counting one project's canon (found by the lint
+sweep). A linked worktree announces itself: `.git` is a FILE whose gitdir points into
+`<main>/.git/worktrees/` — prune it in the walker; the main repo owns the canon.
+Nested worktrees/submodules were already pruned by never descending into repos; this
+closes the top-level case. Chosen over resolving `git-common-dir` per candidate
+(spawns git per dir during a pure-fs walk) — the pointer file is sync, cheap, and
+sufficient.
+
+### 2026-07-18 — Workflows lane: orchestration runs are first-class
+
+A Workflow run self-persists everything layer 1 needs:
+`<session>/workflows/wf_<runId>.json` (runId, taskId, completion timestamp, the FULL
+script whose leading `export const meta` literal carries name/description/phases)
+plus per-agent transcripts under `subagents/workflows/wf_<runId>/` — and the v8 spawn
+scanner never recursed there, so exactly the token-heaviest fan-outs were invisible
+(the largest run alone: 122 agents, 588k output + 6.4M boot tokens, 0 rows). v9:
+scanner recurses and tags rows `workflow_run_id`; `workflow_runs` stores the script
+verbatim + extracted meta; `lore workflows` reports per-run agent count, tokens, boot
+reuse, verified model mix and drift joined from spawns, plus the byName catalog (same
+name across runs = one workflow evolving); drill-down via `spawns --workflow <id>`.
+Meta extraction is a quote-aware brace matcher + field regexes — transcript-derived
+JS is data, never evaluated (even `new Function` on a "pure literal" was rejected:
+the purity contract is the harness's, not the transcript's); format drift degrades to
+null fields, never a failed index. Deferred until the spine proves out: indexing
+journal `result` payloads (each agent's structured return is sitting there as JSON)
+into FTS. No repass was needed — immutable sources + incremental scan meant all 13
+historical runs (226 agents, 3 wells) appeared on the next `lore index`.
+
+### 2026-07-18 — wells realPath: de-slug fallback for memory-only wells
+
+Well dir names are lossy ('-' encodes '/', '.', '_', and literal '-') so realPath
+came only from transcript `cwd` — but a memory-only well (a live repo with memory,
+zero transcripts ever) has no records, and `realPath: null` misread live repos as
+deleted (three live repos resolved after the fix). Fallback: reconstruct by DFS over
+joiner choices, pruning on filesystem existence — only an existing directory
+disambiguates a split; budget-capped; deleted sources still resolve null, keeping
+"gone by id ≠ gone by content" measurable. cwd stays the ground truth when present
+(mid-session worktree entry, respawns).
+
+### 2026-07-24 — Spawn telemetry honesty: a floor is not a measurement
+
+The observatory was serving fabricated precision. An ingest miner reported 965 output
+tokens against the harness's ~71.7k; the cause is upstream, not arithmetic — its
+final assistant record carries 22,276 chars of content with `output_tokens: 6` and
+`stop_reason: null`, i.e. the terminal usage update never landed in the JSONL. The
+indexer summed incomplete data and presented it as fact. Sweeping all 616 spawn
+transcripts by last `stop_reason`: 369 `end_turn` (clean), 139 `tool_use` (ended
+mid-tool — interrupted/killed, no final answer), 108 `null` (usage never finalized) —
+**~40% of the historical fan-out ledger was a floor**, silently. v10 records
+`last_stop_reason` per spawn; rows surface `telemetryPartial: true` **plus the
+reason** only when the run didn't end cleanly (zero noise on healthy rows), and
+`partialTelemetry` counts them over ALL matches, not the `--limit` page — a ledger
+reader must know unreliable rows exist even when they fall off the page. Chose the
+reason over a bare boolean: `tool_use` and `null` are different diagnoses. Also
+killed a sibling silent-zero: `lore stats` now emits `warnings[]` when a corpus reads
+empty, after the v9 bump's drop-and-rebuild left the docs corpus at 0 for days
+(`lore docs index` is a separate command `lore index` does not chain) — canon lint
+and graduation dedup were blind and nothing said so. Rebuild-beats-migrate is meant
+to make a wipe cheap, not invisible. Doctrine note: this is the fleet's own rule —
+*agent-reported telemetry is untrusted until verified against ground truth* — turned
+on lore's instruments, which were the last thing anyone audited.
 
 ## Privacy redline
 
-Transcripts span work (cuanto, acarreo) and personal projects. Graduation must be
-loud about the destination repo; a work detail must never land in a public/personal
-canon file. Consider per-well sensitivity tags in the index from the start.
+Transcripts span work/client repos and personal projects. Graduation must be loud
+about the destination repo; a work detail must never land in a public/personal canon
+file. Consider per-well sensitivity tags in the index from the start.
 
 ## Open questions (first-principles territory)
 
-- Stack for the CLI. Deliberately undecided.
-- What the JSONL actually contains edge-to-edge: sidechains, compaction summaries,
-  `subagents/workflows/` transcript dirs, tool-result noise ratios. **Spelunk several
-  real wells before designing the parser.** Compaction summaries may be pre-digested
-  gold for ingest.
 - One pipeline or two for memories vs transcripts (memories are already structured
   with frontmatter; transcripts are raw).
 - Dedup/grouping across a repo's main well + its worktree wells.
@@ -107,11 +379,3 @@ canon file. Consider per-well sensitivity tags in the index from the start.
   record?), and whether the repo-lens reviewer becomes a defined agent
   (`.claude/agents/lore-grad-reviewer.md`) vs staying an ad-hoc sonnet spawn.
 - Whether/when the explorer UI materializes, and in what shape.
-
-## First working session
-
-1. JSONL spelunk: read 2–3 wells edge-to-edge (a busy repo well, a worktree well, the
-   `~/code` well), catalog every record type and structure encountered.
-2. Interview/blindspot pass with the user (suggest-first: challenge premises), armed
-   with real examples from the spelunk.
-3. Then, and only then, stack + parser design.

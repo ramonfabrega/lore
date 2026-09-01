@@ -34,8 +34,8 @@ import { z } from 'zod'
 // v11: sessions.last_activity_ts — last_ts is the last line of ANY kind, and
 // harness heartbeats (bridge_status and other entry-less records) carry
 // timestamps, so a dormant session keeps ticking. Two ingest-#13 miners
-// independently misdated their buckets from it: fantasy's 3493ca55 reports
-// last_ts 08-17 for work that ended 07-25, and rafffle's aa620a02 reports a
+// independently misdated their buckets from it: one session (3493ca55) reports
+// last_ts 08-17 for work that ended 07-25, another (aa620a02) reports a
 // last_ts matching no message in any lane. last_activity_ts is the last line
 // that produced an entry in a WORK lane (prompt/text/thinking/tool) — note
 // that `system`/bridge_status records DO index, into the event lane, so

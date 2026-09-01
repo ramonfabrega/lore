@@ -5,8 +5,8 @@ wells in `~/.claude/projects` (transcript JSONL + per-project memory dirs),
 archives and indexes them, maintains an LLM-written wiki, and promotes matured
 knowledge into canon (git-committed CLAUDE.mds and docs).
 
-**Status, ingest history, and open threads live in the wiki**
-(`~/code/personal/lore-wiki`): `projects/lore.md` is this project's state page,
+**Status, ingest history, and open threads live in the wiki** (a separate
+private git repo, `LORE_WIKI_DIR`): `projects/lore.md` is this project's state page,
 `log.md` the chronology, `index.md` the map. This file carries only what every
 session needs: thesis, architecture, constraints, conventions. Decision
 narrative: `docs/DESIGN.md`.
@@ -27,7 +27,8 @@ canon docs (indexed via git objects; powers lint, the map, graduation dedup).
 
 Ops: **ingest** (raw → wiki), **graduate** (wiki → canon; human-approved;
 protocol v1.2 in DESIGN.md — facts as PRs, work as issues, repo-lens review
-gate, tombstones), **lint** (flag stale canon and cross-app drift).
+gate, tombstones), **lint** (flag stale canon and cross-app drift). These are
+protocols interactive sessions perform by driving the CLI — not CLI verbs.
 
 Layers: (1) **deterministic CLI** — scan, parse, archive, index (SQLite FTS5),
 search, ledger; zero model dependency; agent-first design (wevm/incur
@@ -73,8 +74,8 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   the edge; schemas colocated with the queries that produce them. Never
   `as X` on I/O. Env is one validated object in `config.ts`.
 - **No ORM** over lore.db — it's a derived artifact (rebuild beats migrate;
-  openDb drops+rebuilds on schema-version mismatch) and the load-bearing
-  queries are FTS5.
+  openDb rebuilds over OLDER schemas and refuses NEWER ones) and the
+  load-bearing queries are FTS5.
 - `lore docs` reads git objects only (`ls-tree`/`cat-file`), never working
   trees — canon can exist only at origin (husk repos).
 - **Prod bin vs dev lane**: the installed `lore` (frozen artifact, built by
@@ -108,8 +109,8 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
 
 - `docs/DESIGN.md` — design narrative, decision log (graduation protocol,
   ownership model, stack), rejected alternatives.
-- Wiki maintainer schema: `~/code/personal/lore-wiki/CLAUDE.md`.
-- Prior art: `~/code/fun/disk` (SQLite streaming/FSEvents craft — style
-  reference only, not a base); wevm/incur (agent-first CLI conventions);
-  Karpathy's llm-wiki (`docs/references/llm-wiki.md`).
+- Wiki maintainer schema: the wiki repo's own CLAUDE.md (`LORE_WIKI_DIR`).
+- Prior art: a sibling macOS disk visualizer (SQLite streaming/FSEvents
+  craft — style reference only, not a base); wevm/incur (agent-first CLI
+  conventions); Karpathy's llm-wiki (`docs/references/llm-wiki.md`).
 - The user operates suggest-first — challenge premises, propose alternatives.

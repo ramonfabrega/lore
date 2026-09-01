@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { ftsMatch } from './fts'
 
 // The canon corpus: git-committed .md files across the repos under ~/code.
-// Canon may exist only in git objects — a husk checkout (gym) has README,
+// Canon may exist only in git objects — a husk checkout can have README,
 // CLAUDE.md, docs/ on origin/master with no working tree anywhere on disk —
 // so everything here reads via git plumbing, never the working tree.
 
@@ -34,16 +34,16 @@ export type DocFile = { path: string; blobSha: string; size: number }
 const MAX_DOC_BYTES = 2_000_000
 const REMOTE_REFS = ['origin/HEAD', 'origin/main', 'origin/master']
 
-// Excludes match on the whole path or a `/`-bounded suffix — "sandbox/expo"
-// hits ~/code/sandbox/expo but not ~/code/sandbox/expo-sdk-54-repro.
+// Excludes match on the whole path or a `/`-bounded suffix — "tools/cli"
+// hits ~/code/tools/cli but not ~/code/tools/cli-repro.
 function isExcluded(dir: string, exclude: string[]): boolean {
   return exclude.some((e) => dir === e || dir.endsWith(`/${e}`))
 }
 
 // A linked worktree carries a `.git` FILE whose gitdir points into the main
 // repo's `.git/worktrees/` — same objects, same remote, same canon. Treating
-// it as a repo double-counts one project (storage-atlas, a worktree of disk,
-// indexed as a sibling with identical sha/docs).
+// it as a repo double-counts one project (seen live: a worktree checkout
+// indexed as a sibling repo with identical sha/docs).
 function isLinkedWorktree(gitPath: string): boolean {
   try {
     if (!statSync(gitPath).isFile()) return false
@@ -90,7 +90,7 @@ async function git(repo: string, ...args: string[]): Promise<{ ok: boolean; out:
 }
 
 // Origin refs only move when something fetches — canon detection is a
-// ref-diff, so a stale clone hides upstream canon indefinitely (dotfiles#34:
+// ref-diff, so a stale clone hides upstream canon indefinitely (seen live:
 // merged upstream, invisible to every re-index until a manual fetch). Failures
 // degrade to stale refs, never break the index — offline is a normal state.
 const FETCH_CONCURRENCY = 8
@@ -181,8 +181,8 @@ export async function scanRepo(repoPath: string, opts?: { assisted?: string[] })
 // Otherwise ownership hangs on whether the user has ever committed here under
 // the repo-local git identity: zero authored commits on the canon ref means
 // they were assisting on someone else's project. A share threshold was probed
-// and rejected — cuanto is 34/5157 under the personal email yet unmistakably
-// the user's; the zero/nonzero line is the one the fleet actually draws.
+// and rejected — one work repo is 34/5157 under the personal email yet
+// unmistakably the user's; the zero/nonzero line is the one the fleet draws.
 async function detectOwnership(repoPath: string, ref: string): Promise<Ownership> {
   const remotes = await git(repoPath, 'remote')
   if (remotes.ok && remotes.out.split('\n').includes('upstream')) return 'foreign'

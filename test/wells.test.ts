@@ -16,7 +16,7 @@ function mangle(path: string): string {
 describe('deslugWellDir', () => {
   test('reconstructs a path whose components contain literal hyphens', () => {
     const root = tempDir()
-    const real = join(root, 'code', 'fun', 'golf-sim')
+    const real = join(root, 'code', 'fun', 'my-app')
     mkdirSync(real, { recursive: true })
     expect(deslugWellDir(mangle(real))).toBe(real)
   })
@@ -43,11 +43,11 @@ describe('listWells realPath fallback', () => {
     const projects = tempDir()
     const src = tempDir()
 
-    // The album case: live source dir, memory dir, zero transcripts.
-    const albumSrc = join(src, 'fun', 'album')
-    mkdirSync(albumSrc, { recursive: true })
-    const albumWell = join(projects, mangle(albumSrc))
-    mkdirSync(join(albumWell, 'memory'), { recursive: true })
+    // The memory-only case: live source dir, memory dir, zero transcripts.
+    const zineSrc = join(src, 'fun', 'zine')
+    mkdirSync(zineSrc, { recursive: true })
+    const zineWell = join(projects, mangle(zineSrc))
+    mkdirSync(join(zineWell, 'memory'), { recursive: true })
 
     // A well with a transcript: cwd is ground truth even if it disagrees
     // with the dir name (mid-session worktree entry, respawns).
@@ -63,8 +63,8 @@ describe('listWells realPath fallback', () => {
 
     const wells = await listWells(projects)
     const byDir = new Map(wells.map((w) => [w.dir, w]))
-    expect(byDir.get(mangle(albumSrc))?.realPath).toBe(albumSrc)
-    expect(byDir.get(mangle(albumSrc))?.hasMemory).toBe(true)
+    expect(byDir.get(mangle(zineSrc))?.realPath).toBe(zineSrc)
+    expect(byDir.get(mangle(zineSrc))?.hasMemory).toBe(true)
     expect(byDir.get(mangle(join(src, 'fun', 'stale-name')))?.realPath).toBe(cwdSrc)
     expect(byDir.get(mangle(join(src, 'fun', 'gone')))?.realPath).toBeNull()
   })
