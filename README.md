@@ -28,7 +28,7 @@ bun src/main.ts tools --prefix Skill:       # invocation usage — the ambient R
 bun src/main.ts usage --by week             # the token profile: 4 billed classes + thinking, dated list-price equivalent; --by well|session|model|day|month
 bun src/main.ts trace <id-prefix>           # one session as a block: transactions → steps (fee) + instructions (tool, latency, error); docs/EXPLORER.md
 bun src/main.ts serve                       # the explorer in a browser: http://studio:4949/ over the tailnet (0.0.0.0); /usage, /well/<dir>, /session/<id>
-bun src/main.ts api /session/<id>           # the same routes as agent commands (JSON), via incur's fetch mount
+bun src/main.ts api session <id-prefix>     # the same routes as agent commands (JSON), via incur's fetch mount: api usage | api well <dir> | api session <id>
 bun src/main.ts docs index --fetch          # canon corpus (git objects, never working trees)
 bun src/main.ts stats
 

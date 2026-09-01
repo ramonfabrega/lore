@@ -338,7 +338,7 @@ cli.command('serve', {
 
 cli.command('api', {
   description:
-    'The explorer\'s routes as commands (agent surface of `lore serve`): `lore api /`, `lore api /usage`, `lore api /well/<dir>`, `lore api /session/<id>`. Same data the pages render, as JSON.',
+    'The explorer\'s routes as commands (agent surface of `lore serve`), path segments as arguments: `lore api usage`, `lore api well <dir>`, `lore api session <id-prefix>` (a leading-slash path 404s — segments, not a URL). Same data the pages render, as JSON.',
   fetch: (req: Request) => {
     const url = new URL(req.url)
     url.searchParams.set('json', '1')
