@@ -2,6 +2,13 @@ import type { Database } from 'bun:sqlite'
 import { Hono } from 'hono'
 import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
+import { existsSync } from 'node:fs'
+import { basename, join } from 'node:path'
+import { z } from 'zod'
+import { type AgentRow, listAgents } from './agents'
+import { WIKI_DIR } from './config'
+import type { Lane } from './parse'
+import { searchSessions } from './search'
 import { listSessions } from './sessions'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
@@ -23,7 +30,7 @@ type Db = () => Database
 // The CLI as a fetch handler exposes EVERY verb — archive, index, docs index,
 // wiki commit, serve itself — and over the tailnet that is a footgun, so the
 // fall-through is GET-only against this list. `docs` is split by subcommand.
-const READ_VERBS = new Set(['wells', 'sessions', 'session', 'trace', 'usage', 'search', 'spawns', 'workflows', 'tools', 'stats'])
+const READ_VERBS = new Set(['wells', 'sessions', 'session', 'trace', 'usage', 'search', 'spawns', 'workflows', 'tools', 'stats', 'agents'])
 const READ_DOCS = new Set(['search', 'list'])
 const SPEC_PATHS = new Set(['/openapi.json', '/openapi.yml', '/openapi.yaml', '/.well-known/openapi.json'])
 
@@ -57,9 +64,150 @@ export function composeHandler(pages: (req: Request) => Response | Promise<Respo
   }
 }
 
-export function createApp(getDb: Db, opts: { build?: string } = {}) {
+export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Database) => Promise<AgentRow[]>; wikiDir?: string } = {}) {
   const app = new Hono()
   const startedAt = new Date().toISOString()
+  const agents = opts.agents ?? listAgents
+  const wikiDir = opts.wikiDir ?? WIKI_DIR
+
+  app.get('/search', (c) => {
+    const db = getDb()
+    const q = c.req.query('q') ?? ''
+    const lanes = (c.req.query('lanes') ?? 'prompt,text').split(',').filter(Boolean) as Lane[]
+    const sort = c.req.query('sort') === 'recent' ? 'recent' : 'rank'
+    const well = c.req.query('well') || undefined
+    let result: ReturnType<typeof searchSessions> | null = null
+    let error: string | null = null
+    if (q.trim()) {
+      try {
+        result = searchSessions(db, q, { lanes, well, limit: 30, sort })
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e)
+      }
+    }
+    const data = { q, lanes, sort, well: well ?? null, error, ...(result ?? { query: '', sessions: [], hits: 0 }) }
+    if (wantsJson(c.req.raw)) return c.json(data)
+    const laneOpt = (v: string, label: string) => html`<label><input type="radio" name="lanes" value="${v}" ${lanes.join(',') === v ? 'checked' : ''}> ${label}</label>`
+    const body = html`
+      <h1>search</h1>
+      <form method="get" action="/search" class="searchform">
+        <input type="search" name="q" value="${q}" placeholder="FTS5: words, &quot;a phrase&quot;, prefix*, AND / OR / NOT" autofocus />
+        <button type="submit">search</button>
+        <span class="muted small">
+          ${laneOpt('prompt,text', 'conversation')} ${laneOpt('prompt,text,tool', '+ tools')} ${laneOpt('prompt,text,thinking,tool', 'everything')}
+          · <label><input type="checkbox" name="sort" value="recent" ${sort === 'recent' ? 'checked' : ''}> newest first</label>
+          ${well ? html`· well <input type="text" name="well" value="${well}" size="14" />` : html`<input type="hidden" name="well" value="" />`}
+        </span>
+      </form>
+      ${error ? html`<p class="kind err">${error}</p>` : ''}
+      ${result
+        ? html`<p class="muted">${result.sessions.length} sessions from ${result.hits} hits${result.hits >= 400 ? ' (top 400 shown — narrow the query)' : ''} · query <span class="mono">${result.query}</span></p>
+            ${result.sessions.map(
+              (s) => html`<div class="hit">
+                <div>
+                  <a class="mono" href="/session/${s.sessionId}">${s.sessionId.slice(0, 8)}</a>
+                  <a class="mono" href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a>
+                  <span class="muted mono">${s.first ?? ''} → ${s.last ?? ''}</span>
+                  <span class="muted">${s.hits} hit${s.hits === 1 ? '' : 's'}</span>
+                </div>
+                <div class="prompt">${s.firstPrompt ?? ''}</div>
+                ${s.snippets.map(
+                  (sn) => html`<div class="snippet"><span class="kind">${sn.lane}</span> <a href="/session/${s.sessionId}${sn.promptId ? `#tx-${sn.promptId}` : ''}">${raw(markSnippet(sn.snippet))}</a></div>`,
+                )}
+              </div>`,
+            )}`
+        : html`<p class="muted">Sessions ranked by their best hit, then hit count, then recency. A half-typed last word matches as a prefix. FTS5 syntax passes through.</p>`}`
+    return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q }))
+  })
+
+  app.get('/agents', async (c) => {
+    const db = getDb()
+    let rows: AgentRow[] = []
+    let error: string | null = null
+    try {
+      rows = await agents(db)
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    }
+    const data = { agents: rows, error }
+    if (wantsJson(c.req.raw)) return c.json(data)
+    const body = html`
+      <h1>agents</h1>
+      <p class="muted">the daemon's roster (\`claude agents --json --all\` + each job's state.json) joined to lore's index — live tokens are the harness's counter; requests and list $ are lore's, as of the last \`lore index\`. Attach in a terminal.</p>
+      ${error ? html`<p class="kind err">${error}</p>` : ''}
+      <section>
+        <table>
+          <thead><tr><th>state</th><th>name</th><th>where</th><th>doing</th><th class="num">live tokens</th><th class="num">requests</th><th class="num">list $</th><th>indexed</th><th>started</th><th>links</th><th>attach</th></tr></thead>
+          <tbody>
+          ${rows.map(
+            (a) => html`<tr class="${a.state}">
+              <td><span class="kind ${a.state === 'blocked' || a.state === 'failed' ? 'err' : ''}">${a.state}</span>${a.waitingFor ? html` <span class="muted small">${a.waitingFor}</span>` : ''}${a.tempo ? html` <span class="muted small">${a.tempo}</span>` : ''}</td>
+              <td>${a.name ?? ''}</td>
+              <td class="mono small">${shortPath(a.cwd)}${a.branch ? html` <span class="muted">@ ${a.branch}</span>` : ''}</td>
+              <td class="prompt small">${cut(a.detail ?? '', 120)}</td>
+              <td class="num">${a.liveTokens != null ? tok(a.liveTokens) : ''}</td>
+              <td class="num">${a.indexed ? a.indexed.requests : ''}</td>
+              <td class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</td>
+              <td class="mono small">${a.sessionId ? (a.indexed ? html`<a href="/session/${a.sessionId}">${a.indexed.last?.slice(0, 16) ?? 'yes'}</a>` : html`<span class="muted">not yet</span>`) : ''}</td>
+              <td class="mono small">${a.startedAt.slice(0, 16)}</td>
+              <td class="small">${a.children.map((ch) => html`<a href="${ch.href}">${ch.kind === 'pr' ? `#${ch.id}` : ch.kind}</a> `)}</td>
+              <td class="mono small">${a.attach ?? ''}</td>
+            </tr>`,
+          )}
+          </tbody>
+        </table>
+      </section>`
+    return c.html(page('agents · lore', body))
+  })
+
+  // One background job across every /clear it produced — the conversation as
+  // the user experienced it, which is never one transcript.
+  app.get('/job/:id', (c) => {
+    const db = getDb()
+    const id = c.req.param('id')
+    const rows = z
+      .array(z.object({ sessionId: z.string(), well: z.string(), first: z.string().nullable(), last: z.string().nullable(), lines: z.number() }))
+      .parse(
+        db
+          .prepare(
+            `SELECT s.session_id AS sessionId, w.dir AS well, s.first_ts AS first, COALESCE(s.last_activity_ts, s.last_ts) AS last, s.lines
+             FROM sessions s JOIN wells w ON w.id = s.well_id WHERE s.job_session_id = ? ORDER BY s.first_ts`,
+          )
+          .all(id),
+      )
+    if (rows.length === 0) return c.notFound()
+    const fee = new Map(listUsage(db, { by: 'session', limit: 100000 }).rows.map((r) => [r.key, r]))
+    const sessions = rows.map((r) => ({ ...r, usage: fee.get(r.sessionId) ?? null }))
+    const totals = sessions.reduce(
+      (t, s) => ({ requests: t.requests + (s.usage?.requests ?? 0), output: t.output + (s.usage?.output ?? 0), listUsd: t.listUsd + (s.usage?.listUsd ?? 0) }),
+      { requests: 0, output: 0, listUsd: 0 },
+    )
+    const data = { job: id, totals, sessions }
+    if (wantsJson(c.req.raw)) return c.json(data)
+    const body = html`
+      <p class="crumbs"><a href="/">lore</a> / job</p>
+      <h1 class="mono">${id}</h1>
+      <p class="muted">${sessions.length} transcripts across /clears · ${totals.requests.toLocaleString()} requests · ${tok(totals.output)} out · ${usd(Math.round(totals.listUsd * 100) / 100)} list-equivalent</p>
+      <section>
+        <table>
+          <thead><tr><th>first</th><th>last</th><th>well</th><th class="num">lines</th><th class="num">requests</th><th class="num">out</th><th class="num">list $</th></tr></thead>
+          <tbody>
+          ${sessions.map(
+            (s) => html`<tr>
+              <td class="mono"><a href="/session/${s.sessionId}">${s.first?.slice(0, 16) ?? ''}</a></td>
+              <td class="mono">${s.last?.slice(0, 16) ?? ''}</td>
+              <td class="mono"><a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a></td>
+              <td class="num">${s.lines}</td>
+              <td class="num">${s.usage?.requests ?? ''}</td>
+              <td class="num">${s.usage ? tok(s.usage.output) : ''}</td>
+              <td class="num">${s.usage ? usd(s.usage.listUsd) : ''}</td>
+            </tr>`,
+          )}
+          </tbody>
+        </table>
+      </section>`
+    return c.html(page(`job ${id.slice(0, 8)} · lore`, body))
+  })
 
   // Liveness + provenance for `lore server status`.
   app.get('/_lore', (c) => c.json({ ok: true, build: opts.build ?? 'dev', pid: process.pid, startedAt }))
@@ -159,7 +307,8 @@ export function createApp(getDb: Db, opts: { build?: string } = {}) {
     if (wantsJson(c.req.raw)) return c.json(data)
     const body = html`
       <p class="crumbs"><a href="/">lore</a> / well</p>
-      <h1>${dir}</h1>
+      <h1>${shortWell(dir)} <span class="muted small mono">${dir}</span></h1>
+      ${wikiPageFor(dir, wikiDir) ? html`<p class="muted">wiki: <span class="mono">${wikiPageFor(dir, wikiDir)}</span></p>` : ''}
       <p class="muted">${sessions.length} sessions · ${usage.totals.requests.toLocaleString()} requests · ${tok(usage.totals.output)} out ·
         ${usd(usage.totals.listUsd)} list-equivalent${usage.totals.spawns ? html` · ${usage.totals.spawns} spawns (${tok(usage.totals.spawnOutput ?? 0)} out)` : ''}</p>
       ${weeks.rows.length > 1 ? html`<section><h2>by week <span class="muted">list-equivalent USD</span></h2>${bars(weeks.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)}` })))}</section>` : ''}
@@ -200,7 +349,7 @@ export function createApp(getDb: Db, opts: { build?: string } = {}) {
     const body = html`
       <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
       <h1 class="mono">${s.sessionId}</h1>
-      <p class="muted">${s.first ?? ''} → ${s.last ?? ''} · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <span class="mono">${s.jobSessionId.slice(0, 8)}</span>` : ''}</p>
+      <p class="muted">${s.first ?? ''} → ${s.last ?? ''} · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}</p>
       <div class="tiles">
         ${tile('transactions', String(t.transactions))}
         ${tile('steps', String(t.steps))}
@@ -216,7 +365,7 @@ export function createApp(getDb: Db, opts: { build?: string } = {}) {
           <thead><tr><th>#</th><th>at</th><th>kind</th><th>prompt</th><th class="num">steps</th><th class="num">instr</th><th class="num">err</th><th class="num">out</th><th class="num">list $</th><th class="num">wall</th></tr></thead>
           <tbody>
           ${trace.transactions.map(
-            (x, i) => html`<tr class="${x.kind}">
+            (x, i) => html`<tr class="${x.kind}" ${x.promptId ? html`id="tx-${x.promptId}"` : ''}>
               <td class="num">${i + 1}</td>
               <td class="mono">${x.ts ? x.ts.slice(11, 19) : ''}</td>
               <td><span class="kind ${x.kind}">${x.kind}</span></td>
@@ -224,6 +373,7 @@ export function createApp(getDb: Db, opts: { build?: string } = {}) {
                 ${x.instructions.length || x.reply
                   ? html`<details>
                       <summary>${x.prompt || raw('&nbsp;')}</summary>
+                      ${annotationLine(x.annotations)}
                       ${x.instructions.length
                         ? html`<table class="ix">
                             <thead><tr><th>tool</th><th>input</th><th class="num">ms</th><th>result</th></tr></thead>
@@ -332,6 +482,38 @@ function ms(n: number | null): string {
   if (n < 3_600_000) return `${Math.round(n / 60_000)}min`
   return `${(n / 3_600_000).toFixed(1)}h`
 }
+type Ann = { files: string[]; commands: number; tests: { ran: number; passed: number; failed: number }; commits: string[]; retries: number }
+function annotationLine(a: Ann) {
+  const parts: (HtmlEscapedString | Promise<HtmlEscapedString> | string)[] = []
+  if (a.files.length) parts.push(html`<span title="${a.files.join('\n')}">${a.files.length} file${a.files.length === 1 ? '' : 's'}</span>`)
+  if (a.commands) parts.push(`${a.commands} cmd${a.commands === 1 ? '' : 's'}`)
+  if (a.tests.ran) parts.push(html`tests ${a.tests.ran}: <span class="${a.tests.failed ? 'err' : ''}">${a.tests.failed} fail</span> / ${a.tests.passed} pass`)
+  if (a.commits.length) parts.push(html`commit ${a.commits.map((c) => html`<span class="mono">${c}</span> `)}`)
+  if (a.retries) parts.push(`${a.retries} retr${a.retries === 1 ? 'y' : 'ies'}`)
+  if (!parts.length) return html``
+  return html`<p class="ann muted small">${parts.map((p, i) => html`${i ? ' · ' : ''}${p}`)}</p>`
+}
+
+// FTS5 snippet marks come back as « » in escaped text; turn them into <mark>.
+function markSnippet(s: string): string {
+  const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return esc.replace(/«/g, '<mark>').replace(/»/g, '</mark>')
+}
+
+function shortPath(p: string): string {
+  return p.replace(/^\/Users\/[^/]+\/code\//, '').replace('/.claude/worktrees/', ' · ')
+}
+
+// A well's repo has a wiki page when projects/<repo>.md exists — the human
+// summary beside the mechanical one. Pointer only; the wiki is not served.
+function wikiPageFor(dir: string, wikiDir: string): string | null {
+  const i = dir.indexOf('-code-')
+  if (i < 0) return null
+  const repo = dir.slice(i + '-code-'.length).split('--claude-worktrees-')[0]!.replace(/^(fun|work|personal|games)-/, '')
+  const p = join(wikiDir, 'projects', `${basename(repo)}.md`)
+  return existsSync(p) ? `projects/${basename(repo)}.md` : null
+}
+
 // Well dirs are slugged absolute paths; the tail past `code` is the name a
 // human uses (`fun/attrition · replan-pdb`).
 function shortWell(dir: string): string {
@@ -344,7 +526,11 @@ function cut(s: string, n: number): string {
   return one.length > n ? `${one.slice(0, n - 1)}…` : one
 }
 
-function page(title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) {
+function page(title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>, opts: { q?: string } = {}) {
+  const nav = html`<nav class="nav">
+    <a href="/">lore</a> <a href="/usage">usage</a> <a href="/agents">agents</a>
+    <form method="get" action="/search" class="navsearch"><input type="search" name="q" value="${opts.q ?? ''}" placeholder="search sessions…" /></form>
+  </nav>`
   return html`<!doctype html>
 <html lang="en">
 <head>
@@ -383,10 +569,18 @@ section { overflow-x: auto; }
 .kind.err { color: var(--err); } tr.meta td, tr.command td { color: var(--ink-3); }
 table.ix { margin: 6px 0 4px; } table.ix th { position: static; } tr.err td { color: var(--err); }
 details > summary { cursor: pointer; } .reply { color: var(--ink-2); margin: 6px 0 2px; }
+.nav { display: flex; gap: 14px; align-items: center; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.nav a { color: var(--ink-2); } .nav a:first-child { font-weight: 600; color: var(--ink); }
+.navsearch { margin-left: auto; } .navsearch input, .searchform input[type=search] { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); min-width: 260px; }
+.searchform { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; } .searchform button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); cursor: pointer; }
+.hit { padding: 8px 0; border-bottom: 1px solid var(--line); } .hit > div { margin: 2px 0; } .hit .mono { margin-right: 8px; }
+.snippet { color: var(--ink-2); font-size: 13px; padding-left: 8px; } .snippet a { color: inherit; } mark { background: color-mix(in oklab, var(--series-1) 22%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+.ann { margin: 2px 0 6px; } .err { color: var(--err); } tr.done td, tr.stopped td, tr.failed td { color: var(--ink-3); }
+h1 .muted { font-size: 12px; font-weight: 400; }
 .viz svg { display: block; max-width: 100%; height: auto; } .viz { margin: 0 0 8px; }
 .viz .mark { fill: var(--series-1); } .viz .axis { fill: var(--ink-3); font-size: 9px; font-family: ui-monospace, Menlo, monospace; }
 </style>
 </head>
-<body>${body}</body>
+<body>${nav}${body}</body>
 </html>`
 }

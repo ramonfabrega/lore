@@ -63,6 +63,59 @@ export type Step = {
   thinking: number
   listUsd: number | null
 }
+// Deterministic annotations per transaction (docs/EXPLORER.md): read off the
+// instructions and their logs, never inferred. files = paths touched by
+// Edit/Write/Read/MultiEdit/NotebookEdit; commands = Bash calls; tests = test
+// runs recognised by their command, with the verdict read from the result's
+// tail (results index head+tail for exactly this); commits = shas from git's
+// own "[branch sha]" line; retries = a Bash command repeated verbatim.
+export type Annotations = {
+  files: string[]
+  commands: number
+  tests: { ran: number; passed: number; failed: number }
+  commits: string[]
+  retries: number
+}
+
+const FILE_TOOLS = new Set(['Edit', 'Write', 'Read', 'MultiEdit', 'NotebookEdit'])
+const TEST_CMD = /\b(bun test|cargo test|cargo nextest|pytest|npm test|pnpm test|yarn test|go test|vitest|jest|swift test|mix test)\b/
+const TEST_FAIL = /\b(\d+) fail(?:ed|ures?)?\b|\bFAILED\b|\bfailures:|\btest result: FAILED|\bError: Exit code/i
+const TEST_PASS = /\b(\d+) pass(?:ed)?\b|\btest result: ok\b|\bok\s+\d+ passed|\ball tests passed/i
+const COMMIT_LINE = /\[[\w./-]+ (?:\(root-commit\) )?([0-9a-f]{7,40})\]/g
+
+export function annotate(instructions: { tool: string; inputFull: string; resultFull: string; error: boolean }[]): Annotations {
+  const files = new Set<string>()
+  const commits = new Set<string>()
+  const seen = new Map<string, number>()
+  let commands = 0
+  let ran = 0
+  let passed = 0
+  let failed = 0
+  for (const ix of instructions) {
+    if (FILE_TOOLS.has(ix.tool)) {
+      const m = /"(?:file_path|notebook_path)":"((?:[^"\\]|\\.)*)"/.exec(ix.inputFull)
+      if (m?.[1]) files.add(m[1])
+    }
+    if (ix.tool === 'Bash') {
+      commands++
+      const cmd = /"command":"((?:[^"\\]|\\.)*)"/.exec(ix.inputFull)?.[1] ?? ix.inputFull
+      seen.set(cmd, (seen.get(cmd) ?? 0) + 1)
+      if (TEST_CMD.test(cmd)) {
+        ran++
+        const failHit = TEST_FAIL.exec(ix.resultFull)
+        const passHit = TEST_PASS.exec(ix.resultFull)
+        const failN = failHit?.[1] != null ? Number(failHit[1]) : failHit ? 1 : 0
+        if (failN > 0 || ix.error) failed++
+        else if (passHit) passed++
+      }
+      for (const m of ix.resultFull.matchAll(COMMIT_LINE)) commits.add(m[1]!.slice(0, 7))
+    }
+  }
+  let retries = 0
+  for (const n of seen.values()) if (n > 1) retries += n - 1
+  return { files: [...files], commands, tests: { ran, passed, failed }, commits: [...commits], retries }
+}
+
 export type Transaction = {
   promptId: string | null
   kind: 'prompt' | 'command' | 'meta'
@@ -70,6 +123,7 @@ export type Transaction = {
   prompt: string
   steps: number
   instructions: Instruction[]
+  annotations: Annotations
   errors: number
   input: number
   cacheWrite: number
@@ -175,19 +229,24 @@ export function getTrace(
     const results = new Map<string, z.infer<typeof Row>>()
     for (const r of b.rows) if (r.type === 'user' && r.lane === 'tool' && r.toolUseId) results.set(r.toolUseId, r)
     const instructions: Instruction[] = []
+    const full: { tool: string; inputFull: string; resultFull: string; error: boolean }[] = []
     for (const r of b.rows) {
       if (r.type !== 'assistant' || r.lane !== 'tool') continue
       const res = r.toolUseId ? results.get(r.toolUseId) : undefined
       const tool = r.toolName ?? '?'
+      const inputFull = r.text.startsWith(tool) ? r.text.slice(tool.length).trim() : r.text
+      const error = res ? res.isError === 1 : false
       instructions.push({
         tool,
-        input: cut(r.text.startsWith(tool) ? r.text.slice(tool.length).trim() : r.text, head),
+        input: cut(inputFull, head),
         ts: r.ts,
         ms: res?.ts && r.ts ? Date.parse(res.ts) - Date.parse(r.ts) : null,
-        error: res ? res.isError === 1 : false,
+        error,
         result: res ? cut(res.text, head) : '',
       })
+      full.push({ tool, inputFull, resultFull: res?.text ?? '', error })
     }
+    const annotations = annotate(full)
 
     const stepIds = [...new Set(b.rows.map((r) => r.requestId).filter((x): x is string => x != null))]
     const steps: Step[] = stepIds.map((id) => {
@@ -219,6 +278,7 @@ export function getTrace(
       prompt: promptText,
       steps: steps.length,
       instructions,
+      annotations,
       errors: instructions.filter((i) => i.error).length,
       ...fee,
       reply: cut(texts[texts.length - 1]?.text ?? '', head),

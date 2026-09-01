@@ -79,18 +79,46 @@ the prod bin is a frozen bundle, so after `scripts/install` the server
 still runs the old one until `restart`. KeepAlive respawns a port race
 forever, so `status` and `logs` are the diagnosis, not the pid.
 
-## Annotation: deterministic first
+## Annotation: deterministic first (landed)
 
-Per transaction, computed from the instructions: the tool sequence as one
-trace line; files touched (Edit/Write/Read inputs); commands run; tests run
-with pass/fail parsed from output; commits (SHAs in Bash output); error and
-interrupt counts; retries of the same command. These are the "went well /
-went badly" proxies. Judgment summaries come from the wiki when an ingest
-exists — link them, never recompute.
+Per transaction, from the instructions and their logs: files touched
+(Edit/Write/Read/MultiEdit/NotebookEdit inputs), commands run, tests run
+with the verdict read from the result's TAIL (tool results index head 1200
++ tail 800 for exactly this — the verdict of a run sits at the end),
+commits from git's own `[branch sha]` line (a `-q` commit or a commit made
+by a script prints none — an empty list is honest, not a miss), retries as
+a Bash command repeated verbatim. These are the "went well / went badly"
+proxies. Judgment summaries come from the wiki when an ingest exists — the
+well page points at `projects/<repo>.md` when it exists, never recomputes.
+
+## Search (landed)
+
+Sessions first: FTS5 hits grouped by session, ranked by best hit (bm25),
+then hit count, then recency — deterministic and sayable. The last bare
+token becomes a prefix (`notar` → `notar*`) so a half-typed word already
+lands; FTS5 syntax passes through. Lanes: conversation (prompt + text) by
+default, tools or everything on request. A hit links to its transaction
+(`/session/<id>#tx-<promptId>`). Speed is FTS5's (2–12 ms on 300k rows);
+no client code, no reimplemented ranking. `lore search` is the CLI twin.
+
+## Agents (landed)
+
+The daemon's listing (`claude agents --json --all`, ~140 ms) + each job's
+`state.json` (state, detail, tempo, LIVE tokens, links, worktree branch)
+joined to the index (well, requests, list $, last indexed activity — as of
+the last `lore index`). Active first. Attach is a command to copy.
+`lore agents` is the CLI twin; `/cli/agents` the route.
+
+## Job (landed)
+
+`/job/<job_session_id>`: every transcript one background job produced
+across its `/clear`s, with fees — the conversation as the user lived it,
+which is never one transcript.
 
 ## Sequence
 
-1. v13 + `lore trace` (this branch).
-2. `lore serve` skeleton: the five pages over existing verbs.
-3. Annotations, then the agents page.
-4. Native only if the web surface fails to earn itself.
+1. v13 + `lore trace` — landed.
+2. `lore serve` skeleton — landed; `/cli/` + `lore server` — landed.
+3. Recent, search, annotations, agents, job — landed.
+4. A design pass, once the pages have earned it (the block view first).
+5. Native only if the web surface fails to earn itself.

@@ -39,7 +39,10 @@ describe('parseLine laning', () => {
       env({ type: 'user', message: { content: [{ type: 'tool_result', content: [{ type: 'text', text: big }] }] } }),
     )!
     expect(p.entries[0]!.lane).toBe('tool')
-    expect(p.entries[0]!.text.length).toBe(2000)
+    // head (1200) + separator + tail (800): the verdict at the END of a tool
+    // result survives the cap (docs/EXPLORER.md annotations)
+    expect(p.entries[0]!.text.length).toBe(1200 + '\n… … …\n'.length + 800)
+    expect(p.entries[0]!.text).toContain('… … …')
   })
 
   test('assistant text + thinking + tool_use → three lanes', () => {
