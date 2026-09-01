@@ -37,7 +37,8 @@ async function seededApp() {
   )
   const db = openDb(':memory:')
   await buildIndex(db, { projectsDir: dir, historyPath: join(dir, 'nope.jsonl') })
-  return createApp(() => db)
+  // The root joins the live roster; keep the test hermetic.
+  return createApp(() => db, { agents: async () => [] })
 }
 
 describe('explorer routes', () => {
@@ -48,14 +49,16 @@ describe('explorer routes', () => {
     const text = await page.text()
     expect(text).toContain('<title>lore</title>')
     expect(text).toContain(`/well/${encodeURIComponent(WELL)}`)
-    expect(text).toContain('claude-opus-5')
+    expect(text).toContain('opus-5') // the day chart's legend
     expect(text).toContain('recent')
     expect(text).toContain('ship the explorer')
+    expect(text).toContain('layout-root')
     const json = Any.parse(await (await app.request('/?json=1')).json())
-    expect(json.wells.rows[0].key).toBe(WELL)
+    expect(json.active[0].key).toBe(WELL)
     expect(json.recent[0].sessionId).toBe('sess-1')
     expect(json.recent[0].usage.requests).toBe(2)
-    expect(json.recentWells).toEqual([WELL])
+    expect(json.days[0].models[0].model).toBe('claude-opus-5')
+    expect(json.days[0].usd.output).toBeGreaterThan(0)
     const viaAccept = await app.request('/', { headers: { accept: 'application/json' } })
     expect(viaAccept.headers.get('content-type')).toContain('application/json')
   })

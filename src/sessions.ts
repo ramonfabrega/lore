@@ -13,7 +13,9 @@ const Row = z.object({
   workDirs: z.number(),
   firstPrompt: z.string().nullable(),
 })
-export type SessionRow = z.infer<typeof Row>
+// lastAt is the full last-activity timestamp (`last` is its day) — the
+// explorer's recent list wants the hour.
+export type SessionRow = z.infer<typeof Row> & { lastAt: string | null }
 
 // The arc spine of a well: its sessions in order, each headed by the prompt
 // that opened it. Ingest reads this before touching any transcript.
@@ -88,6 +90,7 @@ export function listSessions(
         ...r,
         first: r.first?.slice(0, 10) ?? null,
         last: r.last?.slice(0, 10) ?? null,
+        lastAt: r.last ?? null,
         idleUntil: r.idleUntil?.slice(0, 10) ?? null,
         firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
       }

@@ -180,14 +180,54 @@ transaction page with the full instruction logs (`/session/:id/tx/:n`),
 and a "diff view" of files touched — both wait for a session that needs
 them.
 
+## The console (layout pass, landed 2026-09-01)
+
+The pages were documents — a title, then tables, four pagefuls of
+scrolling, the only actionable thing above the fold. The user's read: "not
+dense enough, not an ops/control dashboard". The pass makes the viewport
+the frame: `body` never scrolls, `main` is a CSS grid of **panels**
+(`style.ts`; header + an internally scrolling body), and every list is a
+grid row — one line, ellipsis, tooltip on hover, inline bar beside the
+number that matters. 13px type, 3px row padding. Under 900px the grid
+falls back to a stack and the page scrolls.
+
+- **`/` — the control room.** KPI tiles (today $, this week $, requests,
+  sessions, working, blocked), the **45-day chart** (list $ per day,
+  stacked by the top three models in series order + other), **recent**
+  (60 sessions by last activity, hour for today, harness-only sessions
+  filtered), **agents** (state dot, name, doing, live tokens, $ —
+  the roster's top 14), **active this week** (wells by $ with bars).
+  Windowed queries only; the roster is memoized 10 s.
+- **`/usage`.** The 90-day stacked chart with all-time totals in the
+  header; **by model** with the **fee split by class** per row (the bar
+  from the block view — Fable 5 is output-heavy, opus is cache-read-heavy,
+  visible in one glance); by well (top 60); by week and by day in one
+  scrolling column. The all-time aggregates (~150 ms each) are memoized
+  five minutes, keyed on the index timestamp.
+- **`/agents`.** One row per agent: state, name, where, doing, live
+  tokens with bars, requests, $, indexed (ago), links (a pile of 100 PRs
+  folds into "100 links"), attach command.
+- **`/well/:dir`, `/job/:id`, `/session/:id`** — a fixed head (title,
+  tiles, and for the session the fee bar and timeline) over one scrolling
+  panel, so the block's map stays put while its spine scrolls.
+
+`listUsage` gains `split`: per row, the list $ by token class (`usd`) and
+by model (`models`), from the same (key, model, day) cells — that is
+what the stacked chart and the per-model fee bars read.
+
+Deferred: a TUI. The web console at this density *is* the terminal-shaped
+explorer; a curses surface would re-implement it for one screen.
+
 ## Sequence
 
 1. v13 + `lore trace` — landed.
 2. `lore serve` skeleton — landed; `/cli/` + `lore server` — landed.
 3. Recent, search, annotations, agents, job — landed.
 4. Jobs (trailer → transcript) + self-refresh — landed. Core complete.
-5. A design pass, once the pages have earned it — the block view landed
-   (above); the well, usage, and agents pages next, in that order.
+5. Design pass — the block view, then the console layout: landed (above).
+   Open: a search palette (search-as-you-type over titles) if the nav
+   search proves too slow to reach for; light-mode screenshots (the
+   headless checks ran dark).
 6. Native only if the web surface fails to earn itself.
 
 ## Not built, on purpose (candidates for later)

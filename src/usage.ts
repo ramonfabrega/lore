@@ -81,6 +81,10 @@ export type UsageRow = {
   spawns?: number
   spawnOutput?: number
   listUsd: number | null
+  // With `split`: the list price by token class (the fee bar) and by model
+  // (the stacked day chart), from the same (key, model, day) cells.
+  usd?: { input: number; cacheWrite: number; cacheRead: number; output: number }
+  models?: { model: string; requests: number; listUsd: number | null }[]
 }
 export type UsageReport = {
   by: Grouping
@@ -114,6 +118,7 @@ export function listUsage(
     since?: string
     until?: string
     limit: number
+    split?: boolean
   },
 ): UsageReport {
   const where: string[] = ['1=1']
@@ -187,13 +192,34 @@ export function listUsage(
     row.output += c.output
     row.thinking += c.thinking
     const rate = rateFor(c.model, c.day)
-    if (rate) {
-      row.listUsd =
-        (row.listUsd ?? 0) +
-        (c.input * rate.input + c.cacheWrite * rate.cacheWrite + c.cacheRead * rate.cacheRead + c.output * rate.output) / 1e6
+    const cellUsd = rate
+      ? {
+          input: (c.input * rate.input) / 1e6,
+          cacheWrite: (c.cacheWrite * rate.cacheWrite) / 1e6,
+          cacheRead: (c.cacheRead * rate.cacheRead) / 1e6,
+          output: (c.output * rate.output) / 1e6,
+        }
+      : null
+    if (cellUsd) {
+      row.listUsd = (row.listUsd ?? 0) + cellUsd.input + cellUsd.cacheWrite + cellUsd.cacheRead + cellUsd.output
     } else {
       row.priced = false
       unpriced.add(c.model ?? '?')
+    }
+    if (opts.split) {
+      const u = (row.usd ??= { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 })
+      if (cellUsd) {
+        u.input += cellUsd.input
+        u.cacheWrite += cellUsd.cacheWrite
+        u.cacheRead += cellUsd.cacheRead
+        u.output += cellUsd.output
+      }
+      const ms = (row.models ??= [])
+      const name = c.model ?? '?'
+      let m = ms.find((x) => x.model === name)
+      if (!m) ms.push((m = { model: name, requests: 0, listUsd: 0 }))
+      m.requests += c.requests
+      m.listUsd = cellUsd ? (m.listUsd ?? 0) + cellUsd.input + cellUsd.cacheWrite + cellUsd.cacheRead + cellUsd.output : null
     }
     rows.set(c.key, row)
   }

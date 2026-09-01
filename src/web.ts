@@ -12,7 +12,9 @@ import { searchSessions } from './search'
 import { resolveSessionId } from './session'
 import { listSessions } from './sessions'
 import { annotationLine, sessionBody, tile } from './block'
-import { cut, ms, tok, usd } from './fmt'
+import { cut, tok, usd } from './fmt'
+import { CSS } from './style'
+import { bars, feeBar, feeLegend, ibar, stackedBars } from './viz'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
 
@@ -80,6 +82,20 @@ export function createApp(
   const indexed = opts.indexed ?? { at: null, busy: false, error: null }
   const chrome = () => ({ indexedAt: indexed.at, indexError: indexed.error })
 
+  // In-process memo for the two slow things a page does: the whole-corpus
+  // usage aggregates (~150 ms each; keyed on the index's timestamp, so a
+  // refresh invalidates) and the daemon roster (~250 ms shell-out; 10 s).
+  const memo = new Map<string, { at: number; key: string; value: unknown }>()
+  const cached = <T,>(name: string, ttlMs: number, key: string, f: () => T): T => {
+    const hit = memo.get(name)
+    if (hit && hit.key === key && Date.now() - hit.at < ttlMs) return hit.value as T
+    const value = f()
+    memo.set(name, { at: Date.now(), key, value })
+    return value
+  }
+  const indexKey = () => indexed.at ?? 'none'
+  const roster = () => cached('roster', 10_000, 'live', () => agents(getDb()))
+
   // A commit trailer's id → its transcript. `/s/session_X`, `/s/cse_X`, a
   // bare suffix, or a transcript uuid prefix all land on /session/<uuid>.
   app.get('/s/:id', (c) => {
@@ -141,51 +157,51 @@ export function createApp(
               </div>`,
             )}`
         : html`<p class="muted">Sessions ranked by their best hit, then hit count, then recency. A half-typed last word matches as a prefix. FTS5 syntax passes through.</p>`}`
-    return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q, ...chrome() }))
+    return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q, ...chrome(), nav: 'search' }))
   })
 
   app.get('/agents', async (c) => {
-    const db = getDb()
     let rows: AgentRow[] = []
     let error: string | null = null
     try {
-      rows = await agents(db)
+      rows = await roster()
     } catch (e) {
+      memo.delete('roster')
       error = e instanceof Error ? e.message : String(e)
     }
     const data = { agents: rows, error }
     if (wantsJson(c.req.raw)) return c.json(data)
+    const maxLive = Math.max(...rows.map((a) => a.liveTokens ?? 0), 0)
+    const counts = new Map<string, number>()
+    for (const a of rows) counts.set(a.state, (counts.get(a.state) ?? 0) + 1)
     const body = html`
-      <h1>agents</h1>
-      <p class="muted">the daemon's roster (\`claude agents --json --all\` + each job's state.json) joined to lore's index — live tokens are the harness's counter; requests and list $ are lore's, as of the last \`lore index\`. Attach in a terminal.</p>
-      ${error ? html`<p class="kind err">${error}</p>` : ''}
-      <section>
-        <table>
-          <thead><tr><th>state</th><th>name</th><th>where</th><th>doing</th><th class="num">live tokens</th><th class="num">requests</th><th class="num">list $</th><th>indexed</th><th>started</th><th>links</th><th>attach</th></tr></thead>
-          <tbody>
+      <div class="panel">
+        <header><h2>agents</h2><span>${[...counts].map(([st, n]) => html`<span class="kind st-${st}">${n} ${st}</span> `)}</span>
+          <span class="sp small">the daemon's roster + each job's state.json, joined to the index · live tokens are the harness's counter · attach in a terminal</span></header>
+        ${error ? html`<p class="footnote err">${error}</p>` : ''}
+        <div class="scroll list roster">
+          <div class="row head"><span>state</span><span>name</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num">req</span><span class="num">list $</span><span>indexed</span><span>links</span><span>attach</span></div>
           ${rows.map(
-            (a) => html`<tr class="${a.state}">
-              <td><span class="kind st-${a.state}">${a.state}</span>${a.waitingFor ? html` <span class="muted small">${a.waitingFor}</span>` : ''}${a.tempo && a.state === 'working' ? html` <span class="muted small">${a.tempo}</span>` : ''}</td>
-              <td>${a.name ?? ''}</td>
-              <td class="mono small">${shortPath(a.cwd)}${a.branch ? html` <span class="muted">@ ${a.branch}</span>` : ''}</td>
-              <td class="prompt small">${cut(a.detail ?? '', 120)}</td>
-              <td class="num">${a.liveTokens != null ? tok(a.liveTokens) : ''}</td>
-              <td class="num">${a.indexed ? a.indexed.requests : ''}</td>
-              <td class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</td>
-              <td class="mono small">${a.sessionId ? (a.indexed ? html`<a href="/session/${a.sessionId}">${a.indexed.last?.slice(0, 16) ?? 'yes'}</a>` : html`<span class="muted">not yet</span>`) : ''}</td>
-              <td class="mono small">${a.startedAt.slice(0, 16)}</td>
-              <td class="small">${a.children.map((ch) => html`<a href="${ch.href}">${ch.kind === 'pr' ? `#${ch.id}` : ch.kind}</a> `)}</td>
-              <td class="mono small">${a.attach ?? ''}</td>
-            </tr>`,
+            (a) => html`<div class="row ${a.state}" title="started ${a.startedAt.slice(0, 16)}${a.updatedAt ? ` · updated ${a.updatedAt.slice(0, 16)}` : ''}">
+              <span title="${a.tempo ?? ''}${a.waitingFor ? ` · waiting for ${a.waitingFor}` : ''}"><span class="dot st-${a.state}"></span> ${a.state}</span>
+              <span title="${a.name ?? ''}">${a.name ?? ''}</span>
+              <span class="mono muted" title="${a.cwd}${a.branch ? ` @ ${a.branch}` : ''}">${shortPath(a.cwd)}${a.branch ? ` @ ${a.branch}` : ''}</span>
+              <span title="${a.detail ?? ''}">${a.detail ?? ''}</span>
+              <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
+              <span class="num">${a.indexed ? a.indexed.requests : ''}</span>
+              <span class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</span>
+              <span class="mono">${a.sessionId ? (a.indexed ? html`<a href="/session/${a.sessionId}" title="${a.indexed.last ?? ''}">${a.indexed.last ? agoText(Date.now() - Date.parse(a.indexed.last)) : 'yes'}</a>` : html`<span class="muted">not yet</span>`) : ''}</span>
+              <span>${a.children.length > 3
+                ? html`<details><summary>${a.children.length} links</summary>${a.children.map((ch) => html`<a href="${ch.href}">${ch.kind === 'pr' ? `#${ch.id}` : ch.kind}</a> `)}</details>`
+                : a.children.map((ch) => html`<a href="${ch.href}">${ch.kind === 'pr' ? `#${ch.id}` : ch.kind}</a> `)}</span>
+              <span class="mono">${a.attach ?? ''}</span>
+            </div>`,
           )}
-          </tbody>
-        </table>
-      </section>`
-    return c.html(page('agents · lore', body, chrome()))
+        </div>
+      </div>`
+    return c.html(page('agents · lore', body, { ...chrome(), layout: 'one', nav: 'agents', bare: true }))
   })
 
-  // One background job across every /clear it produced — the conversation as
-  // the user experienced it, which is never one transcript.
   app.get('/job/:id', (c) => {
     const db = getDb()
     const id = c.req.param('id')
@@ -208,116 +224,211 @@ export function createApp(
     )
     const data = { job: id, totals, sessions }
     if (wantsJson(c.req.raw)) return c.json(data)
+    const maxUsd = Math.max(...sessions.map((s) => s.usage?.listUsd ?? 0), 0)
     const body = html`
-      <p class="crumbs"><a href="/">lore</a> / job</p>
-      <h1 class="mono">${id}</h1>
-      <p class="muted">${sessions.length} transcripts across /clears · ${totals.requests.toLocaleString()} requests · ${tok(totals.output)} out · ${usd(Math.round(totals.listUsd * 100) / 100)} list-equivalent</p>
-      <section>
-        <table>
-          <thead><tr><th>first</th><th>last</th><th>well</th><th class="num">lines</th><th class="num">requests</th><th class="num">out</th><th class="num">list $</th></tr></thead>
-          <tbody>
-          ${sessions.map(
-            (s) => html`<tr>
-              <td class="mono"><a href="/session/${s.sessionId}">${s.first?.slice(0, 16) ?? ''}</a></td>
-              <td class="mono">${s.last?.slice(0, 16) ?? ''}</td>
-              <td class="mono"><a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a></td>
-              <td class="num">${s.lines}</td>
-              <td class="num">${s.usage?.requests ?? ''}</td>
-              <td class="num">${s.usage ? tok(s.usage.output) : ''}</td>
-              <td class="num">${s.usage ? usd(s.usage.listUsd) : ''}</td>
-            </tr>`,
-          )}
-          </tbody>
-        </table>
-      </section>`
-    return c.html(page(`job ${id.slice(0, 8)} · lore`, body, chrome()))
+      <div class="page-head">
+        <p class="crumbs"><a href="/">lore</a> / job</p>
+        <h1 class="mono">${id}</h1>
+        <p class="muted small">${sessions.length} transcripts across /clears · ${totals.requests.toLocaleString()} requests · ${tok(totals.output)} out · ${usd(Math.round(totals.listUsd * 100) / 100)} list-equivalent</p>
+      </div>
+      <div class="panel"><div class="scroll list jobs">
+        <div class="row head"><span>first</span><span>last</span><span>well</span><span class="num">lines</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
+        ${sessions.map(
+          (s) => html`<div class="row">
+            <span class="mono"><a href="/session/${s.sessionId}">${s.first?.slice(0, 16).replace('T', ' ') ?? ''}</a></span>
+            <span class="mono muted">${s.last?.slice(0, 16).replace('T', ' ') ?? ''}</span>
+            <span class="mono"><a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a></span>
+            <span class="num">${s.lines}</span>
+            <span class="num">${s.usage?.requests ?? ''}</span>
+            <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
+            <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd)}${usd(s.usage.listUsd)}` : ''}</span>
+          </div>`,
+        )}
+      </div></div>`
+    return c.html(page(`job ${id.slice(0, 8)} · lore`, body, { ...chrome(), layout: 'head' }))
   })
 
   // Liveness + provenance for `lore server status`.
   app.get('/_lore', (c) => c.json({ ok: true, build: opts.build ?? 'dev', pid: process.pid, startedAt, indexed }))
 
-  app.get('/', (c) => {
+  // The control room: what is happening now (agents), what happened last
+  // (recent, by last activity), where this week's spend went (active
+  // wells), and the 45-day shape by model. Everything windowed so the
+  // whole-corpus aggregates never run here.
+  app.get('/', async (c) => {
     const db = getDb()
-    const wells = listUsage(db, { by: 'well', limit: 60 })
-    const weeks = listUsage(db, { by: 'week', limit: 26 })
-    const models = listUsage(db, { by: 'model', limit: 12 })
-    // Recent: the newest sessions by last ACTIVITY (not creation), with their
-    // fee joined from the per-session profile; the wells they touched, in
-    // that order, are the recent repos. Active this week is the same profile
-    // windowed to seven days.
-    const recentSessions = listSessions(db, { limit: 20, byActivity: true }).reverse()
-    const feeById = new Map(
-      listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 100 }).rows.map((r) => [r.key, r]),
-    )
-    const recent = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null }))
-    const recentWells = [...new Set(recentSessions.map((s) => s.well))]
+    const today = new Date().toISOString().slice(0, 10)
     const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
-    const active = listUsage(db, { by: 'well', since: weekAgo, limit: 20 })
-    const data = { recent, recentWells, active, wells, weeks, models }
+    const since45 = new Date(Date.now() - 45 * 86_400_000).toISOString().slice(0, 10)
+    const recentSessions = listSessions(db, { limit: 60, byActivity: true }).reverse()
+    const feeById = new Map(
+      listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 200 }).rows.map((r) => [r.key, r]),
+    )
+    // Harness-only sessions (no prompt, no request) are noise here.
+    const recent = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null })).filter((s) => s.prompts > 0 || s.usage)
+    const active = listUsage(db, { by: 'well', since: weekAgo, limit: 40 })
+    const todayU = listUsage(db, { by: 'day', since: today, limit: 2 })
+    const days = listUsage(db, { by: 'day', since: since45, limit: 60, split: true })
+    let live: AgentRow[] = []
+    let agentsError: string | null = null
+    try {
+      live = await roster()
+    } catch (e) {
+      memo.delete('roster')
+      agentsError = e instanceof Error ? e.message : String(e)
+    }
+    const data = { today: todayU.totals, week: active.totals, recent, active: active.rows, days: days.rows, agents: live, agentsError }
     if (wantsJson(c.req.raw)) return c.json(data)
+
+    const working = live.filter((a) => a.state === 'working').length
+    const blocked = live.filter((a) => a.state === 'blocked').length
+    const maxRecent = Math.max(...recent.map((s) => s.usage?.listUsd ?? 0), 0)
+    const maxActive = Math.max(...active.rows.map((r) => r.listUsd ?? 0), 0)
+    const maxLive = Math.max(...live.map((a) => a.liveTokens ?? 0), 0)
     const body = html`
-      <h1>lore</h1>
-      <p class="muted">${wells.totals.requests.toLocaleString()} requests · ${wells.totals.sessions.toLocaleString()} sessions ·
-        ${tok(wells.totals.output)} out · ${tok(wells.totals.cacheRead)} cache-read · ${usd(wells.totals.listUsd)} list-equivalent</p>
-      <section>
-        <h2>recent <span class="muted">newest by last activity</span></h2>
-        <table>
-          <thead><tr><th>last</th><th>well</th><th>opening prompt</th><th class="num">prompts</th><th class="num">requests</th><th class="num">out</th><th class="num">list $</th></tr></thead>
-          <tbody>
+      <div class="area-kpi kpis">
+        ${tile('today', usd(todayU.totals.listUsd))}
+        ${tile('this week', usd(active.totals.listUsd))}
+        ${tile('requests · wk', active.totals.requests.toLocaleString())}
+        ${tile('sessions · wk', String(active.totals.sessions))}
+        ${tile('out · wk', tok(active.totals.output))}
+        ${tile('working', String(working), working ? 'good' : '')}
+        ${blocked ? tile('blocked', String(blocked), 'warn') : ''}
+      </div>
+      <div class="area-chart panel">
+        <header><h2>by day</h2><span>last 45, list $ by model</span>${modelLegend(days.rows)}</header>
+        <div class="body">${dayChart(days.rows)}</div>
+      </div>
+      <div class="area-recent panel">
+        <header><h2>recent</h2><span>newest by last activity</span><span class="sp small"><a href="/search">search →</a></span></header>
+        <div class="scroll list recent">
+          <div class="row head"><span>at</span><span>well</span><span>opening prompt</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
           ${recent.map(
-            (s) => html`<tr>
-              <td class="mono"><a href="/session/${s.sessionId}">${s.last ?? ''}</a></td>
-              <td class="mono"><a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a></td>
-              <td class="prompt">${cut(s.firstPrompt ?? '', 110)}</td>
-              <td class="num">${s.prompts}</td>
-              <td class="num">${s.usage?.requests ?? ''}</td>
-              <td class="num">${s.usage ? tok(s.usage.output) : ''}</td>
-              <td class="num">${s.usage ? usd(s.usage.listUsd) : ''}</td>
-            </tr>`,
+            (s) => html`<div class="row">
+              <span class="mono"><a href="/session/${s.sessionId}" title="${s.lastAt ?? ''}">${whenLabel(s.lastAt, today)}</a></span>
+              <span class="mono"><a href="/well/${encodeURIComponent(s.well)}" title="${s.well}">${shortWell(s.well)}</a></span>
+              <span title="${s.firstPrompt ?? ''}">${s.firstPrompt ?? html`<span class="muted">—</span>`}</span>
+              <span class="num hide">${s.prompts || ''}</span>
+              <span class="num hide">${s.usage?.requests ?? ''}</span>
+              <span class="num hide">${s.usage ? tok(s.usage.output) : ''}</span>
+              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxRecent)}${usd(s.usage.listUsd)}` : ''}</span>
+            </div>`,
           )}
-          </tbody>
-        </table>
-        <p class="muted">recent wells: ${recentWells.map((w, i) => html`${i ? ' · ' : ''}<a href="/well/${encodeURIComponent(w)}">${shortWell(w)}</a>`)}</p>
-      </section>
-      <section>
-        <h2>active this week <span class="muted">since ${weekAgo}, list-equivalent</span></h2>
-        ${usageTable(active.rows, { keyLabel: 'well', link: (k) => `/well/${encodeURIComponent(k)}` })}
-      </section>
-      <section>
-        <h2>by week <span class="muted">list-equivalent USD</span></h2>
-        ${bars(weeks.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)} · ${tok(r.output)} out · ${r.requests} req` })))}
-      </section>
-      <section>
-        <h2>by model</h2>
-        ${usageTable(models.rows, { keyLabel: 'model' })}
-      </section>
-      <section>
-        <h2>wells</h2>
-        ${usageTable(wells.rows, { keyLabel: 'well', link: (k) => `/well/${encodeURIComponent(k)}` })}
-        ${wells.unpriced.length ? html`<p class="muted">unpriced models: ${wells.unpriced.join(', ')}</p>` : ''}
-      </section>
-      <p class="muted">${wells.note}</p>`
-    return c.html(page('lore', body, chrome()))
+        </div>
+      </div>
+      <div class="area-agents panel">
+        <header><h2>agents</h2><span>${working} working${blocked ? html` · <span class="kind st-blocked">${blocked} blocked</span>` : ''}</span><span class="sp small"><a href="/agents">roster →</a></span></header>
+        ${agentsError ? html`<p class="footnote err">${agentsError}</p>` : ''}
+        <div class="scroll list agents">
+          ${live.slice(0, 14).map(
+            (a) => html`<div class="row ${a.state}" title="${a.state}${a.tempo ? ` · ${a.tempo}` : ''}${a.waitingFor ? ` · ${a.waitingFor}` : ''} · ${a.cwd}">
+              <span class="dot st-${a.state}"></span>
+              <span>${a.sessionId && a.indexed ? html`<a href="/session/${a.sessionId}">${a.name ?? shortPath(a.cwd)}</a>` : (a.name ?? shortPath(a.cwd))}</span>
+              <span class="muted">${a.detail ?? ''}</span>
+              <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
+              <span class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</span>
+            </div>`,
+          )}
+        </div>
+      </div>
+      <div class="area-active panel">
+        <header><h2>active this week</h2><span>since ${weekAgo}</span><span class="sp small"><a href="/usage">usage →</a></span></header>
+        <div class="scroll list active">
+          <div class="row head"><span>well</span><span class="num">sess</span><span class="num">req</span><span class="num">list $</span></div>
+          ${active.rows.map(
+            (r) => html`<div class="row">
+              <span class="mono"><a href="/well/${encodeURIComponent(r.key)}" title="${r.key}">${shortWell(r.key)}</a></span>
+              <span class="num">${r.sessions}</span>
+              <span class="num">${r.requests.toLocaleString()}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxActive)}${usd(r.listUsd)}</span>
+            </div>`,
+          )}
+        </div>
+      </div>`
+    return c.html(page('lore', body, { ...chrome(), layout: 'root', nav: 'lore' }))
   })
 
   app.get('/usage', (c) => {
     const db = getDb()
-    const days = listUsage(db, { by: 'day', limit: 45 })
-    const weeks = listUsage(db, { by: 'week', limit: 52 })
-    const models = listUsage(db, { by: 'model', limit: 20 })
-    const data = { days, weeks, models }
+    const since90 = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
+    const days = listUsage(db, { by: 'day', since: since90, limit: 120, split: true })
+    const weeks = cached('usage.weeks', 300_000, indexKey(), () => listUsage(db, { by: 'week', limit: 52 }))
+    const models = cached('usage.models', 300_000, indexKey(), () => listUsage(db, { by: 'model', limit: 20, split: true }))
+    const wells = cached('usage.wells', 300_000, indexKey(), () => listUsage(db, { by: 'well', limit: 60, split: true }))
+    const data = { days, weeks, models, wells }
     if (wantsJson(c.req.raw)) return c.json(data)
+    const maxModel = Math.max(...models.rows.map((r) => r.listUsd ?? 0), 0)
+    const maxWell = Math.max(...wells.rows.map((r) => r.listUsd ?? 0), 0)
+    const maxDay = Math.max(...days.rows.map((r) => r.listUsd ?? 0), 0)
+    const maxWeek = Math.max(...weeks.rows.map((r) => r.listUsd ?? 0), 0)
+    const feeOf = (r: UsageRow) => (r.usd ? feeBar(r.usd, { caption: false }) : html``)
     const body = html`
-      <h1>usage</h1>
-      <section>
-        <h2>by day <span class="muted">last 45, list-equivalent USD</span></h2>
-        ${bars(days.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)} · ${tok(r.output)} out · ${r.requests} req` })))}
-        ${usageTable(days.rows.slice().reverse(), { keyLabel: 'day' })}
-      </section>
-      <section><h2>by week</h2>${usageTable(weeks.rows.slice().reverse(), { keyLabel: 'week' })}</section>
-      <section><h2>by model</h2>${usageTable(models.rows, { keyLabel: 'model' })}</section>
-      <p class="muted">${days.note}</p>`
-    return c.html(page('usage · lore', body, chrome()))
+      <div class="area-chart panel">
+        <header><h2>by day</h2><span>last 90, list $ by model</span>${modelLegend(days.rows)}
+          <span class="sp">${usd(wells.totals.listUsd)} all time · ${wells.totals.requests.toLocaleString()} requests · ${wells.totals.sessions} sessions${wells.unpriced.length ? html` · <span class="err">unpriced: ${wells.unpriced.join(', ')}</span>` : ''}</span></header>
+        <div class="body">${dayChart(days.rows, 96)}</div>
+      </div>
+      <div class="area-models panel">
+        <header><h2>by model</h2><span>all time</span><span class="sp">${feeLegend()}</span></header>
+        <div class="scroll list models">
+          <div class="row head"><span>model</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span>fee by class</span><span class="num">list $</span></div>
+          ${models.rows.map(
+            (r) => html`<div class="row">
+              <span class="mono">${r.key}</span>
+              <span class="num">${r.requests.toLocaleString()}</span>
+              <span class="num">${r.sessions}</span>
+              <span class="num">${tok(r.output)}</span>
+              <span class="num">${tok(r.thinking)}</span>
+              <span>${feeOf(r)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxModel)}${usd(r.listUsd)}</span>
+            </div>`,
+          )}
+        </div>
+      </div>
+      <div class="area-wells panel">
+        <header><h2>by well</h2><span>all time, top ${wells.rows.length}</span></header>
+        <div class="scroll list wells">
+          <div class="row head"><span>well</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">list $</span></div>
+          ${wells.rows.map(
+            (r) => html`<div class="row">
+              <span class="mono"><a href="/well/${encodeURIComponent(r.key)}" title="${r.key}">${shortWell(r.key)}</a></span>
+              <span class="num">${r.requests.toLocaleString()}</span>
+              <span class="num">${r.sessions}</span>
+              <span class="num">${tok(r.output)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxWell)}${usd(r.listUsd)}</span>
+            </div>`,
+          )}
+        </div>
+      </div>
+      <div class="area-days panel">
+        <header><h2>by week</h2><span>and by day, newest first</span></header>
+        <div class="scroll list days">
+          <div class="row head"><span>week</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span class="num">list $</span></div>
+          ${weeks.rows.slice().reverse().slice(0, 12).map(
+            (r) => html`<div class="row">
+              <span class="mono">${r.key}</span>
+              <span class="num">${r.requests.toLocaleString()}</span>
+              <span class="num">${r.sessions}</span>
+              <span class="num">${tok(r.output)}</span>
+              <span class="num">${tok(r.thinking)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxWeek)}${usd(r.listUsd)}</span>
+            </div>`,
+          )}
+          <div class="row head"><span>day</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span class="num">list $</span></div>
+          ${days.rows.slice().sort((a, b) => (a.key < b.key ? 1 : -1)).map(
+            (r) => html`<div class="row">
+              <span class="mono">${r.key}</span>
+              <span class="num">${r.requests.toLocaleString()}</span>
+              <span class="num">${r.sessions}</span>
+              <span class="num">${tok(r.output)}</span>
+              <span class="num">${tok(r.thinking)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxDay)}${usd(r.listUsd)}</span>
+            </div>`,
+          )}
+        </div>
+        <p class="footnote">${days.note}</p>
+      </div>`
+    return c.html(page('usage · lore', body, { ...chrome(), layout: 'usage', nav: 'usage' }))
   })
 
   app.get('/well/:dir', (c) => {
@@ -331,34 +442,39 @@ export function createApp(
     const rows = sessions.map((s) => ({ ...s, usage: byId.get(s.sessionId) ?? null }))
     const data = { well: dir, totals: usage.totals, sessions: rows }
     if (wantsJson(c.req.raw)) return c.json(data)
+    const maxUsd = Math.max(...rows.map((s) => s.usage?.listUsd ?? 0), 0)
+    const wiki = wikiPageFor(dir, wikiDir)
     const body = html`
-      <p class="crumbs"><a href="/">lore</a> / well</p>
-      <h1>${shortWell(dir)} <span class="muted small mono">${dir}</span></h1>
-      ${wikiPageFor(dir, wikiDir) ? html`<p class="muted">wiki: <span class="mono">${wikiPageFor(dir, wikiDir)}</span></p>` : ''}
-      <p class="muted">${sessions.length} sessions · ${usage.totals.requests.toLocaleString()} requests · ${tok(usage.totals.output)} out ·
-        ${usd(usage.totals.listUsd)} list-equivalent${usage.totals.spawns ? html` · ${usage.totals.spawns} spawns (${tok(usage.totals.spawnOutput ?? 0)} out)` : ''}</p>
-      ${weeks.rows.length > 1 ? html`<section><h2>by week <span class="muted">list-equivalent USD</span></h2>${bars(weeks.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)}` })))}</section>` : ''}
-      <section>
-        <table>
-          <thead><tr><th>first</th><th>last</th><th>opening prompt</th><th class="num">prompts</th><th class="num">requests</th><th class="num">out</th><th class="num">cache-read</th><th class="num">list $</th><th class="num">spawns</th></tr></thead>
-          <tbody>
-          ${rows.map(
-            (s) => html`<tr>
-              <td class="mono"><a href="/session/${s.sessionId}">${s.first ?? ''}</a></td>
-              <td class="mono">${s.last ?? ''}${s.idleUntil ? html` <span class="muted" title="open until ${s.idleUntil} with no work">idle→${s.idleUntil}</span>` : ''}</td>
-              <td class="prompt">${cut(s.firstPrompt ?? '', 120)}</td>
-              <td class="num">${s.prompts}</td>
-              <td class="num">${s.usage?.requests ?? ''}</td>
-              <td class="num">${s.usage ? tok(s.usage.output) : ''}</td>
-              <td class="num">${s.usage ? tok(s.usage.cacheRead) : ''}</td>
-              <td class="num">${s.usage ? usd(s.usage.listUsd) : ''}</td>
-              <td class="num">${s.usage?.spawns || ''}</td>
-            </tr>`,
-          )}
-          </tbody>
-        </table>
-      </section>`
-    return c.html(page(`${dir} · lore`, body, chrome()))
+      <div class="page-head">
+        <p class="crumbs"><a href="/">lore</a> / well</p>
+        <h1>${shortWell(dir)} <span class="muted small mono">${dir}</span>${wiki ? html` <span class="muted small">· wiki <span class="mono">${wiki}</span></span>` : ''}</h1>
+        <div class="tiles">
+          ${tile('sessions', String(sessions.length))}
+          ${tile('requests', usage.totals.requests.toLocaleString())}
+          ${tile('output', tok(usage.totals.output))}
+          ${tile('cache-read', tok(usage.totals.cacheRead))}
+          ${tile('list $', usd(usage.totals.listUsd))}
+          ${usage.totals.spawns ? tile('spawns', `${usage.totals.spawns} · ${tok(usage.totals.spawnOutput ?? 0)} out`) : ''}
+          ${weeks.rows.length > 1 ? html`<div class="tile wide">${bars(weeks.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)}` })), { height: 28 })}</div>` : ''}
+        </div>
+      </div>
+      <div class="panel"><div class="scroll list sessions">
+        <div class="row head"><span>first</span><span>last</span><span>opening prompt</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num">list $</span><span class="num">spawns</span></div>
+        ${rows.map(
+          (s) => html`<div class="row">
+            <span class="mono"><a href="/session/${s.sessionId}">${s.first ?? ''}</a></span>
+            <span class="mono muted" title="${s.idleUntil ? `open until ${s.idleUntil} with no work` : ''}">${s.last ?? ''}${s.idleUntil ? ' ⋯' : ''}</span>
+            <span title="${s.firstPrompt ?? ''}">${s.firstPrompt ?? html`<span class="muted">—</span>`}</span>
+            <span class="num">${s.prompts || ''}</span>
+            <span class="num">${s.usage?.requests ?? ''}</span>
+            <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
+            <span class="num">${s.usage ? tok(s.usage.cacheRead) : ''}</span>
+            <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd)}${usd(s.usage.listUsd)}` : ''}</span>
+            <span class="num">${s.usage?.spawns || ''}</span>
+          </div>`,
+        )}
+      </div></div>`
+    return c.html(page(`${dir} · lore`, body, { ...chrome(), layout: 'head' }))
   })
 
   app.get('/session/:id', (c) => {
@@ -371,7 +487,7 @@ export function createApp(
     }
     if (wantsJson(c.req.raw)) return c.json(trace)
     // ?open=all unfolds every transaction and phase — one page to ⌘F or print.
-    return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), chrome()))
+    return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), { ...chrome(), layout: 'head' }))
   })
 
   return app
@@ -385,49 +501,6 @@ function wantsJson(req: Request): boolean {
 }
 
 // ---- rendering ---------------------------------------------------------
-
-function usageTable(rows: UsageRow[], opts: { keyLabel: string; link?: (key: string) => string }) {
-  return html`<table>
-    <thead><tr><th>${opts.keyLabel}</th><th class="num">requests</th><th class="num">sessions</th><th class="num">input</th><th class="num">cache-write</th><th class="num">cache-read</th><th class="num">out</th><th class="num">thinking</th><th class="num">list $</th>${rows.some((r) => r.spawns != null) ? html`<th class="num">spawns</th>` : ''}</tr></thead>
-    <tbody>
-    ${rows.map(
-      (r) => html`<tr>
-        <td class="mono">${opts.link ? html`<a href="${opts.link(r.key)}">${r.key}</a>` : r.key}</td>
-        <td class="num">${r.requests.toLocaleString()}</td>
-        <td class="num">${r.sessions}</td>
-        <td class="num">${tok(r.input)}</td>
-        <td class="num">${tok(r.cacheWrite)}</td>
-        <td class="num">${tok(r.cacheRead)}</td>
-        <td class="num">${tok(r.output)}</td>
-        <td class="num">${tok(r.thinking)}</td>
-        <td class="num">${usd(r.listUsd)}</td>
-        ${r.spawns != null ? html`<td class="num">${r.spawns || ''}</td>` : ''}
-      </tr>`,
-    )}
-    </tbody>
-  </table>`
-}
-
-// A single-series bar strip: thin marks, 2px surface gap, rounded data-end
-// anchored to the baseline, per-mark <title> tooltip. Text stays text-ink.
-function bars(points: { label: string; value: number; title: string }[]) {
-  if (points.length === 0) return html``
-  const w = 8
-  const gap = 2
-  const h = 56
-  const max = Math.max(...points.map((p) => p.value), 1)
-  const width = points.length * (w + gap)
-  return html`<figure class="viz" role="img" aria-label="${points.map((p) => p.title).join('; ')}">
-    <svg viewBox="0 0 ${width} ${h + 14}" width="${width}" height="${h + 14}" preserveAspectRatio="none">
-      ${points.map((p, i) => {
-        const bh = Math.max(1, Math.round((p.value / max) * h))
-        return html`<g><title>${p.title}</title><rect x="${i * (w + gap)}" y="${h - bh}" width="${w}" height="${bh}" rx="2" class="mark" /><rect x="${i * (w + gap)}" y="${h - bh}" width="${w}" height="${bh + 14}" fill="transparent" /></g>`
-      })}
-      <text x="0" y="${h + 11}" class="axis">${points[0]!.label}</text>
-      <text x="${width}" y="${h + 11}" text-anchor="end" class="axis">${points[points.length - 1]!.label}</text>
-    </svg>
-  </figure>`
-}
 
 
 
@@ -458,112 +531,72 @@ function shortWell(dir: string): string {
   const tail = i >= 0 ? dir.slice(i + '-code-'.length) : dir.replace(/^-/, '')
   return tail.replace('--claude-worktrees-', ' · ').replace(/^(fun|work|personal|games)-/, '$1/')
 }
+// "14:32" for today, "08-29" otherwise.
+function whenLabel(ts: string | null, today: string): string {
+  if (!ts) return ''
+  return ts.slice(0, 10) === today ? ts.slice(11, 16) : ts.slice(5, 10)
+}
+
+// The day chart: list $ stacked by model — the top three models over the
+// window in series order, everything else folded into "other" (neutral).
+const MODEL_SLOTS = ['s1', 's2', 's3'] as const
+function topModels(days: UsageRow[]): string[] {
+  const total = new Map<string, number>()
+  for (const d of days) for (const m of d.models ?? []) total.set(m.model, (total.get(m.model) ?? 0) + (m.listUsd ?? 0))
+  return [...total].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m]) => m)
+}
+function dayChart(rows: UsageRow[], height = 72) {
+  const days = rows.slice().sort((a, b) => (a.key < b.key ? -1 : 1))
+  const top = topModels(days)
+  const series = [
+    ...top.map((m, i) => ({ name: m.replace(/^claude-/, ''), cls: MODEL_SLOTS[i]!, values: days.map((d) => (d.models ?? []).find((x) => x.model === m)?.listUsd ?? 0) })),
+    { name: 'other', cls: 's0', values: days.map((d) => (d.models ?? []).filter((x) => !top.includes(x.model)).reduce((a, x) => a + (x.listUsd ?? 0), 0)) },
+  ].filter((s) => s.values.some((v) => v > 0))
+  return stackedBars(
+    days.map((d) => d.key),
+    series,
+    { height, title: (i) => `${days[i]!.key}: ${usd(days[i]!.listUsd)} · ${tok(days[i]!.output)} out · ${days[i]!.requests} req` },
+  )
+}
+function modelLegend(rows: UsageRow[]) {
+  const top = topModels(rows)
+  return html`<span class="legend small muted">${top.map((m, i) => html`<span class="key"><i class="sw ${MODEL_SLOTS[i]}"></i>${m.replace(/^claude-/, '')}</span>`)}<span class="key"><i class="sw s0"></i>other</span></span>`
+}
+
 function agoText(msAgo: number): string {
   if (msAgo < 60_000) return 'just now'
   if (msAgo < 3_600_000) return `${Math.round(msAgo / 60_000)} min ago`
-  return `${(msAgo / 3_600_000).toFixed(1)} h ago`
+  if (msAgo < 48 * 3_600_000) return `${(msAgo / 3_600_000).toFixed(1)} h ago`
+  return `${Math.round(msAgo / 86_400_000)} d ago`
 }
 
+type Layout = 'one' | 'head' | 'root' | 'usage'
 function page(
   title: string,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
-  opts: { q?: string; indexedAt?: string | null; indexError?: string | null } = {},
+  opts: { q?: string; indexedAt?: string | null; indexError?: string | null; layout?: Layout; nav?: string; bare?: boolean } = {},
 ) {
   const ago = opts.indexedAt ? agoText(Date.now() - Date.parse(opts.indexedAt)) : null
+  const layout = opts.layout ?? 'one'
+  const link = (href: string, label: string) => html`<a href="${href}" class="${opts.nav === label ? 'on' : ''}">${label}</a>`
   const nav = html`<nav class="nav">
-    <a href="/">lore</a> <a href="/usage">usage</a> <a href="/agents">agents</a>
+    ${link('/', 'lore')} ${link('/usage', 'usage')} ${link('/agents', 'agents')}
     <form method="get" action="/search" class="navsearch"><input type="search" name="q" value="${opts.q ?? ''}" placeholder="search sessions…" /></form>
     <span class="muted small" title="${opts.indexedAt ?? 'the server has not refreshed the index; pages show the last lore index'}">${
       opts.indexError ? html`<span class="err">index refresh failed</span>` : ago ? `indexed ${ago}` : 'index: last `lore index`'
     }</span>
   </nav>`
+  // layout-one wraps a plain document body in a single scrolling panel;
+  // `bare` bodies bring their own panel.
+  const main = layout === 'one' && !opts.bare ? html`<div class="panel"><div class="scroll body">${body}</div></div>` : body
   return html`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
-<style>
-:root { color-scheme: light dark;
-  --surface: #fcfcfb; --surface-2: #f1f1ee; --line: #e2e2dd; --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #8a8985;
-  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --crit: #d03b3b; --warn: #b45309; --err: #b91c1c; --link: #1d5fb3; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --surface: #1a1a19; --surface-2: #232322; --line: #34342f; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8d8c84;
-  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --crit: #d03b3b; --warn: #f59e0b; --err: #f87171; --link: #7ab3f5; } }
-:root[data-theme="dark"] {
-  --surface: #1a1a19; --surface-2: #232322; --line: #34342f; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8d8c84;
-  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --crit: #d03b3b; --warn: #f59e0b; --err: #f87171; --link: #7ab3f5; }
-* { box-sizing: border-box; }
-body { margin: 0; padding: 24px 28px 64px; background: var(--surface); color: var(--ink);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
-h1 { font-size: 22px; margin: 0 0 6px; } h2 { font-size: 15px; margin: 28px 0 8px; }
-h2 .muted { font-weight: 400; margin-left: 8px; }
-a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
-.muted { color: var(--ink-3); } .crumbs { color: var(--ink-3); margin: 0 0 8px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-.small { font-size: 12px; }
-table { border-collapse: collapse; width: 100%; } th, td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-th { color: var(--ink-2); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--surface); }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-td.prompt { max-width: 640px; }
-section { overflow-x: auto; }
-.tiles { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
-.tile { background: var(--surface-2); border-radius: 6px; padding: 8px 12px; min-width: 96px; }
-.tile .v { font-size: 18px; font-variant-numeric: tabular-nums; } .tile .l { font-size: 11px; color: var(--ink-3); }
-.tile.warn .v { color: var(--warn); }
-.kind { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); }
-.kind.err { color: var(--err); } tr.meta td, tr.command td { color: var(--ink-3); }
-table.ix { margin: 6px 0 4px; } table.ix th { position: static; } tr.err td { color: var(--err); }
-details > summary { cursor: pointer; list-style: none; } summary::-webkit-details-marker { display: none; }
-.phase > summary::before { content: '▸ '; color: var(--ink-3); } .phase[open] > summary::before { content: '▾ '; }
- .reply { color: var(--ink-2); margin: 6px 0 2px; }
-.nav { display: flex; gap: 14px; align-items: center; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-.nav a { color: var(--ink-2); } .nav a:first-child { font-weight: 600; color: var(--ink); }
-.navsearch { margin-left: auto; } .navsearch input, .searchform input[type=search] { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); min-width: 260px; }
-.searchform { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; } .searchform button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); cursor: pointer; }
-.hit { padding: 8px 0; border-bottom: 1px solid var(--line); } .hit > div { margin: 2px 0; } .hit .mono { margin-right: 8px; }
-.snippet { color: var(--ink-2); font-size: 13px; padding-left: 8px; } .snippet a { color: inherit; } mark { background: color-mix(in oklab, var(--series-1) 22%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
-.ann { margin: 2px 0 6px; } .err { color: var(--err); }
-/* agents: done finished on its own (recedes); stopped was killed, failed crashed (both stay legible); blocked needs input */
-tr.done td { color: var(--ink-3); }
-.kind.st-working { color: var(--series-1); } .kind.st-blocked { color: var(--warn); } .kind.st-failed { color: var(--err); } .kind.st-stopped { color: var(--warn); }
-h1 .muted { font-size: 12px; font-weight: 400; }
-.viz svg { display: block; max-width: 100%; height: auto; } .viz { margin: 0 0 8px; }
-.viz .mark { fill: var(--series-1); } .viz .axis { fill: var(--ink-3); font-size: 9px; font-family: ui-monospace, Menlo, monospace; }
-/* block view (block.ts): fee bar, timeline, inline bars, phases */
-.spine .row { display: grid; grid-template-columns: 32px 68px minmax(0, 1fr) 52px 52px 40px 60px 118px 106px; gap: 0 8px; align-items: baseline; padding: 6px 4px; border-bottom: 1px solid var(--line); }
-.spine .row.head { color: var(--ink-2); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--surface); }
-.spine .row .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; } .spine .row .n { text-align: right; }
-.spine .row.meta, .spine .txn.meta .row, .spine .txn.command .row { color: var(--ink-3); }
-.spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
-.spine .txn .ptext::before { content: '▸ '; color: var(--ink-3); } .spine .txn[open] .ptext::before { content: '▾ '; } .spine .row.txn .ptext::before { content: ''; }
-.spine details.txn:not([open]) .ptext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.spine .txn[open] > summary { background: var(--surface-2); border-radius: 6px 6px 0 0; }
-.spine .body { padding: 4px 8px 12px 108px; border-bottom: 1px solid var(--line); }
-table.ix th { position: static; } table.ix td.tool { white-space: nowrap; } table.ix td.in { width: 34%; } table.ix td.res { width: 40%; }
-.fee { margin: 10px 0 4px; } .feebar { display: flex; gap: 2px; height: 10px; max-width: 720px; }
-.feebar .seg { display: block; min-width: 2px; border-radius: 2px; }
-.seg.output, .sw.output { background: var(--series-1); } .seg.cache-read, .sw.cache-read { background: var(--series-2); }
-.seg.cache-write, .sw.cache-write { background: var(--series-3); } .seg.input, .sw.input { background: var(--series-4); }
-.fee figcaption { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 5px; } .fee .key b { font-weight: 500; color: var(--ink-2); } .fee .pct { color: var(--ink-3); }
-.sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; background: var(--ink-3); }
-.sw.read { background: var(--series-1); } .sw.write { background: var(--series-2); } .sw.run { background: var(--series-3); }
-.tl { margin: 14px 0 6px; } .tl svg { display: block; max-width: 100%; height: auto; }
-.tl .band { fill: var(--surface-2); } .tl .band.alt { fill: color-mix(in oklab, var(--surface-2) 50%, var(--surface)); } .tl .band.meta, .tl .band.command { fill: transparent; }
-.tl a:hover .band { fill: color-mix(in oklab, var(--series-1) 18%, var(--surface-2)); }
-.tl .bandn, .tl .lane, .tl .axis { fill: var(--ink-3); font-size: 9px; font-family: ui-monospace, Menlo, monospace; }
-.tl .lanel, .tl .tick { stroke: var(--line); stroke-width: 0.5; }
-.tl .m { fill: var(--ink-3); rx: 1; } .tl .m.read { fill: var(--series-1); } .tl .m.write { fill: var(--series-2); } .tl .m.run { fill: var(--series-3); }
-.tl .m.say { fill: var(--ink-2); } .tl .m.err { fill: var(--crit); }
-.ib { display: inline-block; width: 48px; height: 5px; margin-right: 6px; vertical-align: middle; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
-.ib i { display: block; height: 100%; background: var(--series-1); opacity: .75; }
-.phase { margin: 6px 0; } .phase > summary { padding: 3px 0; } .note { color: var(--ink-2); font-style: italic; } p.note { margin: 8px 0 2px; }
-table.ix td { border-bottom: 0; } table.ix tr.step td { border-top: 1px solid var(--line); } table.ix td.t, table.ix td.fee { white-space: nowrap; }
-table.ix td.in { max-width: 380px; overflow-wrap: anywhere; } table.ix td.res { max-width: 440px; overflow-wrap: anywhere; }
-tr.thought td { padding: 2px 8px; } tr.thought p { margin: 4px 0; }
-td.num .err, td.num.err { color: var(--err); }
-</style>
+<style>${raw(CSS)}</style>
 </head>
-<body>${nav}${body}</body>
+<body>${nav}<main class="layout-${layout}">${main}</main></body>
 </html>`
 }

@@ -3,6 +3,7 @@ import type { HtmlEscapedString } from 'hono/utils/html'
 import { cut, hm, hms, ms, tok, usd } from './fmt'
 import type { Annotations, Instruction, Trace, Transaction } from './trace'
 import { rateFor } from './usage'
+import { type FeeSplit, feeBar, ibar } from './viz'
 
 // The block view (docs/EXPLORER.md, design pass 2026-09-01): one session
 // rendered from `getTrace` alone. Three reads, top to bottom —
@@ -34,7 +35,7 @@ const FAMILY: Record<string, string> = {
   Bash: 'run',
   Agent: 'agent', Task: 'agent', Workflow: 'agent', Skill: 'agent', SendMessage: 'agent',
 }
-const LANES = ['say', 'read', 'write', 'run', 'agent', 'other'] as const
+const LANES: readonly string[] = ['say', 'read', 'write', 'run', 'agent', 'other']
 export function family(tool: string): string {
   return FAMILY[tool] ?? 'other'
 }
@@ -75,6 +76,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     if (x.kind !== 'meta') num.set(x, num.size + 1)
   })
   return html`
+    <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
     <h1 class="mono">${s.sessionId}</h1>
     <p class="muted">${s.first?.slice(0, 10) ?? ''} ${hms(s.first)} → ${s.last?.slice(0, 10) === s.first?.slice(0, 10) ? '' : `${s.last?.slice(0, 10) ?? ''} `}${hms(s.last)} UTC
@@ -90,12 +92,15 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
       ${tile('list $', usd(t.listUsd))}
       ${t.spawns ? tile('spawns', `${t.spawns} · ${tok(t.spawnOutput)} out`) : ''}
     </div>
-    ${feeBar(fee)}
+    ${feeBar(fee, { unpriced: fee.unpriced })}
     ${timeline(trace, num)}
+    </div>
+    <div class="panel"><div class="scroll">
     <section class="spine">
       <div class="row head"><span class="n">#</span><span class="at">at</span><span class="p">prompt</span><span class="num">steps</span><span class="num">instr</span><span class="num">err</span><span class="num">out</span><span class="num">list $</span><span class="num">wall</span></div>
       ${txs.map((x, i) => txRow(x, i, { n: num.get(x) ?? null, open: (openAll || o.open === true) && x.kind === 'prompt', openPhases: o.open === true, maxUsd, maxMs }))}
-    </section>`
+    </section>
+    </div></div>`
 }
 
 function modelMix(txs: Transaction[]): { model: string; n: number }[] {
@@ -106,7 +111,7 @@ function modelMix(txs: Transaction[]): { model: string; n: number }[] {
 
 // ---- the fee bar ------------------------------------------------------
 
-type Fee = { input: number; cacheWrite: number; cacheRead: number; output: number; unpriced: number }
+type Fee = FeeSplit & { unpriced: number }
 function feeByClass(txs: Transaction[]): Fee {
   const f: Fee = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, unpriced: 0 }
   for (const x of txs)
@@ -122,28 +127,6 @@ function feeByClass(txs: Transaction[]): Fee {
       f.output += (r.output * rate.output) / 1e6
     }
   return f
-}
-
-// One stacked bar of the list-price fee by token class, direct-labeled
-// below (text ink beside a swatch). Segments keep a 2px surface gap and a
-// 2px floor so a tiny class still registers.
-function feeBar(f: Fee) {
-  const parts = [
-    { key: 'output', label: 'output', v: f.output },
-    { key: 'cache-read', label: 'cache read', v: f.cacheRead },
-    { key: 'cache-write', label: 'cache write', v: f.cacheWrite },
-    { key: 'input', label: 'input', v: f.input },
-  ]
-  const total = parts.reduce((a, p) => a + p.v, 0)
-  if (total <= 0) return html``
-  return html`<figure class="fee">
-    <div class="feebar" role="img" aria-label="${parts.map((p) => `${p.label} ${usd(p.v)}`).join(', ')}">
-      ${parts.map((p) => html`<span class="seg ${p.key}" style="flex-basis:${((p.v / total) * 100).toFixed(2)}%" title="${p.label} ${usd(p.v)}"></span>`)}
-    </div>
-    <figcaption class="small muted">${parts.map(
-      (p) => html`<span class="key"><i class="sw ${p.key}"></i>${p.label} <b>${usd(p.v)}</b> <span class="pct">${Math.round((p.v / total) * 100)}%</span></span>`,
-    )}${f.unpriced ? html`<span class="key err">${f.unpriced} unpriced steps</span>` : ''}</figcaption>
-  </figure>`
 }
 
 // ---- the timeline -----------------------------------------------------
@@ -246,13 +229,6 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
       ${txBody(x, o.openPhases)}
     </div>
   </details>`
-}
-
-// An inline bar beside a number: the value as a fraction of the session's
-// largest, so the heavy transaction is visible before it is read.
-function ibar(v: number, max: number) {
-  if (!(max > 0)) return html``
-  return html`<span class="ib" aria-hidden="true"><i style="width:${Math.max(2, Math.round((v / max) * 100))}%"></i></span>`
 }
 
 // Phases: each note heads the run of instructions up to the next note.
