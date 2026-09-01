@@ -1,4 +1,5 @@
 import { Cli, z } from 'incur'
+import { listAgents } from './agents'
 import { archive } from './archive'
 import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
@@ -374,6 +375,16 @@ cli.command('api', {
     const url = new URL(req.url)
     url.searchParams.set('json', '1')
     return web.fetch(new Request(url.toString(), req))
+  },
+})
+
+cli.command('agents', {
+  description:
+    'The live roster joined to the index: what `claude agents --json --all` lists (state, name, cwd, waitingFor) + each job\'s state.json (detail, tempo, LIVE tokens, links, worktree branch) + lore\'s side per session (well, requests, list $, last indexed activity — as of the last `lore index`). Active (working/blocked) first, then by last update. Attach is a command to copy, never done for you. The agents page of the explorer is this verb rendered.',
+  run: async () => {
+    const db = openDb(DB_PATH)
+    const agents = await listAgents(db)
+    return { count: agents.length, active: agents.filter((a) => a.state === 'working' || a.state === 'blocked').length, agents }
   },
 })
 

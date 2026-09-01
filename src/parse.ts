@@ -117,7 +117,7 @@ export function parseLine(line: string): Parsed | null {
             // An empty result still closes its instruction (latency, error).
             p.entries.push({
               lane: 'tool',
-              text: text.slice(0, TOOL_TEXT_CAP),
+              text: headTail(text),
               ...(typeof block.tool_use_id === 'string' ? { toolUseId: block.tool_use_id } : {}),
               isError: block.is_error === true,
             })
@@ -202,6 +202,16 @@ function userTextEntry(text: string): Entry {
   if (!META_PROMPT.test(text)) return { lane: 'prompt', text }
   const command = /<command-name>\/?([\w:-]+)<\/command-name>/.exec(text)?.[1]
   return { lane: 'meta', text, ...(command ? { toolName: `command:${command}` } : {}) }
+}
+
+// Tool RESULTS keep head + tail rather than head only: the verdict of a test
+// run, a commit's sha line, and the last error all sit at the END of the
+// output, and the explorer's annotations (docs/EXPLORER.md) read them there.
+const RESULT_HEAD = 1_200
+const RESULT_TAIL = 800
+function headTail(text: string): string {
+  if (text.length <= TOOL_TEXT_CAP) return text
+  return `${text.slice(0, RESULT_HEAD)}\n… … …\n${text.slice(-RESULT_TAIL)}`
 }
 
 function toolResultText(content: unknown): string {
