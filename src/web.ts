@@ -372,7 +372,9 @@ export function createApp(
     if (wantsJson(c.req.raw)) return c.json(data)
     const label = w.range === 'all' ? (firstDay ? `since ${firstDay}` : 'all time') : w.range === 'custom' ? `${w.since ?? firstDay ?? '…'} → ${w.until ?? 'today'}` : `last ${w.range.slice(0, -1)} days`
     const href = (patch: Partial<Record<'range' | 'by' | 'since' | 'until', string | null>>) => {
-      const cur = { range: w.range === 'custom' ? null : w.range, by: w.by, since: w.since, until: w.until, ...patch }
+      // a relative window stays relative: its derived `since` never enters a link
+      const custom = w.range === 'custom'
+      const cur = { range: custom ? null : w.range, by: w.by, since: custom ? w.since : null, until: custom ? w.until : null, ...patch }
       const p = new URLSearchParams()
       if (cur.since || cur.until) {
         if (cur.since) p.set('since', cur.since)
