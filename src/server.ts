@@ -107,12 +107,21 @@ export async function serverUp(cfg: ServerConfig) {
   await Bun.write(PLIST_PATH, renderPlist(cfg))
   const before = await launchdState()
   if (before.loaded) {
-    // Already bootstrapped: kickstart so the (possibly new) plist takes.
+    // Already bootstrapped: boot out so the (possibly new) plist takes —
+    // and WAIT for launchd to finish tearing it down. Bootstrapping while
+    // the old job is still unloading fails with "Bootstrap failed: 5:
+    // Input/output error" (seen on the first PATH change, 2026-09-01).
     await launchctl('bootout', `${domain()}/${LABEL}`)
+    for (let i = 0; i < 20 && (await launchdState()).loaded; i++) await Bun.sleep(250)
   }
-  const r = await launchctl('bootstrap', domain(), PLIST_PATH)
-  if (r.code !== 0) throw new Error(`launchctl bootstrap failed (${r.code}): ${r.err.trim() || r.out.trim()}`)
-  return { plist: PLIST_PATH, ...cfg, url: urlFor(cfg) }
+  let last = { code: 0, out: '', err: '' }
+  for (let attempt = 0; attempt < 5; attempt++) {
+    last = await launchctl('bootstrap', domain(), PLIST_PATH)
+    if (last.code === 0) return { plist: PLIST_PATH, ...cfg, url: urlFor(cfg), attempts: attempt + 1 }
+    if (!/Input\/output error|: 5:/.test(last.err + last.out)) break
+    await Bun.sleep(500 * (attempt + 1))
+  }
+  throw new Error(`launchctl bootstrap failed (${last.code}): ${last.err.trim() || last.out.trim()}`)
 }
 
 export async function serverDown() {
