@@ -85,6 +85,12 @@ describe('getTrace', () => {
     expect(first.output).toBe(250)
     expect(first.thinking).toBe(15)
     expect(first.reply).toBe('Fixed the off-by-one.')
+    // "Looking." came before any instruction: a note heading phase 1. The
+    // closing text is the reply, never also a note. Each instruction knows
+    // its step.
+    expect(first.notes).toEqual([{ at: 0, ts: '2026-09-01T10:00:05.000Z', text: 'Looking.' }])
+    expect(first.instructions.map((i) => i.requestId)).toEqual(['msg_1', 'msg_2'])
+    expect(first.thoughts).toEqual([])
     expect(first.ms).toBe(50000)
     // opus-5, per request (2×5 + 1000×6.25 + 100000×0.5 + out×25) µ$: 3×56260 + 25×250 = 175,030 → 0.18
     expect(first.listUsd).toBe(0.18)

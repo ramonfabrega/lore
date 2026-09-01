@@ -11,6 +11,8 @@ import type { Lane } from './parse'
 import { searchSessions } from './search'
 import { resolveSessionId } from './session'
 import { listSessions } from './sessions'
+import { annotationLine, sessionBody, tile } from './block'
+import { cut, ms, tok, usd } from './fmt'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
 
@@ -363,72 +365,13 @@ export function createApp(
     const db = getDb()
     let trace: ReturnType<typeof getTrace>
     try {
-      trace = getTrace(db, c.req.param('id'), { limit: 2000, head: 240 })
+      trace = getTrace(db, c.req.param('id'), { limit: 2000, head: 400, steps: true })
     } catch (e) {
       return c.text(e instanceof Error ? e.message : String(e), 404)
     }
     if (wantsJson(c.req.raw)) return c.json(trace)
-    const s = trace.session
-    const t = trace.totals
-    const body = html`
-      <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
-      <h1 class="mono">${s.sessionId}</h1>
-      <p class="muted">${s.first ?? ''} → ${s.last ?? ''} · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}</p>
-      <div class="tiles">
-        ${tile('transactions', String(t.transactions))}
-        ${tile('steps', String(t.steps))}
-        ${tile('instructions', String(t.instructions))}
-        ${tile('errors', String(t.errors), t.errors > 0 ? 'warn' : '')}
-        ${tile('output', tok(t.output))}
-        ${tile('cache-read', tok(t.cacheRead))}
-        ${tile('list $', usd(t.listUsd))}
-        ${t.spawns ? tile('spawns', `${t.spawns} · ${tok(t.spawnOutput)} out`) : ''}
-      </div>
-      <section>
-        <table class="tx">
-          <thead><tr><th>#</th><th>at</th><th>kind</th><th>prompt</th><th class="num">steps</th><th class="num">instr</th><th class="num">err</th><th class="num">out</th><th class="num">list $</th><th class="num">wall</th></tr></thead>
-          <tbody>
-          ${trace.transactions.map(
-            (x, i) => html`<tr class="${x.kind}" ${x.promptId ? html`id="tx-${x.promptId}"` : ''}>
-              <td class="num">${i + 1}</td>
-              <td class="mono">${x.ts ? x.ts.slice(11, 19) : ''}</td>
-              <td><span class="kind ${x.kind}">${x.kind}</span></td>
-              <td class="prompt">
-                ${x.instructions.length || x.reply
-                  ? html`<details>
-                      <summary>${x.prompt || raw('&nbsp;')}</summary>
-                      ${annotationLine(x.annotations)}
-                      ${x.instructions.length
-                        ? html`<table class="ix">
-                            <thead><tr><th>tool</th><th>input</th><th class="num">ms</th><th>result</th></tr></thead>
-                            <tbody>
-                            ${x.instructions.map(
-                              (ix) => html`<tr class="${ix.error ? 'err' : ''}">
-                                <td class="mono">${ix.tool}</td>
-                                <td class="mono small">${ix.input}</td>
-                                <td class="num">${ix.ms ?? ''}</td>
-                                <td class="small">${ix.error ? html`<span class="kind err">error</span> ` : ''}${ix.result}</td>
-                              </tr>`,
-                            )}
-                            </tbody>
-                          </table>`
-                        : ''}
-                      ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}
-                    </details>`
-                  : x.prompt}
-              </td>
-              <td class="num">${x.steps || ''}</td>
-              <td class="num">${x.instructions.length || ''}</td>
-              <td class="num">${x.errors || ''}</td>
-              <td class="num">${x.output ? tok(x.output) : ''}</td>
-              <td class="num">${x.listUsd ? usd(x.listUsd) : ''}</td>
-              <td class="num">${x.ms ? ms(x.ms) : ''}</td>
-            </tr>`,
-          )}
-          </tbody>
-        </table>
-      </section>`
-    return c.html(page(`${s.sessionId.slice(0, 8)} · lore`, body, chrome()))
+    // ?open=all unfolds every transaction and phase — one page to ⌘F or print.
+    return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), chrome()))
   })
 
   return app
@@ -486,37 +429,7 @@ function bars(points: { label: string; value: number; title: string }[]) {
   </figure>`
 }
 
-function tile(label: string, value: string, cls = '') {
-  return html`<div class="tile ${cls}"><div class="v">${value}</div><div class="l">${label}</div></div>`
-}
 
-function tok(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
-  if (n >= 1e3) return `${(n / 1e3).toFixed(0)}k`
-  return String(n)
-}
-function usd(n: number | null): string {
-  return n == null ? '—' : `$${n.toFixed(2)}`
-}
-function ms(n: number | null): string {
-  if (n == null) return ''
-  if (n < 1000) return `${n}ms`
-  if (n < 60_000) return `${(n / 1000).toFixed(1)}s`
-  if (n < 3_600_000) return `${Math.round(n / 60_000)}min`
-  return `${(n / 3_600_000).toFixed(1)}h`
-}
-type Ann = { files: string[]; commands: number; tests: { ran: number; passed: number; failed: number }; commits: string[]; retries: number }
-function annotationLine(a: Ann) {
-  const parts: (HtmlEscapedString | Promise<HtmlEscapedString> | string)[] = []
-  if (a.files.length) parts.push(html`<span title="${a.files.join('\n')}">${a.files.length} file${a.files.length === 1 ? '' : 's'}</span>`)
-  if (a.commands) parts.push(`${a.commands} cmd${a.commands === 1 ? '' : 's'}`)
-  if (a.tests.ran) parts.push(html`tests ${a.tests.ran}: <span class="${a.tests.failed ? 'err' : ''}">${a.tests.failed} fail</span> / ${a.tests.passed} pass`)
-  if (a.commits.length) parts.push(html`commit ${a.commits.map((c) => html`<span class="mono">${c}</span> `)}`)
-  if (a.retries) parts.push(`${a.retries} retr${a.retries === 1 ? 'y' : 'ies'}`)
-  if (!parts.length) return html``
-  return html`<p class="ann muted small">${parts.map((p, i) => html`${i ? ' · ' : ''}${p}`)}</p>`
-}
 
 // FTS5 snippet marks come back as « » in escaped text; turn them into <mark>.
 function markSnippet(s: string): string {
@@ -550,10 +463,6 @@ function agoText(msAgo: number): string {
   if (msAgo < 3_600_000) return `${Math.round(msAgo / 60_000)} min ago`
   return `${(msAgo / 3_600_000).toFixed(1)} h ago`
 }
-function cut(s: string, n: number): string {
-  const one = s.replace(/\s+/g, ' ').trim()
-  return one.length > n ? `${one.slice(0, n - 1)}…` : one
-}
 
 function page(
   title: string,
@@ -577,13 +486,13 @@ function page(
 <style>
 :root { color-scheme: light dark;
   --surface: #fcfcfb; --surface-2: #f1f1ee; --line: #e2e2dd; --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #8a8985;
-  --series-1: #2a78d6; --warn: #b45309; --err: #b91c1c; --link: #1d5fb3; }
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --crit: #d03b3b; --warn: #b45309; --err: #b91c1c; --link: #1d5fb3; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --surface: #1a1a19; --surface-2: #232322; --line: #34342f; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8d8c84;
-  --series-1: #3987e5; --warn: #f59e0b; --err: #f87171; --link: #7ab3f5; } }
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --crit: #d03b3b; --warn: #f59e0b; --err: #f87171; --link: #7ab3f5; } }
 :root[data-theme="dark"] {
   --surface: #1a1a19; --surface-2: #232322; --line: #34342f; --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8d8c84;
-  --series-1: #3987e5; --warn: #f59e0b; --err: #f87171; --link: #7ab3f5; }
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --crit: #d03b3b; --warn: #f59e0b; --err: #f87171; --link: #7ab3f5; }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 24px 28px 64px; background: var(--surface); color: var(--ink);
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
@@ -605,7 +514,9 @@ section { overflow-x: auto; }
 .kind { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); }
 .kind.err { color: var(--err); } tr.meta td, tr.command td { color: var(--ink-3); }
 table.ix { margin: 6px 0 4px; } table.ix th { position: static; } tr.err td { color: var(--err); }
-details > summary { cursor: pointer; } .reply { color: var(--ink-2); margin: 6px 0 2px; }
+details > summary { cursor: pointer; list-style: none; } summary::-webkit-details-marker { display: none; }
+.phase > summary::before { content: '▸ '; color: var(--ink-3); } .phase[open] > summary::before { content: '▾ '; }
+ .reply { color: var(--ink-2); margin: 6px 0 2px; }
 .nav { display: flex; gap: 14px; align-items: center; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .nav a { color: var(--ink-2); } .nav a:first-child { font-weight: 600; color: var(--ink); }
 .navsearch { margin-left: auto; } .navsearch input, .searchform input[type=search] { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); min-width: 260px; }
@@ -619,6 +530,38 @@ tr.done td { color: var(--ink-3); }
 h1 .muted { font-size: 12px; font-weight: 400; }
 .viz svg { display: block; max-width: 100%; height: auto; } .viz { margin: 0 0 8px; }
 .viz .mark { fill: var(--series-1); } .viz .axis { fill: var(--ink-3); font-size: 9px; font-family: ui-monospace, Menlo, monospace; }
+/* block view (block.ts): fee bar, timeline, inline bars, phases */
+.spine .row { display: grid; grid-template-columns: 32px 68px minmax(0, 1fr) 52px 52px 40px 60px 118px 106px; gap: 0 8px; align-items: baseline; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.spine .row.head { color: var(--ink-2); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--surface); }
+.spine .row .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; } .spine .row .n { text-align: right; }
+.spine .row.meta, .spine .txn.meta .row, .spine .txn.command .row { color: var(--ink-3); }
+.spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
+.spine .txn .ptext::before { content: '▸ '; color: var(--ink-3); } .spine .txn[open] .ptext::before { content: '▾ '; } .spine .row.txn .ptext::before { content: ''; }
+.spine details.txn:not([open]) .ptext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.spine .txn[open] > summary { background: var(--surface-2); border-radius: 6px 6px 0 0; }
+.spine .body { padding: 4px 8px 12px 108px; border-bottom: 1px solid var(--line); }
+table.ix th { position: static; } table.ix td.tool { white-space: nowrap; } table.ix td.in { width: 34%; } table.ix td.res { width: 40%; }
+.fee { margin: 10px 0 4px; } .feebar { display: flex; gap: 2px; height: 10px; max-width: 720px; }
+.feebar .seg { display: block; min-width: 2px; border-radius: 2px; }
+.seg.output, .sw.output { background: var(--series-1); } .seg.cache-read, .sw.cache-read { background: var(--series-2); }
+.seg.cache-write, .sw.cache-write { background: var(--series-3); } .seg.input, .sw.input { background: var(--series-4); }
+.fee figcaption { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 5px; } .fee .key b { font-weight: 500; color: var(--ink-2); } .fee .pct { color: var(--ink-3); }
+.sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; background: var(--ink-3); }
+.sw.read { background: var(--series-1); } .sw.write { background: var(--series-2); } .sw.run { background: var(--series-3); }
+.tl { margin: 14px 0 6px; } .tl svg { display: block; max-width: 100%; height: auto; }
+.tl .band { fill: var(--surface-2); } .tl .band.alt { fill: color-mix(in oklab, var(--surface-2) 50%, var(--surface)); } .tl .band.meta, .tl .band.command { fill: transparent; }
+.tl a:hover .band { fill: color-mix(in oklab, var(--series-1) 18%, var(--surface-2)); }
+.tl .bandn, .tl .lane, .tl .axis { fill: var(--ink-3); font-size: 9px; font-family: ui-monospace, Menlo, monospace; }
+.tl .lanel, .tl .tick { stroke: var(--line); stroke-width: 0.5; }
+.tl .m { fill: var(--ink-3); rx: 1; } .tl .m.read { fill: var(--series-1); } .tl .m.write { fill: var(--series-2); } .tl .m.run { fill: var(--series-3); }
+.tl .m.say { fill: var(--ink-2); } .tl .m.err { fill: var(--crit); }
+.ib { display: inline-block; width: 48px; height: 5px; margin-right: 6px; vertical-align: middle; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+.ib i { display: block; height: 100%; background: var(--series-1); opacity: .75; }
+.phase { margin: 6px 0; } .phase > summary { padding: 3px 0; } .note { color: var(--ink-2); font-style: italic; } p.note { margin: 8px 0 2px; }
+table.ix td { border-bottom: 0; } table.ix tr.step td { border-top: 1px solid var(--line); } table.ix td.t, table.ix td.fee { white-space: nowrap; }
+table.ix td.in { max-width: 380px; overflow-wrap: anywhere; } table.ix td.res { max-width: 440px; overflow-wrap: anywhere; }
+tr.thought td { padding: 2px 8px; } tr.thought p { margin: 4px 0; }
+td.num .err, td.num.err { color: var(--err); }
 </style>
 </head>
 <body>${nav}${body}</body>

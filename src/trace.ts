@@ -50,7 +50,17 @@ export type Instruction = {
   ms: number | null
   error: boolean
   result: string
+  // The step that issued it — instructions of one step ran in parallel.
+  requestId: string | null
 }
+// A note is assistant text emitted BETWEEN instructions ("Now the tests…"):
+// the model's own heading for what follows. `at` is the index of the first
+// instruction after it, so notes segment a transaction into phases with
+// zero inference — the grind's single 298-step prompt reads as 14 phases
+// this way. The text after the LAST instruction is `reply`, not a note.
+export type Note = { at: number; ts: string | null; text: string }
+// A thought is a thinking block, same cursor.
+export type Thought = { at: number; ts: string | null; text: string }
 export type Step = {
   requestId: string
   ts: string | null
@@ -123,6 +133,8 @@ export type Transaction = {
   prompt: string
   steps: number
   instructions: Instruction[]
+  notes: Note[]
+  thoughts: Thought[]
   annotations: Annotations
   errors: number
   input: number
@@ -179,7 +191,7 @@ export function getTrace(
         `SELECT m.id, m.ts, m.lane, m.type, m.prompt_id AS promptId, m.tool_name AS toolName,
                 m.tool_use_id AS toolUseId, m.is_error AS isError, m.request_id AS requestId, f.text
          FROM messages m JOIN messages_fts f ON f.rowid = m.id
-         WHERE m.session_id = ? AND m.lane IN ('prompt', 'meta', 'text', 'tool')
+         WHERE m.session_id = ? AND m.lane IN ('prompt', 'meta', 'text', 'thinking', 'tool')
          ORDER BY m.id`,
       )
       .all(sessionId),
@@ -230,8 +242,19 @@ export function getTrace(
     for (const r of b.rows) if (r.type === 'user' && r.lane === 'tool' && r.toolUseId) results.set(r.toolUseId, r)
     const instructions: Instruction[] = []
     const full: { tool: string; inputFull: string; resultFull: string; error: boolean }[] = []
+    const texts: Note[] = []
+    const thoughts: Thought[] = []
     for (const r of b.rows) {
-      if (r.type !== 'assistant' || r.lane !== 'tool') continue
+      if (r.type !== 'assistant') continue
+      if (r.lane === 'text') {
+        texts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, head) })
+        continue
+      }
+      if (r.lane === 'thinking') {
+        thoughts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, head) })
+        continue
+      }
+      if (r.lane !== 'tool') continue
       const res = r.toolUseId ? results.get(r.toolUseId) : undefined
       const tool = r.toolName ?? '?'
       const inputFull = r.text.startsWith(tool) ? r.text.slice(tool.length).trim() : r.text
@@ -243,10 +266,16 @@ export function getTrace(
         ms: res?.ts && r.ts ? Date.parse(res.ts) - Date.parse(r.ts) : null,
         error,
         result: res ? cut(res.text, head) : '',
+        requestId: r.requestId,
       })
       full.push({ tool, inputFull, resultFull: res?.text ?? '', error })
     }
     const annotations = annotate(full)
+    // The closing text is the last text row when nothing was instructed
+    // after it; a transaction cut off mid-flight has none.
+    const lastText = texts[texts.length - 1]
+    const reply = lastText && lastText.at === instructions.length ? lastText.text : ''
+    const notes = texts.filter((n) => n !== lastText || !reply)
 
     const stepIds = [...new Set(b.rows.map((r) => r.requestId).filter((x): x is string => x != null))]
     const steps: Step[] = stepIds.map((id) => {
@@ -268,7 +297,6 @@ export function getTrace(
       }
     })
     const fee = sumFee(steps)
-    const texts = b.rows.filter((r) => r.type === 'assistant' && r.lane === 'text')
     const first = b.rows[0]?.ts ?? null
     const last = b.rows[b.rows.length - 1]?.ts ?? null
     return {
@@ -278,10 +306,12 @@ export function getTrace(
       prompt: promptText,
       steps: steps.length,
       instructions,
+      notes,
+      thoughts,
       annotations,
       errors: instructions.filter((i) => i.error).length,
       ...fee,
-      reply: cut(texts[texts.length - 1]?.text ?? '', head),
+      reply,
       ms: first && last ? Math.max(0, Date.parse(last) - Date.parse(first)) : null,
       ...(opts.steps ? { requests: steps } : {}),
     }

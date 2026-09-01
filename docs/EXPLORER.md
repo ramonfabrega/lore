@@ -127,13 +127,67 @@ error. Never `full` from the timer — a schema bump is a reinstall and a
 restart. Ran alongside a CLI `lore index`, the shared db's busy_timeout
 covers the overlap.
 
+## The block view (design pass, landed 2026-09-01)
+
+Designed against two sessions that could not be more different and had to
+read on one page: a grind (one `continue`, 298 steps, 54 min, $42 list)
+and a lore conversation (16 prompts, 209 steps, 2.4 h, $48). The
+transaction table alone was the whole design before; on the grind it was
+one row. Three reads, top to bottom, all from `getTrace` — no client code,
+`<details>` is the only interaction (`?open=all` unfolds everything for
+⌘F or print).
+
+1. **Header.** Identity, model mix (`claude-opus-5 ×298`), and the **fee
+   bar**: list $ split by token class. Dollars, not tokens — cache reads
+   are 100× the tokens and a tenth of the money, so a token bar says
+   nothing and a dollar bar says everything: the opus grind is 86% cache
+   read, the Fable conversation is 32% output / 39% cache read / 29%
+   cache write. The exchange rate made visible per session.
+2. **The map.** A swimlane timeline of every instruction at its wall-clock
+   x — one lane per tool family (`say`, `read`, `write`, `run`, `agent`,
+   `other`; only lanes present are drawn), width = latency (1.5px floor),
+   errors in the status color, the assistant's notes and closing text as
+   ticks in `say`. Transactions are numbered bands behind, linked to their
+   rows. Lane position carries identity; the three hues (blue / orange /
+   aqua, the palette's all-pairs-safe first three) are redundant. The lane
+   label is the legend.
+3. **The spine.** Transactions as grid rows: number (harness preamble is
+   unnumbered — #1 is the first prompt on every surface), time, prompt
+   (two-line clamp when folded), steps / instructions / errors / output,
+   and list $ and wall with **inline bars** against the session's max so
+   the heavy transaction reads before its digits do. A one- or
+   two-prompt session opens by default (the block *is* the transaction);
+   a conversation stays folded.
+
+Inside a transaction: **phases**. The assistant's text emitted *between*
+instructions ("Now the tests: one for the coin's two arms…") is its own
+heading for the run of steps that follows — zero inference, and it
+decomposes the grind's single prompt into 14 phases with counts, span,
+and errors each; the closing text (after the last instruction) is the
+reply, never a note. `getTrace` carries them as `notes[]` (`at` = the
+index of the next instruction) and `thoughts[]` (thinking blocks, same
+cursor; collapsed inline), and each instruction knows its `requestId`, so
+instruction rows group by step with the step's fee (out tokens, thinking,
+$) in the margin. Inputs render as the argument that names the call
+(Bash's command and description, a file tool's path, Grep's pattern in
+its path) rather than the JSON head.
+
+Rejected: a client-side tree viewer (Langfuse-style span tree + detail
+pane) — earns nothing over `<details>` at this size and costs a build
+step; a token-stacked fee bar (see 1); per-instruction color in the
+timeline without lanes (2px marks cannot carry hue). Deferred: a
+transaction page with the full instruction logs (`/session/:id/tx/:n`),
+and a "diff view" of files touched — both wait for a session that needs
+them.
+
 ## Sequence
 
 1. v13 + `lore trace` — landed.
 2. `lore serve` skeleton — landed; `/cli/` + `lore server` — landed.
 3. Recent, search, annotations, agents, job — landed.
 4. Jobs (trailer → transcript) + self-refresh — landed. Core complete.
-5. A design pass, once the pages have earned it (the block view first).
+5. A design pass, once the pages have earned it — the block view landed
+   (above); the well, usage, and agents pages next, in that order.
 6. Native only if the web surface fails to earn itself.
 
 ## Not built, on purpose (candidates for later)
