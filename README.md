@@ -26,6 +26,7 @@ bun src/main.ts spawns    # subagent observatory: verified model, drift, boot co
 bun src/main.ts workflows # workflow runs: script meta, agents, tokens, model mix; drill: spawns --workflow
 bun src/main.ts tools --prefix Skill:       # invocation usage — the ambient ROI evidence
 bun src/main.ts usage --by week             # the token profile: 4 billed classes + thinking, dated list-price equivalent; --by well|session|model|day|month
+bun src/main.ts trace <id-prefix>           # one session as a block: transactions → steps (fee) + instructions (tool, latency, error); docs/EXPLORER.md
 bun src/main.ts docs index --fetch          # canon corpus (git objects, never working trees)
 bun src/main.ts stats
 

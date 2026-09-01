@@ -53,7 +53,13 @@ import { z } from 'zod'
 // (13.1M out / 4.05B cache-read over four days) was hand-computed from raw
 // JSONL, and Fable 5.1's 75% cache-read cut the same day made "what does the
 // loop cost, in which token class" a question worth answering mechanically.
-const SCHEMA_VERSION = 12
+// v13: the explorer's joins (docs/EXPLORER.md). messages.prompt_id — the
+// transaction key (every user record carries promptId; assistant records
+// inherit the last seen in file order); messages.tool_use_id + is_error —
+// instruction ↔ log pairing (latency is the timestamp pair); messages.
+// request_id — assistant rows' message.id, the join to `requests`;
+// sessions.job_session_id — the background job's id across its /clears.
+const SCHEMA_VERSION = 13
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -72,7 +78,8 @@ CREATE TABLE IF NOT EXISTS sessions(
   lines INTEGER NOT NULL DEFAULT 0,
   first_ts TEXT,
   last_ts TEXT,
-  last_activity_ts TEXT
+  last_activity_ts TEXT,
+  job_session_id TEXT
 );
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY,
@@ -83,7 +90,11 @@ CREATE TABLE IF NOT EXISTS messages(
   type TEXT NOT NULL,
   git_branch TEXT,
   cwd TEXT,
-  tool_name TEXT
+  tool_name TEXT,
+  prompt_id TEXT,
+  tool_use_id TEXT,
+  is_error INTEGER NOT NULL DEFAULT 0,
+  request_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_lane ON messages(lane);

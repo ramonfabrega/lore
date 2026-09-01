@@ -12,7 +12,9 @@ export type Lane = 'prompt' | 'text' | 'thinking' | 'tool' | 'event' | 'meta'
 // `Skill:<skill>` and slash-command wrappers `command:<name>` (user-invoked
 // skills flow through command wrappers, not the Skill tool; without this
 // they'd all read as zero-use).
-export type Entry = { lane: Lane; text: string; toolName?: string }
+// toolUseId pairs a tool_use block with its tool_result (the instruction and
+// its log, in explorer terms — docs/EXPLORER.md); isError is the result's flag.
+export type Entry = { lane: Lane; text: string; toolName?: string; toolUseId?: string; isError?: boolean }
 
 // One API request's usage envelope, from an assistant record (lore#8, the
 // token profile). Assistant records are streaming snapshots — several lines
@@ -61,6 +63,13 @@ export type Parsed = {
   entries: Entry[]
   // Present on assistant records that carry a message id and a usage block.
   request?: Request
+  // The transaction key: every `user` record (prompts and tool results) carries
+  // the id of the prompt it belongs to; assistant records do not and inherit
+  // the last one seen in file order (the indexer carries it forward).
+  promptId?: string
+  // The background job's own id (record-level `session_id`, distinct from
+  // `sessionId`): one job spans every /clear'd transcript it produced.
+  jobSessionId?: string
 }
 
 // Tool inputs/results are indexed truncated: enough to find "that session where
@@ -90,6 +99,8 @@ export function parseLine(line: string): Parsed | null {
     gitBranch: r.gitBranch,
     sessionKind: r.sessionKind,
     entries: [],
+    ...(typeof r.promptId === 'string' ? { promptId: r.promptId } : {}),
+    ...(typeof r.session_id === 'string' && r.session_id !== r.sessionId ? { jobSessionId: r.session_id } : {}),
   }
 
   switch (p.type) {
@@ -103,7 +114,13 @@ export function parseLine(line: string): Parsed | null {
             p.entries.push(userTextEntry(block.text))
           } else if (block?.type === 'tool_result') {
             const text = toolResultText(block.content)
-            if (text) p.entries.push({ lane: 'tool', text: text.slice(0, TOOL_TEXT_CAP) })
+            // An empty result still closes its instruction (latency, error).
+            p.entries.push({
+              lane: 'tool',
+              text: text.slice(0, TOOL_TEXT_CAP),
+              ...(typeof block.tool_use_id === 'string' ? { toolUseId: block.tool_use_id } : {}),
+              isError: block.is_error === true,
+            })
           }
         }
       }
@@ -143,6 +160,7 @@ export function parseLine(line: string): Parsed | null {
               block.name === 'Skill' && typeof block.input?.skill === 'string'
                 ? `Skill:${block.input.skill}`
                 : (block.name ?? undefined),
+            ...(typeof block.id === 'string' ? { toolUseId: block.id } : {}),
           })
       }
       break

@@ -38,18 +38,19 @@ export async function buildIndex(
   )
   const findSession = db.prepare('SELECT id, size, mtime_ms FROM sessions WHERE session_id = ?')
   const upsertSession = db.prepare(
-    `INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts, job_session_id)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(session_id) DO UPDATE SET well_id=excluded.well_id, size=excluded.size,
        mtime_ms=excluded.mtime_ms, lines=excluded.lines, first_ts=excluded.first_ts, last_ts=excluded.last_ts,
-       last_activity_ts=excluded.last_activity_ts`,
+       last_activity_ts=excluded.last_activity_ts, job_session_id=excluded.job_session_id`,
   )
   const deleteMsgs = db.prepare('DELETE FROM messages WHERE session_id = ?')
   const deleteFts = db.prepare(
     'DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE session_id = ?)',
   )
   const insertMsg = db.prepare(
-    'INSERT INTO messages(session_id, uuid, ts, lane, type, git_branch, cwd, tool_name) VALUES(?, ?, ?, ?, ?, ?, ?, ?)',
+    `INSERT INTO messages(session_id, uuid, ts, lane, type, git_branch, cwd, tool_name, prompt_id, tool_use_id, is_error, request_id)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const insertFts = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES(?, ?)')
   const deleteRequests = db.prepare('DELETE FROM requests WHERE session_id = ?')
@@ -82,9 +83,10 @@ export async function buildIndex(
         deleteFts.run(s.sessionId)
         deleteMsgs.run(s.sessionId)
         deleteRequests.run(s.sessionId)
-        // Streaming snapshots repeat a request's usage under one message.id
-        // (observed: two identical lines per request). Keep the max of each
-        // field per id — same rule as spawns.ts — and the first timestamp.
+        // Every block line of a request repeats its usage under one
+        // message.id, and output_tokens on an earlier line can be a partial
+        // count. Keep the max of each field per id — same rule as spawns.ts
+        // — and the first timestamp.
         const requests = new Map<string, Request & { ts: string | null }>()
         let firstTs: string | null = null
         let lastTs: string | null = null
@@ -94,25 +96,51 @@ export async function buildIndex(
         // strong enough test; it has to be "produced work". See db.ts v11.
         let lastActivityTs: string | null = null
         let count = 0
+        // The transaction key, carried forward: user records name their
+        // prompt; assistant records belong to the last prompt seen.
+        let promptId: string | null = null
+        let jobSessionId: string | null = null
+        // Assistant records are ONE CONTENT BLOCK PER LINE, consecutive lines
+        // sharing the request's message.id (measured 2026-09-01: 677 lines,
+        // 677 blocks, zero duplicated). So every line indexes — the blocks are
+        // all distinct — while the usage envelope, repeated on each line of
+        // the request, merges per id below. (A first cut of v13 "deduped"
+        // lines per id and silently dropped the thinking/text blocks that
+        // precede a tool_use; messages fell 9%.)
         for (const line of lines) {
           const p = parseLine(line)
           if (!p) continue
           count++
+          if (p.promptId) promptId = p.promptId
+          jobSessionId ??= p.jobSessionId ?? null
           if (p.timestamp) {
             firstTs ??= p.timestamp
             lastTs = p.timestamp
             if (p.entries.some((e) => ACTIVITY_LANES.has(e.lane))) lastActivityTs = p.timestamp
           }
           for (const e of p.entries) {
-            const row = insertMsg.run(s.sessionId, p.uuid ?? null, p.timestamp ?? null, e.lane, p.type, p.gitBranch ?? null, p.cwd ?? null, e.toolName ?? null)
+            const row = insertMsg.run(
+              s.sessionId,
+              p.uuid ?? null,
+              p.timestamp ?? null,
+              e.lane,
+              p.type,
+              p.gitBranch ?? null,
+              p.cwd ?? null,
+              e.toolName ?? null,
+              promptId,
+              e.toolUseId ?? null,
+              e.isError ? 1 : 0,
+              p.type === 'assistant' ? (p.request?.id ?? null) : null,
+            )
             insertFts.run(row.lastInsertRowid, e.text)
             messages++
           }
           if (p.request) {
-            const r = p.request
-            const seen = requests.get(r.id)
-            if (!seen) requests.set(r.id, { ...r, ts: p.timestamp ?? null })
+            const seen = requests.get(p.request.id)
+            if (!seen) requests.set(p.request.id, { ...p.request, ts: p.timestamp ?? null })
             else {
+              const r = p.request
               seen.input = Math.max(seen.input, r.input)
               seen.cacheWrite = Math.max(seen.cacheWrite, r.cacheWrite)
               seen.cacheRead = Math.max(seen.cacheRead, r.cacheRead)
@@ -127,7 +155,7 @@ export async function buildIndex(
         for (const r of requests.values()) {
           insertRequest.run(s.sessionId, r.id, r.ts, r.model, r.effort, r.input, r.cacheWrite, r.cacheRead, r.output, r.thinking, r.stopReason)
         }
-        upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs, lastActivityTs)
+        upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs, lastActivityTs, jobSessionId)
       })
       indexSession()
       sessionsIndexed++

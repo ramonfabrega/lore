@@ -30,14 +30,15 @@ export type SessionDump = {
 // unique id prefix (ids are uuids; the sessions listing is the usual source).
 // gitBranch rides along because well membership ≠ work location — per-message
 // branch/cwd is the ground truth for where work happened.
-export function getSession(
+// Resolve a session id or unique prefix. --well narrows an ambiguous prefix.
+// Ids are uuids so collisions are rare, but the miner agent def has always
+// documented this flag; before v11 it errored `Unknown flag: --well`
+// (ingest #12 finding). Shared by `session` and `trace`.
+export function resolveSessionId(
   db: Database,
   idPrefix: string,
-  opts: { lanes: Lane[]; limit: number; well?: string; exact?: boolean },
-): SessionDump {
-  // --well narrows an ambiguous prefix. Ids are uuids so collisions are rare,
-  // but the miner agent def has always documented this flag; before v11 it
-  // errored `Unknown flag: --well` (ingest #12 finding).
+  opts: { well?: string; exact?: boolean },
+): string {
   const wellClause = opts.well
     ? opts.exact
       ? ' AND (w.dir = ? OR w.real_path = ?)'
@@ -69,7 +70,15 @@ export function getSession(
       `ambiguous prefix "${idPrefix}": ${ids.map((r) => r.session_id).join(', ')}` +
         (opts.well ? '' : ' (narrow with --well)'),
     )
-  const sessionId = ids[0]!.session_id
+  return ids[0]!.session_id
+}
+
+export function getSession(
+  db: Database,
+  idPrefix: string,
+  opts: { lanes: Lane[]; limit: number; well?: string; exact?: boolean },
+): SessionDump {
+  const sessionId = resolveSessionId(db, idPrefix, opts)
 
   const session = Meta.parse(
     db
