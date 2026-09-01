@@ -198,12 +198,27 @@ falls back to a stack and the page scrolls.
   filtered), **agents** (state dot, name, doing, live tokens, $ —
   the roster's top 14), **active this week** (wells by $ with bars).
   Windowed queries only; the roster is memoized 10 s.
-- **`/usage`.** The 90-day stacked chart with all-time totals in the
-  header; **by model** with the **fee split by class** per row (the bar
-  from the block view — Fable 5 is output-heavy, opus is cache-read-heavy,
-  visible in one glance); by well (top 60); by week and by day in one
-  scrolling column. The all-time aggregates (~150 ms each) are memoized
-  five minutes, keyed on the index timestamp.
+- **`/usage`.** The token profile over **one window**. A toolbar carries
+  the page's whole state — window (`7d` / `30d` / `90d` / `all`, or absolute
+  `since` → `until` dates via a GET form) × granularity (`day` / `week` /
+  `month`) — as plain links, so the switch rides the view transition and
+  needs no client code. The URL is the state, under `lore usage`'s flag
+  names (`/usage?since=2026-08-01&until=2026-08-31&by=week`; defaults are
+  omitted, so `/usage` stays clean), and the JSON echoes `window`. Every
+  panel follows it: the stacked chart at the granularity; **by model** with
+  the **fee split by class** per row (the bar from the block view — Fable 5
+  is output-heavy, opus is cache-read-heavy, visible in one glance); by well
+  (top 60); the buckets newest-first in the right column. Default: last 90
+  days by day. Why one control and not one period per panel (2026-09-01):
+  the window is a property of the question, not of the panel, and
+  "by model since forever" mixes pricing epochs and dead models — the
+  window view is what says whether Fable's share is growing. Aggregates
+  are memoized five minutes, keyed on index timestamp + window. `until`
+  in the URL is the inclusive day a person writes; the query's exclusive
+  bound is the day after. Unparseable params fall back to the default
+  rather than 400ing. Known: buckets with no requests are absent, not
+  zero-width — a quiet week leaves a gap in the chart rather than a
+  flat bar.
 - **`/agents`.** One row per agent: state, name, where, doing, live
   tokens with bars, requests, $, indexed (ago), links (a pile of 100 PRs
   folds into "100 links"), attach command.

@@ -301,7 +301,7 @@ export function createApp(
       </div>
       <div class="area-chart panel">
         <header><h2>by day</h2><span class="sub">last 45, list $ by model</span>${modelLegend(days.rows)}</header>
-        <div class="body">${dayChart(days.rows)}</div>
+        <div class="body">${bucketChart(days.rows)}</div>
       </div>
       <div class="area-recent panel">
         <header><h2>recent</h2><span>newest by last activity</span><span class="sp small"><a href="/search">search →</a></span></header>
@@ -352,33 +352,59 @@ export function createApp(
     return c.html(page('lore', body, { ...chrome(c), layout: 'root', nav: 'lore' }))
   })
 
+  // The token profile over ONE window. The window (relative range or absolute
+  // since/until) and the granularity are the page's state, in the URL under
+  // the CLI's flag names, and every panel follows them — the page is
+  // `lore usage --by <by> --since <since> --until <until>` rendered.
   app.get('/usage', (c) => {
     const db = getDb()
-    const since90 = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
-    const days = listUsage(db, { by: 'day', since: since90, limit: 120, split: true })
-    const weeks = cached('usage.weeks', 300_000, indexKey(), () => listUsage(db, { by: 'week', limit: 52 }))
-    const models = cached('usage.models', 300_000, indexKey(), () => listUsage(db, { by: 'model', limit: 20, split: true }))
-    const wells = cached('usage.wells', 300_000, indexKey(), () => listUsage(db, { by: 'well', limit: 60, split: true }))
+    const w = usageWindow(c.req.query())
     // "all time" is really "since the first indexed request" — say so.
     const firstDay = cached('usage.firstDay', 300_000, indexKey(), () =>
       z.object({ d: z.string().nullable() }).parse(db.prepare('SELECT substr(min(ts), 1, 10) AS d FROM requests').get()).d,
     )
-    const since = firstDay ? `since ${firstDay}` : 'all time'
-    const data = { days, weeks, models, wells, firstDay }
+    const q = { since: w.since ?? undefined, until: w.untilExclusive ?? undefined }
+    const key = `${indexKey()}|${w.by}|${w.since ?? ''}|${w.until ?? ''}`
+    const buckets = cached('usage.buckets', 300_000, key, () => listUsage(db, { by: w.by, ...q, limit: 400, split: true }))
+    const models = cached('usage.models', 300_000, key, () => listUsage(db, { by: 'model', ...q, limit: 20, split: true }))
+    const wells = cached('usage.wells', 300_000, key, () => listUsage(db, { by: 'well', ...q, limit: 60, split: true }))
+    const data = { window: { range: w.range, by: w.by, since: w.since ?? firstDay, until: w.until }, buckets, models, wells }
     if (wantsJson(c.req.raw)) return c.json(data)
+    const label = w.range === 'all' ? (firstDay ? `since ${firstDay}` : 'all time') : w.range === 'custom' ? `${w.since ?? firstDay ?? '…'} → ${w.until ?? 'today'}` : `last ${w.range.slice(0, -1)} days`
+    const href = (patch: Partial<Record<'range' | 'by' | 'since' | 'until', string | null>>) => {
+      const cur = { range: w.range === 'custom' ? null : w.range, by: w.by, since: w.since, until: w.until, ...patch }
+      const p = new URLSearchParams()
+      if (cur.since || cur.until) {
+        if (cur.since) p.set('since', cur.since)
+        if (cur.until) p.set('until', cur.until)
+      } else if (cur.range && cur.range !== '90d') p.set('range', cur.range)
+      if (cur.by && cur.by !== 'day') p.set('by', cur.by)
+      const s = p.toString()
+      return `/usage${s ? `?${s}` : ''}`
+    }
+    const seg = (items: string[], on: string, to: (v: string) => string) =>
+      html`<span class="seg">${items.map((v) => html`<a class="${v === on ? 'on' : ''}" href="${to(v)}">${v}</a>`)}</span>`
     const maxModel = Math.max(...models.rows.map((r) => r.listUsd ?? 0), 0)
     const maxWell = Math.max(...wells.rows.map((r) => r.listUsd ?? 0), 0)
-    const maxDay = Math.max(...days.rows.map((r) => r.listUsd ?? 0), 0)
-    const maxWeek = Math.max(...weeks.rows.map((r) => r.listUsd ?? 0), 0)
+    const maxBucket = Math.max(...buckets.rows.map((r) => r.listUsd ?? 0), 0)
     const feeOf = (r: UsageRow) => (r.usd ? feeBar(r.usd, { caption: false }) : html``)
     const body = html`
+      <div class="area-bar toolbar">
+        ${seg(['7d', '30d', '90d', 'all'], w.range, (r) => href({ range: r, since: null, until: null }))}
+        ${seg(['day', 'week', 'month'], w.by, (b) => href({ by: b }))}
+        <form method="get" action="/usage" class="range ${w.range === 'custom' ? 'on' : ''}">
+          <input type="date" name="since" value="${w.since ?? firstDay ?? ''}" aria-label="since" /><span class="muted">→</span><input type="date" name="until" value="${w.until ?? isoDay(Date.now())}" aria-label="until" />
+          ${w.by !== 'day' ? html`<input type="hidden" name="by" value="${w.by}" />` : ''}<button type="submit">go</button>
+        </form>
+        <span class="sp muted">${label} · ${models.totals.requests.toLocaleString()} requests · ${models.totals.sessions} sessions${models.unpriced.length ? html` · <span class="err">unpriced: ${models.unpriced.join(', ')}</span>` : ''}</span>
+      </div>
       <div class="area-chart panel">
-        <header><h2>by day</h2><span class="sub">last 90, list $ by model</span>${modelLegend(days.rows)}
-          <span class="sp">${usd(wells.totals.listUsd)} ${since} · ${wells.totals.requests.toLocaleString()} requests · ${wells.totals.sessions} sessions${wells.unpriced.length ? html` · <span class="err">unpriced: ${wells.unpriced.join(', ')}</span>` : ''}</span></header>
-        <div class="body">${dayChart(days.rows, 96)}</div>
+        <header><h2>by ${w.by}</h2><span class="sub">${label}, list $ by model</span>${modelLegend(buckets.rows)}
+          <span class="sp">${usd(models.totals.listUsd)} <span class="muted">${label}</span></span></header>
+        <div class="body">${bucketChart(buckets.rows, 96)}</div>
       </div>
       <div class="area-models panel">
-        <header><h2>by model</h2><span>${since}</span><span class="sp">${feeLegend()}</span></header>
+        <header><h2>by model</h2><span>${label}</span><span class="sp">${feeLegend()}</span></header>
         <div class="scroll list models">
           <div class="row head"><span>model</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span>fee by class</span><span class="num">list $</span></div>
           ${models.rows.map(
@@ -395,7 +421,7 @@ export function createApp(
         </div>
       </div>
       <div class="area-wells panel">
-        <header><h2>by well</h2><span>${since}, top ${wells.rows.length}</span></header>
+        <header><h2>by well</h2><span>${label}, top ${wells.rows.length}</span></header>
         <div class="scroll list wells">
           <div class="row head"><span>well</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">list $</span></div>
           ${wells.rows.map(
@@ -410,32 +436,21 @@ export function createApp(
         </div>
       </div>
       <div class="area-days panel">
-        <header><h2>by week</h2><span>and by day, newest first</span></header>
+        <header><h2>by ${w.by}</h2><span>${label}, newest first</span></header>
         <div class="scroll list days">
-          <div class="row head"><span>week</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span class="num">list $</span></div>
-          ${weeks.rows.slice().reverse().slice(0, 12).map(
+          <div class="row head"><span>${w.by}</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span class="num">list $</span></div>
+          ${buckets.rows.slice().sort((a, b) => (a.key < b.key ? 1 : -1)).map(
             (r) => html`<div class="row">
               <span class="mono">${r.key}</span>
               <span class="num">${r.requests.toLocaleString()}</span>
               <span class="num">${r.sessions}</span>
               <span class="num">${tok(r.output)}</span>
               <span class="num">${tok(r.thinking)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxWeek)}${usd(r.listUsd)}</span>
-            </div>`,
-          )}
-          <div class="row head"><span>day</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span class="num">list $</span></div>
-          ${days.rows.slice().sort((a, b) => (a.key < b.key ? 1 : -1)).map(
-            (r) => html`<div class="row">
-              <span class="mono">${r.key}</span>
-              <span class="num">${r.requests.toLocaleString()}</span>
-              <span class="num">${r.sessions}</span>
-              <span class="num">${tok(r.output)}</span>
-              <span class="num">${tok(r.thinking)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxDay)}${usd(r.listUsd)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxBucket)}${usd(r.listUsd)}</span>
             </div>`,
           )}
         </div>
-        <p class="footnote">${days.note}</p>
+        <p class="footnote">${buckets.note}</p>
       </div>`
     return c.html(page('usage · lore', body, { ...chrome(c), layout: 'usage', nav: 'usage' }))
   })
@@ -562,7 +577,34 @@ function topModels(days: UsageRow[]): string[] {
   for (const d of days) for (const m of d.models ?? []) total.set(m.model, (total.get(m.model) ?? 0) + (m.listUsd ?? 0))
   return [...total].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m]) => m)
 }
-function dayChart(rows: UsageRow[], height = 72) {
+// The usage page's window: a relative range (7d/30d/90d/all) or absolute
+// since/until dates (inclusive, as a person writes them; the query's `until`
+// is exclusive, so it gets the day after), and the bucket granularity.
+// Same names as `lore usage`'s flags. Anything unparseable falls back to the
+// default rather than 400ing — a bad URL still shows the profile.
+const DAY = 86_400_000
+const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10)
+const UsageQuery = z.object({
+  range: z.enum(['7d', '30d', '90d', 'all']).optional(),
+  by: z.enum(['day', 'week', 'month']).optional(),
+  since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+})
+function usageWindow(raw: Record<string, string | undefined>) {
+  const clean = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined && v !== ''))
+  const parsed = UsageQuery.safeParse(clean)
+  const o = parsed.success ? parsed.data : {}
+  const by = o.by ?? 'day'
+  if (o.since || o.until) {
+    const until = o.until ?? null
+    return { range: 'custom' as const, by, since: o.since ?? null, until, untilExclusive: until ? isoDay(Date.parse(until) + DAY) : null }
+  }
+  const range = o.range ?? '90d'
+  const days = { '7d': 7, '30d': 30, '90d': 90, all: null }[range]
+  return { range, by, since: days ? isoDay(Date.now() - (days - 1) * DAY) : null, until: null, untilExclusive: null }
+}
+
+function bucketChart(rows: UsageRow[], height = 72) {
   const days = rows.slice().sort((a, b) => (a.key < b.key ? -1 : 1))
   const top = topModels(days)
   const series = [

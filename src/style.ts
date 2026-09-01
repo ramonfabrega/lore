@@ -72,7 +72,19 @@ main { flex: 1; min-height: 0; display: grid; gap: 10px; padding: 10px 14px 12px
 main.layout-one { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 main.layout-head { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
 main.layout-root { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "kpi chart" "recent agents" "recent active"; }
-main.layout-usage { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "chart chart" "models days" "wells days"; }
+main.layout-usage { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto auto minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "bar bar" "chart chart" "models days" "wells days"; }
+.area-bar { grid-area: bar; }
+/* the usage toolbar: the page's one control state — window × granularity — as plain links (view transitions carry the switch) and a GET form for absolute dates */
+.toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font: var(--fs-12) var(--mono); color: var(--ink-3); margin-bottom: -2px; }
+.toolbar .sp { margin-left: auto; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.seg a { padding: 2px 9px; color: var(--ink-3); border-right: 1px solid var(--line); transition: background-color var(--t-hover) var(--ease-out), color var(--t-hover) var(--ease-out); }
+.seg a:last-child { border-right: 0; } .seg a:hover { background: var(--surface-2); color: var(--ink-2); } .seg a.on { background: var(--surface-2); color: var(--ink); }
+.toolbar .range { display: inline-flex; align-items: center; gap: 6px; }
+.toolbar .range input[type=date] { font: inherit; padding: 1px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink-2); color-scheme: inherit; }
+.toolbar .range.on input[type=date] { color: var(--ink); border-color: var(--line-2); }
+.toolbar .range button { font: inherit; padding: 2px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink-3); cursor: pointer; }
+.toolbar .range button:hover { background: var(--surface-2); color: var(--ink); }
 .area-kpi { grid-area: kpi; } .area-chart { grid-area: chart; } .area-recent { grid-area: recent; } .area-agents { grid-area: agents; } .area-active { grid-area: active; }
 .area-models { grid-area: models; } .area-days { grid-area: days; } .area-wells { grid-area: wells; }
 .panel { container-type: inline-size; display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 1px 0 oklch(0% 0 0 / 0.12); }
@@ -117,7 +129,7 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list.active .row { grid-template-columns: minmax(0, 1fr) calc(40px * var(--z)) calc(52px * var(--z)) calc(112px * var(--z)); }
 .list.agents .row { grid-template-columns: calc(12px * var(--z)) minmax(calc(70px * var(--z)), 1fr) minmax(0, 2fr) calc(96px * var(--z)) calc(60px * var(--z)); }
 .list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(140px * var(--z)) calc(190px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
-.list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(108px * var(--z)); }
+.list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(122px * var(--z)); }
 .list.wells .row { grid-template-columns: minmax(0, 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
 .list.days .row { grid-template-columns: calc(74px * var(--z)) calc(52px * var(--z)) calc(34px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
 .list.sessions .row { grid-template-columns: calc(84px * var(--z)) calc(92px * var(--z)) minmax(0, 1fr) calc(28px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(44px * var(--z)); }
