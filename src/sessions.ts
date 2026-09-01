@@ -54,23 +54,30 @@ export function listSessions(
     params.push(opts.since)
   }
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : ''
+  // Pick the page FIRST (ids, dates), decorate SECOND: the per-session
+  // subqueries (prompt count, modal cwd over messages, first prompt) cost
+  // ~1.5 ms each across 300k message rows, and evaluating them for every
+  // session before LIMIT made the explorer's root take a second for twenty
+  // rows (2026-09-01). Correlated subqueries in the outer SELECT run only
+  // for the limited set.
   const sql = `
-    SELECT * FROM (
+    SELECT p.well, p.sessionId, p.first, p.last, p.idleUntil, p.lines,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = p.sessionId AND m.lane = 'prompt') AS prompts,
+           (SELECT m.cwd FROM messages m WHERE m.session_id = p.sessionId AND m.cwd IS NOT NULL
+            GROUP BY m.cwd ORDER BY COUNT(*) DESC LIMIT 1) AS workDir,
+           (SELECT COUNT(DISTINCT m.cwd) FROM messages m WHERE m.session_id = p.sessionId AND m.cwd IS NOT NULL) AS workDirs,
+           (SELECT f.text FROM messages m JOIN messages_fts f ON f.rowid = m.id
+            WHERE m.session_id = p.sessionId AND m.lane = 'prompt' ORDER BY m.ts LIMIT 1) AS firstPrompt
+    FROM (
       SELECT w.dir AS well, s.session_id AS sessionId, s.first_ts AS first,
              COALESCE(s.last_activity_ts, s.last_ts) AS last,
              CASE WHEN s.last_activity_ts IS NOT NULL AND s.last_ts > s.last_activity_ts
                   THEN s.last_ts END AS idleUntil,
-             s.lines,
-             (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.session_id AND m.lane = 'prompt') AS prompts,
-             (SELECT m.cwd FROM messages m WHERE m.session_id = s.session_id AND m.cwd IS NOT NULL
-              GROUP BY m.cwd ORDER BY COUNT(*) DESC LIMIT 1) AS workDir,
-             (SELECT COUNT(DISTINCT m.cwd) FROM messages m WHERE m.session_id = s.session_id AND m.cwd IS NOT NULL) AS workDirs,
-             (SELECT f.text FROM messages m JOIN messages_fts f ON f.rowid = m.id
-              WHERE m.session_id = s.session_id AND m.lane = 'prompt' ORDER BY m.ts LIMIT 1) AS firstPrompt
+             s.lines
       FROM sessions s JOIN wells w ON w.id = s.well_id
       ${whereClause}
       ORDER BY ${opts.byActivity ? 'COALESCE(s.last_activity_ts, s.last_ts)' : 's.first_ts'} DESC LIMIT ?
-    ) ORDER BY ${opts.byActivity ? 'last, first' : 'first'}`
+    ) p ORDER BY ${opts.byActivity ? 'p.last, p.first' : 'p.first'}`
   params.push(opts.limit)
   return z
     .array(Row)

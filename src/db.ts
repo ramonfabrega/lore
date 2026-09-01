@@ -97,6 +97,12 @@ CREATE TABLE IF NOT EXISTS messages(
   request_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+-- (session_id, lane, ts): the prompt count and the first prompt per session
+-- were 4 ms each through the session-only index (scan every row of a busy
+-- session, filter lane, sort) — ×143 sessions made a well page take 1.1 s
+-- (2026-09-01). Index-only for both. Added without a version bump: the
+-- schema runs on every open, so an existing db grows the index in place.
+CREATE INDEX IF NOT EXISTS idx_messages_session_lane_ts ON messages(session_id, lane, ts);
 CREATE INDEX IF NOT EXISTS idx_messages_lane ON messages(lane);
 CREATE INDEX IF NOT EXISTS idx_messages_tool ON messages(tool_name) WHERE tool_name IS NOT NULL;
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text);

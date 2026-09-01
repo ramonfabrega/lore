@@ -107,12 +107,14 @@ describe('annotations', () => {
 })
 
 describe('agents join', () => {
-  test('active first, then by last update; lore side joins by session id; attach is a command', () => {
+  test('working, blocked, failed, stopped, done — then by last update; lore side joins by session id; attach is a command', () => {
     const rows = joinAgents(
       [
         { id: 'aaa', cwd: '/u/code/fun/app', kind: 'background', startedAt: 1_700_000_000_000, sessionId: 'sess-1', name: 'older-done', state: 'done' },
         { id: 'bbb', cwd: '/u/code/fun/app/.claude/worktrees/x', kind: 'background', startedAt: 1_700_000_100_000, sessionId: 'sess-9', name: 'live', state: 'working' },
         { id: 'ccc', cwd: '/u/code/work/thing', kind: 'background', startedAt: 1_700_000_200_000, sessionId: 'sess-2', state: 'blocked', waitingFor: 'permission prompt' },
+        { id: 'ddd', cwd: '/u/code/work/thing', kind: 'background', startedAt: 1_700_000_300_000, sessionId: 'sess-3', name: 'killed', state: 'stopped' },
+        { id: 'eee', cwd: '/u/code/work/thing', kind: 'background', startedAt: 1_700_000_050_000, sessionId: 'sess-4', name: 'crashed', state: 'failed' },
       ],
       new Map([
         ['bbb', { detail: 'running tests', tempo: 'active', tokens: 12345, worktreeBranch: 'x', children: [{ id: '7', href: 'https://github.com/o/r/pull/7', kind: 'pr' }], updatedAt: '2023-11-14T22:18:20.000Z' }],
@@ -120,11 +122,11 @@ describe('agents join', () => {
       ]),
       (sid) => (sid === 'sess-1' ? { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z' } : null),
     )
-    expect(rows.map((r) => r.id)).toEqual(['bbb', 'ccc', 'aaa'])
+    expect(rows.map((r) => r.id)).toEqual(['bbb', 'ccc', 'eee', 'ddd', 'aaa'])
     expect(rows[0]).toMatchObject({ liveTokens: 12345, branch: 'x', attach: 'claude attach bbb', indexed: null })
     expect(rows[0]!.children[0]!.id).toBe('7')
     expect(rows[1]!.waitingFor).toBe('permission prompt')
-    expect(rows[2]!.indexed).toMatchObject({ requests: 5, listUsd: 0.23 })
+    expect(rows[4]!.indexed).toMatchObject({ requests: 5, listUsd: 0.23 })
   })
 })
 

@@ -141,7 +141,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
           <tbody>
           ${rows.map(
             (a) => html`<tr class="${a.state}">
-              <td><span class="kind ${a.state === 'blocked' || a.state === 'failed' ? 'err' : ''}">${a.state}</span>${a.waitingFor ? html` <span class="muted small">${a.waitingFor}</span>` : ''}${a.tempo ? html` <span class="muted small">${a.tempo}</span>` : ''}</td>
+              <td><span class="kind st-${a.state}">${a.state}</span>${a.waitingFor ? html` <span class="muted small">${a.waitingFor}</span>` : ''}${a.tempo && a.state === 'working' ? html` <span class="muted small">${a.tempo}</span>` : ''}</td>
               <td>${a.name ?? ''}</td>
               <td class="mono small">${shortPath(a.cwd)}${a.branch ? html` <span class="muted">@ ${a.branch}</span>` : ''}</td>
               <td class="prompt small">${cut(a.detail ?? '', 120)}</td>
@@ -176,7 +176,7 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
           .all(id),
       )
     if (rows.length === 0) return c.notFound()
-    const fee = new Map(listUsage(db, { by: 'session', limit: 100000 }).rows.map((r) => [r.key, r]))
+    const fee = new Map(listUsage(db, { by: 'session', sessions: rows.map((r) => r.sessionId), limit: 10000 }).rows.map((r) => [r.key, r]))
     const sessions = rows.map((r) => ({ ...r, usage: fee.get(r.sessionId) ?? null }))
     const totals = sessions.reduce(
       (t, s) => ({ requests: t.requests + (s.usage?.requests ?? 0), output: t.output + (s.usage?.output ?? 0), listUsd: t.listUsd + (s.usage?.listUsd ?? 0) }),
@@ -222,7 +222,9 @@ export function createApp(getDb: Db, opts: { build?: string; agents?: (db: Datab
     // that order, are the recent repos. Active this week is the same profile
     // windowed to seven days.
     const recentSessions = listSessions(db, { limit: 20, byActivity: true }).reverse()
-    const feeById = new Map(listUsage(db, { by: 'session', limit: 100000 }).rows.map((r) => [r.key, r]))
+    const feeById = new Map(
+      listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 100 }).rows.map((r) => [r.key, r]),
+    )
     const recent = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null }))
     const recentWells = [...new Set(recentSessions.map((s) => s.well))]
     const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
@@ -575,7 +577,10 @@ details > summary { cursor: pointer; } .reply { color: var(--ink-2); margin: 6px
 .searchform { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; } .searchform button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); cursor: pointer; }
 .hit { padding: 8px 0; border-bottom: 1px solid var(--line); } .hit > div { margin: 2px 0; } .hit .mono { margin-right: 8px; }
 .snippet { color: var(--ink-2); font-size: 13px; padding-left: 8px; } .snippet a { color: inherit; } mark { background: color-mix(in oklab, var(--series-1) 22%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
-.ann { margin: 2px 0 6px; } .err { color: var(--err); } tr.done td, tr.stopped td, tr.failed td { color: var(--ink-3); }
+.ann { margin: 2px 0 6px; } .err { color: var(--err); }
+/* agents: done finished on its own (recedes); stopped was killed, failed crashed (both stay legible); blocked needs input */
+tr.done td { color: var(--ink-3); }
+.kind.st-working { color: var(--series-1); } .kind.st-blocked { color: var(--warn); } .kind.st-failed { color: var(--err); } .kind.st-stopped { color: var(--warn); }
 h1 .muted { font-size: 12px; font-weight: 400; }
 .viz svg { display: block; max-width: 100%; height: auto; } .viz { margin: 0 0 8px; }
 .viz .mark { fill: var(--series-1); } .viz .axis { fill: var(--ink-3); font-size: 9px; font-family: ui-monospace, Menlo, monospace; }
