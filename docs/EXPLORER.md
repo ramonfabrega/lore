@@ -55,6 +55,30 @@ is `Bun.serve` — the bind address is ours to get right).
   job's `state.json` (state, detail, live tokens); attach is a command to
   copy, never an embedded terminal. The agents-view replacement is a page.
 
+### Three surfaces, one definition
+
+- **pages** — `lore serve`, the routes above; `?json=1` for the data.
+- **`lore api …`** — the pages as CLI commands via incur's `fetch` mount
+  (JSON forced): `lore api session <id>`.
+- **`/cli/…`** — the CLI as HTTP, incur's `Bun.serve(cli)` shape, mounted
+  under a prefix because the pages own the root and `/usage`, `/session`
+  collide with verb names: `GET /cli/usage?by=week`, `GET /cli/trace/<id>`,
+  spec at `/cli/openapi.json`. **GET-only, read verbs only** — archive,
+  index, docs index, wiki commit, serve, server are never routes. Numeric
+  options are `z.coerce.number()` so query strings validate.
+
+### Always on
+
+`lore server up|down|restart|status|logs` — a launchd user agent
+(`~/Library/LaunchAgents/com.ramonfabrega.lore.plist`, KeepAlive, throttle
+10s, logs under `~/.lore/`), the fleet's precedent for long-lived local
+services. Bind address resolved once at `up`: the Tailscale IP, so
+`http://studio:4949/` works over the tailnet without binding the LAN.
+`status` compares the running build (`/_lore`) with the installed bin —
+the prod bin is a frozen bundle, so after `scripts/install` the server
+still runs the old one until `restart`. KeepAlive respawns a port race
+forever, so `status` and `logs` are the diagnosis, not the pid.
+
 ## Annotation: deterministic first
 
 Per transaction, computed from the instructions: the tool sequence as one

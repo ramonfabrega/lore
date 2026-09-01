@@ -19,8 +19,50 @@ import { listUsage, type UsageRow } from './usage'
 
 type Db = () => Database
 
-export function createApp(getDb: Db) {
+// The read verbs the server lets through to `cli.fetch` (docs/EXPLORER.md).
+// The CLI as a fetch handler exposes EVERY verb — archive, index, docs index,
+// wiki commit, serve itself — and over the tailnet that is a footgun, so the
+// fall-through is GET-only against this list. `docs` is split by subcommand.
+const READ_VERBS = new Set(['wells', 'sessions', 'session', 'trace', 'usage', 'search', 'spawns', 'workflows', 'tools', 'stats'])
+const READ_DOCS = new Set(['search', 'list'])
+const SPEC_PATHS = new Set(['/openapi.json', '/openapi.yml', '/openapi.yaml', '/.well-known/openapi.json'])
+
+// The CLI lives under /cli/ because the pages own the root and their names
+// collide with verbs (/usage, /session): GET /cli/usage?by=week is
+// `lore usage --by week`, GET /cli/trace/<id> is `lore trace <id>`, the spec
+// is /cli/openapi.json. The prefix is stripped before the CLI sees the path.
+export const CLI_PREFIX = '/cli'
+
+export function allowsFallthrough(req: Request): boolean {
+  if (req.method !== 'GET') return false
+  const path = new URL(req.url).pathname
+  if (!path.startsWith(`${CLI_PREFIX}/`)) return false
+  const inner = path.slice(CLI_PREFIX.length)
+  if (SPEC_PATHS.has(inner)) return true
+  const [verb = '', sub = ''] = inner.split('/').filter(Boolean)
+  if (verb === 'docs') return READ_DOCS.has(sub)
+  return READ_VERBS.has(verb)
+}
+
+// Pages for everything outside /cli/; under it, a GET for a read verb goes
+// to the CLI as a fetch handler (incur's `Bun.serve(cli)` shape) — every
+// verb a route with the JSON envelope. Anything else under /cli/ is 404.
+export function composeHandler(pages: (req: Request) => Response | Promise<Response>, cli: (req: Request) => Response | Promise<Response>) {
+  return async (req: Request): Promise<Response> => {
+    const url = new URL(req.url)
+    if (!url.pathname.startsWith(`${CLI_PREFIX}/`)) return pages(req)
+    if (!allowsFallthrough(req)) return new Response('404 Not Found', { status: 404 })
+    url.pathname = url.pathname.slice(CLI_PREFIX.length)
+    return cli(new Request(url.toString(), req))
+  }
+}
+
+export function createApp(getDb: Db, opts: { build?: string } = {}) {
   const app = new Hono()
+  const startedAt = new Date().toISOString()
+
+  // Liveness + provenance for `lore server status`.
+  app.get('/_lore', (c) => c.json({ ok: true, build: opts.build ?? 'dev', pid: process.pid, startedAt }))
 
   app.get('/', (c) => {
     const db = getDb()
