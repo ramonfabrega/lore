@@ -5,6 +5,7 @@
     "": {
       "name": "scaffold",
       "dependencies": {
+        "hono": "^4.13.5",
         "incur": "^0.4.16",
         "zod": "^4.4.3",
       },
@@ -32,6 +33,8 @@
     "@types/node": ["@types/node@26.1.1", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw=="],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+
+    "hono": ["hono@4.13.5", "", {}, "sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw=="],
 
     "incur": ["incur@0.4.16", "", { "dependencies": { "@cfworker/json-schema": "^4.1.1", "@modelcontextprotocol/server": "^2.0.0-alpha.2", "@scalar/openapi-types": "^0.8.0", "@toon-format/toon": "^2.1.0", "tokenx": "^1.3.0", "yaml": "^2.8.2", "zod": "^4.3.6" }, "bin": { "incur": "dist/bin.js", "incur.src": "src/bin.ts" } }, "sha512-l3Dt4AA97eBj8nlS/eIEG4S6IAxqqQvtqkUOD3tVTFKRlB4InIQvGSr4J6eEV0NMGiXPS3sYgAYY+IExAmwPRg=="],
 

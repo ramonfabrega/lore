@@ -18,6 +18,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "hono": "^4.13.5",
     "incur": "^0.4.16",
     "zod": "^4.4.3"
   }

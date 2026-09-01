@@ -12,6 +12,7 @@ import { indexSpawns, listSpawns } from './spawns'
 import { listToolUsage } from './tools'
 import { getTrace } from './trace'
 import { GROUPINGS, listUsage } from './usage'
+import { createApp } from './web'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
@@ -311,6 +312,37 @@ cli.command('usage', {
       until: options.until,
       limit: options.limit,
     })
+  },
+})
+
+// The explorer (docs/EXPLORER.md): one hono app, two surfaces. `serve` binds
+// it for the browser (0.0.0.0 so the tailnet reaches it as studio:<port>);
+// `api` mounts the same routes as CLI commands via incur's fetch mount,
+// forcing JSON so agents get data, not markup.
+const web = createApp(() => openDb(DB_PATH))
+
+cli.command('serve', {
+  description:
+    'Serve the explorer (docs/EXPLORER.md): / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee). Binds 0.0.0.0 by default so the tailnet reaches it as http://studio:<port>/. Every page answers JSON with ?json=1 — the same routes `lore api` exposes to agents.',
+  options: z.object({
+    port: z.number().default(4949).describe('Port'),
+    host: z.string().default('0.0.0.0').describe('Bind address (0.0.0.0 = every interface incl. the tailnet; 127.0.0.1 = this machine only)'),
+  }),
+  alias: { port: 'p' },
+  run: async ({ options }) => {
+    const server = Bun.serve({ hostname: options.host, port: options.port, fetch: web.fetch })
+    console.error(`lore serve → http://${server.hostname}:${server.port}/  (tailnet: http://studio:${server.port}/)`)
+    await new Promise<never>(() => {})
+  },
+})
+
+cli.command('api', {
+  description:
+    'The explorer\'s routes as commands (agent surface of `lore serve`): `lore api /`, `lore api /usage`, `lore api /well/<dir>`, `lore api /session/<id>`. Same data the pages render, as JSON.',
+  fetch: (req: Request) => {
+    const url = new URL(req.url)
+    url.searchParams.set('json', '1')
+    return web.fetch(new Request(url.toString(), req))
   },
 })
 
