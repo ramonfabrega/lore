@@ -69,12 +69,46 @@ export function createApp(getDb: Db, opts: { build?: string } = {}) {
     const wells = listUsage(db, { by: 'well', limit: 60 })
     const weeks = listUsage(db, { by: 'week', limit: 26 })
     const models = listUsage(db, { by: 'model', limit: 12 })
-    const data = { wells, weeks, models }
+    // Recent: the newest sessions by last ACTIVITY (not creation), with their
+    // fee joined from the per-session profile; the wells they touched, in
+    // that order, are the recent repos. Active this week is the same profile
+    // windowed to seven days.
+    const recentSessions = listSessions(db, { limit: 20, byActivity: true }).reverse()
+    const feeById = new Map(listUsage(db, { by: 'session', limit: 100000 }).rows.map((r) => [r.key, r]))
+    const recent = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null }))
+    const recentWells = [...new Set(recentSessions.map((s) => s.well))]
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+    const active = listUsage(db, { by: 'well', since: weekAgo, limit: 20 })
+    const data = { recent, recentWells, active, wells, weeks, models }
     if (wantsJson(c.req.raw)) return c.json(data)
     const body = html`
       <h1>lore</h1>
       <p class="muted">${wells.totals.requests.toLocaleString()} requests · ${wells.totals.sessions.toLocaleString()} sessions ·
         ${tok(wells.totals.output)} out · ${tok(wells.totals.cacheRead)} cache-read · ${usd(wells.totals.listUsd)} list-equivalent</p>
+      <section>
+        <h2>recent <span class="muted">newest by last activity</span></h2>
+        <table>
+          <thead><tr><th>last</th><th>well</th><th>opening prompt</th><th class="num">prompts</th><th class="num">requests</th><th class="num">out</th><th class="num">list $</th></tr></thead>
+          <tbody>
+          ${recent.map(
+            (s) => html`<tr>
+              <td class="mono"><a href="/session/${s.sessionId}">${s.last ?? ''}</a></td>
+              <td class="mono"><a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a></td>
+              <td class="prompt">${cut(s.firstPrompt ?? '', 110)}</td>
+              <td class="num">${s.prompts}</td>
+              <td class="num">${s.usage?.requests ?? ''}</td>
+              <td class="num">${s.usage ? tok(s.usage.output) : ''}</td>
+              <td class="num">${s.usage ? usd(s.usage.listUsd) : ''}</td>
+            </tr>`,
+          )}
+          </tbody>
+        </table>
+        <p class="muted">recent wells: ${recentWells.map((w, i) => html`${i ? ' · ' : ''}<a href="/well/${encodeURIComponent(w)}">${shortWell(w)}</a>`)}</p>
+      </section>
+      <section>
+        <h2>active this week <span class="muted">since ${weekAgo}, list-equivalent</span></h2>
+        ${usageTable(active.rows, { keyLabel: 'well', link: (k) => `/well/${encodeURIComponent(k)}` })}
+      </section>
       <section>
         <h2>by week <span class="muted">list-equivalent USD</span></h2>
         ${bars(weeks.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)} · ${tok(r.output)} out · ${r.requests} req` })))}
@@ -297,6 +331,13 @@ function ms(n: number | null): string {
   if (n < 60_000) return `${(n / 1000).toFixed(1)}s`
   if (n < 3_600_000) return `${Math.round(n / 60_000)}min`
   return `${(n / 3_600_000).toFixed(1)}h`
+}
+// Well dirs are slugged absolute paths; the tail past `code` is the name a
+// human uses (`fun/attrition · replan-pdb`).
+function shortWell(dir: string): string {
+  const i = dir.indexOf('-code-')
+  const tail = i >= 0 ? dir.slice(i + '-code-'.length) : dir.replace(/^-/, '')
+  return tail.replace('--claude-worktrees-', ' · ').replace(/^(fun|work|personal|games)-/, '$1/')
 }
 function cut(s: string, n: number): string {
   const one = s.replace(/\s+/g, ' ').trim()

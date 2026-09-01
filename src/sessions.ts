@@ -32,7 +32,11 @@ export type SessionRow = z.infer<typeof Row>
 // last month, which is how ingest #13 measured a 66-session backlog as ~8.
 export function listSessions(
   db: Database,
-  opts: { well?: string; exact?: boolean; since?: string; limit: number },
+  // byActivity: take the newest n by LAST ACTIVITY instead of by creation —
+  // the explorer's "recent" (a long-lived session that worked today is
+  // recent; a session created today that never ran is not). Rendering stays
+  // oldest-first either way.
+  opts: { well?: string; exact?: boolean; since?: string; limit: number; byActivity?: boolean },
 ): SessionRow[] {
   const where: string[] = []
   const params: (string | number)[] = []
@@ -65,8 +69,8 @@ export function listSessions(
               WHERE m.session_id = s.session_id AND m.lane = 'prompt' ORDER BY m.ts LIMIT 1) AS firstPrompt
       FROM sessions s JOIN wells w ON w.id = s.well_id
       ${whereClause}
-      ORDER BY s.first_ts DESC LIMIT ?
-    ) ORDER BY first`
+      ORDER BY ${opts.byActivity ? 'COALESCE(s.last_activity_ts, s.last_ts)' : 's.first_ts'} DESC LIMIT ?
+    ) ORDER BY ${opts.byActivity ? 'last, first' : 'first'}`
   params.push(opts.limit)
   return z
     .array(Row)
