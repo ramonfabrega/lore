@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
 import { z } from 'zod'
-import type { Lane } from './parse'
+import type { Lane, Request } from './parse'
 import { parseLine } from './parse'
 import { listWells } from './wells'
 
@@ -52,6 +52,12 @@ export async function buildIndex(
     'INSERT INTO messages(session_id, uuid, ts, lane, type, git_branch, cwd, tool_name) VALUES(?, ?, ?, ?, ?, ?, ?, ?)',
   )
   const insertFts = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES(?, ?)')
+  const deleteRequests = db.prepare('DELETE FROM requests WHERE session_id = ?')
+  const insertRequest = db.prepare(
+    `INSERT INTO requests(session_id, message_id, ts, model, effort, input_tokens, cache_write_tokens,
+       cache_read_tokens, output_tokens, thinking_tokens, stop_reason)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
 
   let sessionsIndexed = 0
   let sessionsSkipped = 0
@@ -75,6 +81,11 @@ export async function buildIndex(
       const indexSession = db.transaction(() => {
         deleteFts.run(s.sessionId)
         deleteMsgs.run(s.sessionId)
+        deleteRequests.run(s.sessionId)
+        // Streaming snapshots repeat a request's usage under one message.id
+        // (observed: two identical lines per request). Keep the max of each
+        // field per id — same rule as spawns.ts — and the first timestamp.
+        const requests = new Map<string, Request & { ts: string | null }>()
         let firstTs: string | null = null
         let lastTs: string | null = null
         // last_ts moves on every timestamped line. last_activity_ts only moves
@@ -97,6 +108,24 @@ export async function buildIndex(
             insertFts.run(row.lastInsertRowid, e.text)
             messages++
           }
+          if (p.request) {
+            const r = p.request
+            const seen = requests.get(r.id)
+            if (!seen) requests.set(r.id, { ...r, ts: p.timestamp ?? null })
+            else {
+              seen.input = Math.max(seen.input, r.input)
+              seen.cacheWrite = Math.max(seen.cacheWrite, r.cacheWrite)
+              seen.cacheRead = Math.max(seen.cacheRead, r.cacheRead)
+              seen.output = Math.max(seen.output, r.output)
+              seen.thinking = Math.max(seen.thinking, r.thinking)
+              seen.stopReason = r.stopReason ?? seen.stopReason
+              seen.model ??= r.model
+              seen.effort ??= r.effort
+            }
+          }
+        }
+        for (const r of requests.values()) {
+          insertRequest.run(s.sessionId, r.id, r.ts, r.model, r.effort, r.input, r.cacheWrite, r.cacheRead, r.output, r.thinking, r.stopReason)
         }
         upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs, lastActivityTs)
       })
