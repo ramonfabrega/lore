@@ -10,6 +10,7 @@ import { getSession } from './session'
 import { listSessions } from './sessions'
 import { indexSpawns, listSpawns } from './spawns'
 import { listToolUsage } from './tools'
+import { GROUPINGS, listUsage } from './usage'
 import { listWells } from './wells'
 import { wikiCommit } from './wiki'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
@@ -254,6 +255,38 @@ cli.command('tools', {
   },
 })
 
+cli.command('usage', {
+  description:
+    'The token profile: where the tokens go — by well, session, model, day, week, or month — in the four billed classes (input, cacheWrite, cacheRead, output) plus thinking, with `listUsd`, a LIST-PRICE equivalent at dated first-party API rates (cache reads are priced per model AND date: Fable 5.1 cut them 75% on 2026-09-01). Not a bill — the fleet is on subscription OAuth; it is the exchange rate the usage limit is believed to track. Main-thread API requests only, deduped by message id; `spawns`/`spawnOutput` ride along on well/session rows from the subagent observatory (`lore spawns` for the detail). A model with no known rate is summed but listed in `unpriced`, never silently zero. Populated by `lore index`. Drill: `lore usage --by session --well X`, then `lore session <id>`.',
+  options: z.object({
+    by: z.enum(GROUPINGS).default('well').describe('Grouping key (time groupings sort ascending and page from the newest end)'),
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+    session: z.string().optional().describe('Filter to one session id (or prefix) — the per-conversation profile'),
+    model: z.string().optional().describe('Filter to models containing this substring (e.g. fable, opus-5, sonnet)'),
+    since: z.string().optional().describe('Only requests on/after this ISO date (e.g. 2026-08-28)'),
+    until: z.string().optional().describe('Only requests before this ISO date (exclusive)'),
+    limit: z.number().default(50).describe('Max rows (totals cover every matching row, not just the page)'),
+  }),
+  alias: { by: 'b', well: 'w', session: 's', model: 'm', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    return listUsage(db, {
+      by: options.by,
+      well: options.well,
+      exact: options.exact,
+      session: options.session,
+      model: options.model,
+      since: options.since,
+      until: options.until,
+      limit: options.limit,
+    })
+  },
+})
+
 cli.command('stats', {
   description: 'Index statistics: lanes, wells, date range',
   run: () => {
@@ -282,13 +315,15 @@ cli.command('stats', {
         historyRows: z.number(),
         repos: z.number(),
         docs: z.number(),
+        requests: z.number(),
       })
       .parse(
         db
           .prepare(
             `SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM messages) AS messages,
                     (SELECT COUNT(*) FROM history) AS historyRows,
-                    (SELECT COUNT(*) FROM repos) AS repos, (SELECT COUNT(*) FROM docs) AS docs`,
+                    (SELECT COUNT(*) FROM repos) AS repos, (SELECT COUNT(*) FROM docs) AS docs,
+                    (SELECT COUNT(*) FROM requests) AS requests`,
           )
           .get(),
       )

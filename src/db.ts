@@ -44,8 +44,17 @@ import { z } from 'zod'
 // "Continue from where you left off." + "No response requested." keeps the
 // clock running). Distinguishing that from real work needs content judgment,
 // not a timestamp rule, so it is deliberately out of scope.
-const SCHEMA_VERSION = 11
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs']
+// v12: requests — the token profile (lore#8). One row per API request of the
+// MAIN thread (assistant records deduped by message.id — streaming snapshots
+// repeat), carrying the four billed token classes plus thinking, the served
+// model, and the effort. `lore usage` aggregates it by well/session/model/
+// day/week/month with a list-price cost-equivalent. Until v12 the only usage
+// figures in the index were the spawn rollups; the 2026-09-01 loop telemetry
+// (13.1M out / 4.05B cache-read over four days) was hand-computed from raw
+// JSONL, and Fable 5.1's 75% cache-read cut the same day made "what does the
+// loop cost, in which token class" a question worth answering mechanically.
+const SCHEMA_VERSION = 12
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -150,6 +159,23 @@ CREATE TABLE IF NOT EXISTS workflow_runs(
   mtime_ms INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_session ON workflow_runs(session_id);
+CREATE TABLE IF NOT EXISTS requests(
+  id INTEGER PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  ts TEXT,
+  model TEXT,
+  effort TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  thinking_tokens INTEGER NOT NULL DEFAULT 0,
+  stop_reason TEXT,
+  UNIQUE(session_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_requests_session ON requests(session_id);
+CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts);
 `
 
 export function openDb(path: string): Database {

@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 // Transcript records are an event log, not a chat log (see docs/notes/2026-07-17-jsonl-spelunk.md).
 // Each raw line yields zero or more indexable entries, split into lanes so FTS
 // doesn't drown conversational signal (~3-4% of lines) in tool traffic.
@@ -12,6 +14,41 @@ export type Lane = 'prompt' | 'text' | 'thinking' | 'tool' | 'event' | 'meta'
 // they'd all read as zero-use).
 export type Entry = { lane: Lane; text: string; toolName?: string }
 
+// One API request's usage envelope, from an assistant record (lore#8, the
+// token profile). Assistant records are streaming snapshots — several lines
+// per request sharing one `message.id` — so the indexer dedupes by id; this
+// is just the per-line reading. thinking is a sub-count of output (billed as
+// output), carried so the profile can show how much of the output was
+// reasoning.
+const RequestUsage = z.object({
+  input_tokens: z.number().nullish(),
+  cache_creation_input_tokens: z.number().nullish(),
+  cache_read_input_tokens: z.number().nullish(),
+  output_tokens: z.number().nullish(),
+  output_tokens_details: z.object({ thinking_tokens: z.number().nullish() }).nullish(),
+})
+const RequestRecord = z.object({
+  effort: z.string().nullish(),
+  message: z.object({
+    id: z.string(),
+    model: z.string().nullish(),
+    stop_reason: z.string().nullish(),
+    usage: RequestUsage,
+  }),
+})
+
+export type Request = {
+  id: string
+  model: string | null
+  effort: string | null
+  stopReason: string | null
+  input: number
+  cacheWrite: number
+  cacheRead: number
+  output: number
+  thinking: number
+}
+
 export type Parsed = {
   type: string
   uuid?: string
@@ -22,6 +59,8 @@ export type Parsed = {
   gitBranch?: string
   sessionKind?: string
   entries: Entry[]
+  // Present on assistant records that carry a message id and a usage block.
+  request?: Request
 }
 
 // Tool inputs/results are indexed truncated: enough to find "that session where
@@ -71,6 +110,25 @@ export function parseLine(line: string): Parsed | null {
       break
     }
     case 'assistant': {
+      const req = RequestRecord.safeParse(r)
+      // `<synthetic>` is the harness standing in for the model (interruption
+      // markers, "no response requested" turns): zero tokens, no API request
+      // behind it. Not a request — and not an unpriced model either.
+      if (req.success && !req.data.message.model?.startsWith('<')) {
+        const { message: m, effort } = req.data
+        const u = m.usage
+        p.request = {
+          id: m.id,
+          model: m.model ?? null,
+          effort: effort ?? null,
+          stopReason: m.stop_reason ?? null,
+          input: u.input_tokens ?? 0,
+          cacheWrite: u.cache_creation_input_tokens ?? 0,
+          cacheRead: u.cache_read_input_tokens ?? 0,
+          output: u.output_tokens ?? 0,
+          thinking: u.output_tokens_details?.thinking_tokens ?? 0,
+        }
+      }
       const content = r.message?.content
       if (!Array.isArray(content)) break
       for (const block of content) {
