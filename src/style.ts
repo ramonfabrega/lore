@@ -54,6 +54,14 @@ h1 { font: 600 16px var(--mono); margin: 0; } h2 { font: 600 12.5px var(--mono);
 .navsearch { margin-left: auto; } .navsearch input, .searchform input[type=search] { font: inherit; padding: 3px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); color: var(--ink); min-width: 240px; } .navsearch input::placeholder { color: var(--ink-3); }
 .searchform { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; } .searchform button { font: inherit; padding: 3px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); cursor: pointer; }
 
+/* scrollbars: thin, on the edge, in the theme's ink; the thumb shows while the pointer is over its panel */
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; } }
+@supports selector(::-webkit-scrollbar) {
+  ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+  :hover::-webkit-scrollbar-thumb { background: var(--surface-3); } ::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+}
+
 /* the frame: main is a grid of panels; panels scroll, the page does not */
 main { flex: 1; min-height: 0; display: grid; gap: 10px; padding: 10px 14px 12px; }
 main.layout-one { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
@@ -105,8 +113,9 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list.sessions .row { grid-template-columns: 84px 92px minmax(0, 1fr) 28px 44px 44px 52px 104px 44px; }
 .list.jobs .row { grid-template-columns: 120px 120px minmax(0, 1fr) 44px 48px 48px 104px; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); vertical-align: middle; }
-.dot.st-working { background: var(--series-1); box-shadow: 0 0 0 0 var(--series-1); animation: pulse 2.4s ease-out infinite; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--series-1) 55%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.dot.st-working { background: var(--series-1); box-shadow: 0 0 0 0 var(--series-1); animation: pulse 1.8s cubic-bezier(.2, .6, .3, 1) infinite; }
+/* a heartbeat, not a ripple: the ring leaves in the first 55% and the dot rests for the remainder */
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--series-1) 65%, transparent); } 55%, 100% { box-shadow: 0 0 0 7px transparent; } }
 @media (prefers-reduced-motion: reduce) { .dot.st-working { animation: none; } } .dot.st-blocked, .dot.st-stopped { background: var(--warn); } .dot.st-failed { background: var(--crit); } .dot.st-done { opacity: .5; }
 .list.roster details { display: inline; } .list.roster summary { cursor: pointer; list-style: none; color: var(--link); } .list.roster summary::-webkit-details-marker { display: none; }
 .list.roster details[open] { display: block; white-space: normal; }
@@ -118,6 +127,8 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .viz a:hover .mark { opacity: .8; }
 .legend .key { margin-right: 12px; }
 .ib { display: inline-block; width: 40px; height: 5px; margin-right: 6px; vertical-align: middle; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+/* a metered cell: the bar is pinned to the cell's left edge, the number to its right — bars line up down the column whatever the number's width */
+.row .num:has(> .ib) { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; } .row .num:has(> .ib) > .ib { flex: none; align-self: center; margin-right: 0; }
 .ib i { display: block; height: 100%; background: var(--series-1); opacity: .75; }
 .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; background: var(--ink-3); }
 .sw.read { background: var(--series-1); } .sw.write { background: var(--series-2); } .sw.run { background: var(--series-3); }
