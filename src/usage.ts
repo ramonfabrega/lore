@@ -107,6 +107,9 @@ export function listUsage(
     well?: string
     exact?: boolean
     session?: string
+    // An explicit id list (the explorer decorating a page's rows) — cheaper
+    // than aggregating every session and picking twenty.
+    sessions?: string[]
     model?: string
     since?: string
     until?: string
@@ -115,6 +118,11 @@ export function listUsage(
 ): UsageReport {
   const where: string[] = ['1=1']
   const params: (string | number)[] = []
+  if (opts.sessions) {
+    if (opts.sessions.length === 0) return { by: opts.by, count: 0, totals: { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0 }, rows: [], unpriced: [], note: '' }
+    where.push(`r.session_id IN (${opts.sessions.map(() => '?').join(',')})`)
+    params.push(...opts.sessions)
+  }
   if (opts.well) {
     where.push(opts.exact ? '(w.dir = ? OR w.real_path = ?)' : '(w.dir LIKE ? OR w.real_path LIKE ?)')
     const v = opts.exact ? opts.well : `%${opts.well}%`

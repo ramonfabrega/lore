@@ -91,7 +91,12 @@ export async function readJobState(id: string): Promise<JobState | null> {
   }
 }
 
-const ACTIVE = new Set(['working', 'blocked'])
+// Order of attention, not of time: working, then blocked (needs input),
+// then failed (crashed), then stopped (someone killed it — not the same as
+// finishing), then done (finished on its own), then anything unknown.
+// Within a group, most recently updated first.
+const STATE_RANK: Record<string, number> = { working: 0, blocked: 1, failed: 2, stopped: 3, done: 4 }
+const rank = (s: string) => STATE_RANK[s] ?? 5
 
 export function joinAgents(
   listed: ListedAgent[],
@@ -119,12 +124,7 @@ export function joinAgents(
       indexed: sessionId ? lookup(sessionId) : null,
     }
   })
-  rows.sort((x, y) => {
-    const ax = ACTIVE.has(x.state) ? 0 : 1
-    const ay = ACTIVE.has(y.state) ? 0 : 1
-    if (ax !== ay) return ax - ay
-    return (y.updatedAt ?? y.startedAt).localeCompare(x.updatedAt ?? x.startedAt)
-  })
+  rows.sort((x, y) => rank(x.state) - rank(y.state) || (y.updatedAt ?? y.startedAt).localeCompare(x.updatedAt ?? x.startedAt))
   return rows
 }
 
