@@ -41,6 +41,15 @@ h1 { font: 600 16px var(--mono); margin: 0; } h2 { font: 600 12.5px var(--mono);
 /* nav */
 .nav { flex: none; display: flex; gap: 14px; align-items: center; padding: 6px 14px; border-bottom: 1px solid var(--line); font: 12.5px var(--mono); background: var(--bg); }
 .nav a { color: var(--ink-3); padding: 1px 0; } .nav a:first-child { font-weight: 600; color: var(--ink); } .nav a.on { color: var(--ink); box-shadow: 0 6px 0 -4px var(--link); }
+/* view transitions: same-origin MPA, no client code. The nav is pinned (never fades); the active
+   underline morphs to its new place; the page head (session/well/job) rises in; the rest cross-fades. */
+@view-transition { navigation: auto; }
+.nav { view-transition-name: nav; } .nav a.on { view-transition-name: nav-on; } .page-head { view-transition-name: head; }
+::view-transition-group(*) { animation-duration: var(--t-view); animation-timing-function: var(--ease-out); }
+::view-transition-old(root) { animation: vt-fade-out var(--t-view) var(--ease-out) both; } ::view-transition-new(root) { animation: vt-fade-in var(--t-view) var(--ease-out) both; }
+::view-transition-new(head):only-child { animation: vt-rise var(--t-view) var(--ease-out) both; } ::view-transition-old(head):only-child { animation: vt-fade-out calc(var(--t-view) / 2) var(--ease-out) both; }
+@keyframes vt-fade-out { to { opacity: 0; } } @keyframes vt-fade-in { from { opacity: 0; } } @keyframes vt-rise { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { @view-transition { navigation: none; } }
 .nav .led { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); margin-right: 6px; vertical-align: middle; } .nav .led.fresh { background: var(--good); } .nav .led.err { background: var(--crit); }
 .navsearch { margin-left: auto; } .navsearch input, .searchform input[type=search] { font: inherit; padding: 3px 8px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--surface); color: var(--ink); min-width: 240px; } .navsearch input::placeholder { color: var(--ink-3); }
 .searchform { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 8px; } .searchform button { font: inherit; padding: 3px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--ink); cursor: pointer; }
@@ -131,20 +140,29 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .spine .row { display: grid; grid-template-columns: 30px 64px minmax(0, 1fr) 48px 48px 36px 56px 112px 100px; gap: 0 8px; align-items: baseline; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .spine .row.head { position: sticky; top: 0; color: var(--ink-3); font: 500 11.5px var(--mono); background: var(--surface); z-index: 1; }
 .spine .row .num { text-align: right; font-family: var(--mono); font-size: 12px; } .spine .row .n { text-align: right; }
-.spine details.txn > summary:hover { background: var(--surface-2); }
+.spine details.txn > summary { transition: background-color var(--t-hover) var(--ease-out); } .spine details.txn > summary:hover { background: var(--surface-2); }
 .spine .row.meta, .spine .txn.meta .row, .spine .txn.command .row { color: var(--ink-3); }
 .spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
-.spine .txn .ptext::before { content: '▸ '; color: var(--ink-3); } .spine .txn[open] .ptext::before { content: '▾ '; } .spine .row.txn .ptext::before { content: ''; }
+.spine .txn .ptext::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .spine .txn[open] .ptext::before { transform: rotate(90deg); } .spine .row.txn .ptext::before { content: none; }
 .spine details.txn:not([open]) .ptext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .spine .txn[open] > summary { background: var(--surface-2); }
 .spine .body { padding: 4px 8px 10px 102px; border-bottom: 1px solid var(--line); }
 details > summary { cursor: pointer; list-style: none; } summary::-webkit-details-marker { display: none; }
-.phase { margin: 4px 0; } .phase > summary { padding: 2px 0; } .phase > summary::before { content: '▸ '; color: var(--ink-3); } .phase[open] > summary::before { content: '▾ '; }
+.phase { margin: 4px 0; } .phase > summary { padding: 2px 0; } .phase > summary::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .phase[open] > summary::before { transform: rotate(90deg); }
 .note { color: var(--ink-2); font-style: italic; } p.note { margin: 6px 0 2px; }
 .reply { color: var(--ink-2); margin: 6px 0 2px; } .ann { margin: 2px 0 4px; }
 table.ix { margin: 4px 0; } table.ix th { position: static; } table.ix td { border-bottom: 0; } table.ix tr.step td { border-top: 1px solid var(--line); }
 table.ix td.t, table.ix td.fee, table.ix td.tool { white-space: nowrap; } table.ix td.in { width: 34%; overflow-wrap: anywhere; } table.ix td.res { width: 40%; overflow-wrap: anywhere; }
 tr.err td { color: var(--err); } tr.thought td { padding: 2px 8px; } tr.thought p { margin: 4px 0; }
+
+/* the fold: height eases via ::details-content (Chrome 133+); elsewhere it snaps as before */
+:root { --t-fold: 220ms; --t-hover: 120ms; --t-view: 180ms; --ease-out: cubic-bezier(.2, 0, 0, 1); }
+@supports (interpolate-size: allow-keywords) {
+  :root { interpolate-size: allow-keywords; }
+  details::details-content { block-size: 0; overflow-y: clip; transition: block-size var(--t-fold) var(--ease-out), content-visibility var(--t-fold) allow-discrete; }
+  details[open]::details-content { block-size: auto; }
+}
+@media (prefers-reduced-motion: reduce) { :root { --t-fold: 0s; --t-hover: 0s; } }
 
 /* search */
 .hit { padding: 6px 0; border-bottom: 1px solid var(--line); } .hit > div { margin: 2px 0; } .hit .mono { margin-right: 8px; }
