@@ -247,9 +247,7 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
   // muted.
   const chip = x.kind === 'relay' ? `@${x.tag ?? 'peer'}` : x.kind === 'meta' ? (x.tag ?? 'meta') : x.kind === 'command' ? 'command' : null
   const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${hms(x.ts)}</span>
-    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${x.sent.map(
-      (s) => html`<span class="kind sent" title="${s.summary ?? ''}">→ @${s.to ?? '?'}</span>`,
-    )}</span>
+    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${sentBadges(x.sent)}</span>
     ${o.mixed ? html`<span class="m">${modelChip(x.model)}</span>` : ''}
     <span class="num">${x.steps || ''}</span>
     <span class="num">${x.instructions.length || ''}</span>
@@ -266,6 +264,36 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
       ${txBody(x, o.openPhases)}
     </div>
   </details>`
+}
+
+// One badge per recipient, with a count — never one per message. A turn that
+// answered a peer six times says `→ @lore ×6`; six identical chips said the
+// same thing six times and cost the row its width. The summaries differ and
+// are worth reading, so they ride the title here and the body below.
+function sentBadges(sent: Transaction['sent']) {
+  if (sent.length === 0) return html``
+  const byTo = new Map<string, { addr: string; lines: string[] }>()
+  for (const s of sent) {
+    const label = s.name ?? shortTo(s.to)
+    const g = byTo.get(label) ?? { addr: s.to ?? '?', lines: [] }
+    g.lines.push(s.summary ?? '')
+    byTo.set(label, g)
+  }
+  return html`${[...byTo].map(
+    ([label, g]) =>
+      html`<span class="kind sent" title="${[g.addr, ...g.lines.filter(Boolean)].join('\n')}">→ @${label}${g.lines.length > 1 ? html` <b>×${g.lines.length}</b>` : ''}</span>`,
+  )}`
+}
+
+// A recipient the address book could not name: a raw unix socket, or a task
+// id when the call went to a background agent rather than a peer. Show the
+// part that identifies it, not the path around it — the full address rides
+// the title.
+function shortTo(to: string | null): string {
+  if (!to) return '?'
+  const tail = to.replace(/^uds:/, '').split('/').filter(Boolean).pop() ?? to
+  const name = tail.replace(/\.sock$/, '')
+  return name.length > 12 ? `${name.slice(0, 8)}…` : name
 }
 
 // Phases: each note heads the run of instructions up to the next note.
@@ -294,10 +322,7 @@ function txBody(x: Transaction, openPhases: boolean) {
         ? html`<details class="phase" ${openPhases ? 'open' : ''}><summary><span class="note">${p.note.text}</span> ${meta}</summary>${table}</details>`
         : html`<p class="note">${p.note.text} ${meta}</p>${table}`
     })}
-    ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}
-    ${x.sent.map(
-      (s) => html`<p class="sent"><span class="kind sent">→ @${s.to ?? '?'}</span> ${s.summary ?? ''}</p>`,
-    )}`
+    ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}`
 }
 
 function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>) {
@@ -335,7 +360,7 @@ function inputHead(tool: string, input: string): H | string {
   // parse, and a branch placed after the parse would never fire.
   if (tool === 'SendMessage') {
     const { to, summary } = sentHead(input)
-    if (to || summary) return html`${to ? html`<b>@${to}</b> ` : ''}${cut(summary ?? '', 200)}`
+    if (to || summary) return html`${to ? html`<b title="${to}">@${shortTo(to)}</b> ` : ''}${cut(summary ?? '', 200)}`
   }
   let j: unknown
   try {

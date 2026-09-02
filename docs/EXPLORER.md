@@ -241,13 +241,28 @@ one row. Three reads, top to bottom, all from `getTrace` — no client code,
    The reply is IN the turn, not after it. A peer's message opens a
    transaction, the session works — 38 instructions in the golden record —
    and the last instruction is the `SendMessage` back. That genuinely is one
-   turn, so it is not hoisted out; what was wrong is that the single thing
-   worth reading sat at the bottom of a fold as raw JSON. The outbound half
-   now rides on the transaction (`sent[]`, read off the SendMessage calls):
-   an outlined `→ @ccc` chip on the row, so an answered relay says so without
-   being opened, and the sender's own one-line `summary` closing the body
-   beside the assistant's reply. Filled chip in, outlined chip out, one hue —
-   the conversation reads across the page.
+   turn, so it is not hoisted out into a transaction of its own; what was
+   wrong is that the single thing worth reading sat at the bottom of a fold
+   as raw JSON. The outbound half rides on the transaction (`sent[]`, read
+   off the SendMessage calls) and lands in two places, each sized to its job:
+
+   - the **folded row** gets a SIGNAL, never a list: one outlined badge per
+     recipient with a count, `→ @lore ×6`. One chip per message was the first
+     attempt and it was noise — six identical labels said the same thing six
+     times and cost the row its width, because what differs between them is
+     the summaries and those are invisible when folded.
+   - the **instruction table** already shows each one at its true position in
+     the turn, `@lore — <summary>` instead of `{"to":"lore",…`. A summary
+     list appended to the body duplicated that and lied about ordering: a
+     turn that answered six times did not answer six times at the end.
+
+   A recipient is named where the harness named it. Every inbound envelope
+   states `from="uds:/tmp/cc-socks/32093.sock" from-name="lore"`, so a
+   session's own relays build an address book and an outbound call to that
+   socket reads `→ @lore` rather than the path. Deterministic, not inferred —
+   a socket is named because a peer named it, in this same session. What the
+   book cannot name (a task id, an unseen socket) shows its identifying tail
+   with the full address in the title.
 
    The same head runs through every listing that names a session —
    recent on `/`, a well's arc, a search hit. A session an agent stood

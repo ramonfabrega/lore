@@ -19,6 +19,7 @@ This came from another Claude session — not typed by your user, but very likel
   test('keeps the message, drops the socket and the standing trailer', () => {
     expect(relayHead(REAL)).toEqual({
       from: 'lore',
+      addr: 'uds:/tmp/cc-socks/32093.sock',
       text: 'Kickoff brief from lore for ccc v0 — canon is in your repo at commit 90eb9a7.',
     })
   })
@@ -32,11 +33,11 @@ This came from another Claude session — not typed by your user, but very likel
   // A long relay can be cut before its closing tag; the body is still there.
   test('survives a truncated close', () => {
     const t = '<cross-session-message from-name="ccc" from-mode="prompting">\nMaster defect handled: hotfix-gridbuilder branched'
-    expect(relayHead(t)).toEqual({ from: 'ccc', text: 'Master defect handled: hotfix-gridbuilder branched' })
+    expect(relayHead(t)).toEqual({ from: 'ccc', addr: null, text: 'Master defect handled: hotfix-gridbuilder branched' })
   })
 
   test('a record that is not an envelope passes through', () => {
-    expect(relayHead('just words')).toEqual({ from: null, text: 'just words' })
+    expect(relayHead('just words')).toEqual({ from: null, addr: null, text: 'just words' })
   })
 })
 
@@ -116,7 +117,7 @@ describe('sentHead — the outbound half', () => {
   })
 
   test('names the recipient and the sender\'s own one-line summary', () => {
-    expect(sentHead(FULL)).toEqual({ to: 'ccc', summary: 'Ack ccc v0 ledger, banked + verified' })
+    expect(sentHead(FULL)).toEqual({ to: 'ccc', name: null, summary: 'Ack ccc v0 ledger, banked + verified' })
   })
 
   // The one that matters: an instruction's input reaches the page already cut
@@ -124,23 +125,23 @@ describe('sentHead — the outbound half', () => {
   // NOT parse as JSON. A first pass at this read the fields off the parsed
   // object and was dead code on every real message.
   test('reads a message truncated before its closing brace', () => {
-    expect(sentHead(FULL.slice(0, 70))).toEqual({ to: 'ccc', summary: 'Ack ccc v0 ledger, banked + verified' })
+    expect(sentHead(FULL.slice(0, 70))).toEqual({ to: 'ccc', name: null, summary: 'Ack ccc v0 ledger, banked + verified' })
     // Cut inside the summary itself: the recipient still survives.
     expect(sentHead(FULL.slice(0, 40)).to).toBe('ccc')
   })
 
   test('falls back to the message when there is no summary', () => {
-    expect(sentHead('{"to":"lore","message":"corpus is green"}')).toEqual({ to: 'lore', summary: 'corpus is green' })
+    expect(sentHead('{"to":"lore","message":"corpus is green"}')).toEqual({ to: 'lore', name: null, summary: 'corpus is green' })
   })
 
   test('escaped quotes in a summary survive the fallback', () => {
     const t = '{"to":"ccc","summary":"the \\"localtime\\" split","message":"…'
-    expect(sentHead(t)).toEqual({ to: 'ccc', summary: 'the "localtime" split' })
+    expect(sentHead(t)).toEqual({ to: 'ccc', name: null, summary: 'the "localtime" split' })
   })
 
   test('a call that is not a relay yields nothing to show', () => {
-    expect(sentHead('{"pattern":"foo"}')).toEqual({ to: null, summary: null })
-    expect(sentHead('not json at all')).toEqual({ to: null, summary: null })
+    expect(sentHead('{"pattern":"foo"}')).toEqual({ to: null, name: null, summary: null })
+    expect(sentHead('not json at all')).toEqual({ to: null, name: null, summary: null })
   })
 })
 

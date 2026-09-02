@@ -208,7 +208,8 @@ a .mchip, .row a .mchip { color: inherit; }
    chip — one conversation — but outlined rather than filled, so a glance
    separates what a peer said from what we answered. */
 .kind.sent { color: var(--series-2); background: none; border: 1px solid color-mix(in oklab, var(--series-2) 45%, transparent); margin-left: 6px; }
-p.sent { margin: 6px 0 0; color: var(--ink-2); } p.sent .kind.sent { margin-left: 0; margin-right: 4px; }
+.kind.sent b { font-weight: 600; }
+tr.agent td .in b { color: var(--series-2); font-weight: 500; }
 .tl .band.relay { fill: color-mix(in oklab, var(--series-2) 9%, var(--surface-2)); }
 .spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
 .spine .txn .ptext::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .spine .txn[open] .ptext::before { transform: rotate(90deg); } .spine .row.txn .ptext::before { content: none; }

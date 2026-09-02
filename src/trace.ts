@@ -261,6 +261,18 @@ export function getTrace(
   )
   const models = tallyModels([...reqs.values()].map((r) => r.model))
 
+  // The address book, from the harness's own words: every inbound relay
+  // states `from="uds:…" from-name="lore"`, so a later SendMessage to that
+  // socket can be shown as the peer it reaches. Deterministic — a socket is
+  // named only because a peer named it, in this same session.
+  const peerByAddr = new Map<string, string>()
+  for (const r of rows) {
+    if (r.lane !== 'relay') continue
+    const h = relayHead(r.text)
+    const name = r.peer ?? h.from
+    if (h.addr && name) peerByAddr.set(h.addr, name)
+  }
+
   // Group by prompt id in order of first appearance. Rows before any prompt
   // id (pre-2026-06 transcripts, or a harness preamble) fall into one
   // leading transaction keyed null.
@@ -318,7 +330,10 @@ export function getTrace(
       const res = r.toolUseId ? results.get(r.toolUseId) : undefined
       const tool = r.toolName ?? '?'
       const inputFull = r.text.startsWith(tool) ? r.text.slice(tool.length).trim() : r.text
-      if (tool === 'SendMessage') sent.push(sentHead(inputFull))
+      if (tool === 'SendMessage') {
+        const head = sentHead(inputFull)
+        sent.push({ ...head, name: head.to ? peerByAddr.get(head.to) ?? null : null })
+      }
       const error = res ? res.isError === 1 : false
       instructions.push({
         tool,

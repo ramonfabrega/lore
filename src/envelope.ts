@@ -30,11 +30,12 @@ const RELAY = /<cross-session-message\b([^>]*)>([\s\S]*?)(?:<\/cross-session-mes
 // A relay's body, and the peer that sent it. `peer` on the row is the
 // authority (origin.name, recorded by the harness); the `from-name`
 // attribute is the fallback for rows indexed before that column existed.
-export function relayHead(text: string): { from: string | null; text: string } {
+export function relayHead(text: string): { from: string | null; addr: string | null; text: string } {
   const m = RELAY.exec(text)
-  if (!m) return { from: null, text: plain(text) }
+  if (!m) return { from: null, addr: null, text: plain(text) }
   const body = plain(m[2] ?? '').trim()
-  return { from: attr('from-name', m[1] ?? ''), text: body || plain(text) }
+  const attrs = m[1] ?? ''
+  return { from: attr('from-name', attrs), addr: attr('from', attrs), text: body || plain(text) }
 }
 
 export function metaHead(text: string): Head {
@@ -104,14 +105,19 @@ function tagBody(name: string, s: string): string | null {
 // the sender already wrote — the best possible label for a turn, and free.
 // The input may be cut before its closing brace, so a regex fallback reads
 // the two fields that matter; both sit at the head of the object.
-export type Sent = { to: string | null; summary: string | null }
+// `to` is verbatim what the call addressed — a peer name, a unix socket, a
+// task id. `name` is that address resolved to a peer NAME, and only ever from
+// the harness's own `from`/`from-name` pairing on this session's inbound
+// envelopes: a socket is named because a peer said so, never because a path
+// looked familiar.
+export type Sent = { to: string | null; name: string | null; summary: string | null }
 export function sentHead(input: string): Sent {
   try {
     const o = JSON.parse(input) as Record<string, unknown>
     const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : null)
-    return { to: str('to'), summary: str('summary') ?? str('message') }
+    return { to: str('to'), name: null, summary: str('summary') ?? str('message') }
   } catch {
-    return { to: field('to', input), summary: field('summary', input) ?? field('message', input) }
+    return { to: field('to', input), name: null, summary: field('summary', input) ?? field('message', input) }
   }
 }
 function field(name: string, s: string): string | null {
