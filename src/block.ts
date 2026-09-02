@@ -328,8 +328,16 @@ function txBody(x: Transaction, openPhases: boolean) {
       const t1 = ix[ix.length - 1]?.ts
       const span = t0 && t1 ? Date.parse(t1) - Date.parse(t0) : null
       const meta = html`<span class="muted small">${ix.length ? `${ix.length} instr` : ''}${span ? ` · ${ms(span)}` : ''}${errs ? html` · <span class="err">${errs} err</span>` : ''}</span>`
+      // A fold must not hide what the row advertises. The badge promises
+      // `→ @ccc`; with several notes the phases close by default, and in the
+      // golden records EVERY outgoing message landed inside a closed one —
+      // instruction 8 of 8 here, 5 / 21 / 29 of 31 there. So a phase carrying
+      // a message opens with the turn, and only the rest stay folded.
+      const sends = ix.some((i) => i.tool === 'SendMessage')
       return many
-        ? html`<details class="phase" ${openPhases ? 'open' : ''}><summary><span class="note">${p.note.text}</span> ${meta}</summary>${table}</details>`
+        ? html`<details class="phase ${sends ? 'sends' : ''}" ${openPhases || sends ? 'open' : ''}><summary><span class="note">${p.note.text}</span> ${meta}${
+            sends ? html` <span class="kind sent">→ message</span>` : ''
+          }</summary>${table}</details>`
         : html`<p class="note">${p.note.text} ${meta}</p>${table}`
     })}
     ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}`
