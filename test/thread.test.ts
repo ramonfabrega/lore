@@ -113,11 +113,11 @@ async function corpus() {
 describe('resolveSide', () => {
   test('a name is the job: every session sharing its bridge id, across the respawn', async () => {
     const db = await corpus()
-    expect(resolveSide(db, 'lore')).toEqual({ query: 'lore', name: 'lore', sessions: ['lore-1', 'lore-2'] })
+    expect(resolveSide(db, 'lore')).toEqual({ query: 'lore', name: 'lore', key: 'LORE', sessions: ['lore-1', 'lore-2'] })
   })
   test('a session id expands to its job and carries the name', async () => {
     const db = await corpus()
-    expect(resolveSide(db, 'lore-2')).toEqual({ query: 'lore-2', name: 'lore', sessions: ['lore-1', 'lore-2'] })
+    expect(resolveSide(db, 'lore-2')).toEqual({ query: 'lore-2', name: 'lore', key: 'LORE', sessions: ['lore-1', 'lore-2'] })
   })
 })
 
@@ -224,7 +224,7 @@ describe('getThread', () => {
     // `ssh-noti` is a name with no indexed job or session: a peer-only side.
     // The thread is lore's copies of what it said; the sender half is absent.
     const t = getThread(db, 'lore', 'ssh-noti')
-    expect(t.b).toEqual({ query: 'ssh-noti', name: 'ssh-noti', sessions: [] })
+    expect(t.b).toEqual({ query: 'ssh-noti', name: 'ssh-noti', key: null, sessions: [] })
     expect(t.rows).toHaveLength(1)
     expect(t.rows[0]).toMatchObject({ from: 'ssh-noti', to: 'lore', landed: 'turn', sent: null, msgId: 'msg-1' })
     expect(t.rows[0]!.received).toEqual({ session: 'lore-x', promptId: 'P1', ts: '2026-09-02T05:25:37Z' })

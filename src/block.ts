@@ -93,7 +93,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
     <h1 class="mono">${s.sessionId}${s.name ? html` <span class="kind self" title="this session's agent">@${s.name}</span>` : ''}</h1>
     <p class="muted">${day(s.first)} ${hms(s.first)} → ${day(s.last) === day(s.first) ? '' : `${day(s.last)} `}${hms(s.last)} ${zone()}
-      · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}
+      · ${ms(t.ms)} wall · ${s.lines} lines${s.jobKey ? html` · job <a class="mono" href="/job/${encodeURIComponent(s.jobKey)}" title="${s.jobKey}">${s.name ? `@${s.name}` : s.jobKey.slice(0, 8)}</a>` : ''}
       ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
         peers.length ? html` · thread with ${peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(s.name ?? s.sessionId)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
       }</p>

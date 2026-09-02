@@ -136,7 +136,16 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list.wells .row { grid-template-columns: minmax(0, 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
 .list.days .row { grid-template-columns: calc(74px * var(--z)) calc(52px * var(--z)) calc(34px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
 .list.sessions .row { grid-template-columns: calc(84px * var(--z)) calc(92px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(28px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(44px * var(--z)); }
-.list.jobs .row { grid-template-columns: calc(120px * var(--z)) calc(120px * var(--z)) minmax(0, 1fr) calc(76px * var(--z)) calc(44px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(104px * var(--z)); }
+/* the agents page: every job, live first — state · name · model · where · doing · live · sess · req · $ · last · peers · attach */
+.list.jobsall .row { grid-template-columns: calc(78px * var(--z)) calc(150px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(36px * var(--z)) calc(52px * var(--z)) calc(72px * var(--z)) calc(64px * var(--z)) calc(120px * var(--z)) calc(178px * var(--z)); }
+.list.jobsall .row.gone { color: var(--ink-3); }
+.list.jobsall .row .stale .mchip { color: var(--ink-3); } .list.jobsall .row .stale .sw { opacity: .55; }
+/* a job's sessions, by local day: at · well · model · opening · turns · req · out · $ */
+.list.jobsess .row { grid-template-columns: calc(48px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(40px * var(--z)) calc(44px * var(--z)) calc(48px * var(--z)) calc(104px * var(--z)); }
+.list .row.day { background: var(--surface-2); color: var(--ink-2); font: 500 var(--fs-115) var(--mono); display: flex; gap: 12px; }
+.list .row.day .sp { margin-left: auto; color: var(--ink-3); }
+.kind.respawn { color: var(--warn); background: none; border: 1px solid color-mix(in oklab, var(--warn) 55%, transparent); margin-right: 6px; }
+.kind.peer { color: var(--ink-3); background: none; border: 1px solid var(--line-2); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); vertical-align: middle; }
 .dot.st-working { background: var(--series-1); box-shadow: 0 0 0 0 var(--series-1); animation: pulse 1.8s cubic-bezier(.2, .6, .3, 1) infinite; }
 /* a heartbeat, not a ripple: the ring leaves in the first 55% and the dot rests for the remainder */

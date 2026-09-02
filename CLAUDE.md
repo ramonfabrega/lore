@@ -197,7 +197,13 @@ true, it is a design change, not a bug fix.
   copy is a plausible `0` rather than an error. Generalized (ccc, 09-02):
   **when a listing exposes two ids, say which one survives the thing you are
   about to do with it** — `spawns --session` does it by naming the job-mate
-  that holds the rows.
+  that holds the rows. Since v18 the JOB is lore's unit (`job.ts`,
+  docs/EXPLORER.md): every session keys to exactly one — the bridge id,
+  else the root for pre-bridge sessions, else itself for an interactive
+  session — and the name is a property looked up on the key, never the key
+  (the daemon forgets a deleted job; its peers' `peer` rows remember what
+  it was called, and `lore index` backfills that). `lore jobs`, `/job/<key>`
+  and the agents page are that unit; `/job/` accepts any of the three ids.
 - **A message that arrives mid-turn is not a user record.** When a session is
   idle, a peer's message or the user's words become a `user` record and open
   a turn. When it is busy, the harness enqueues it (`queue-operation`) and

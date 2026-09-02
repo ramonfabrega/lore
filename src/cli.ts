@@ -5,6 +5,7 @@ import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, 
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { buildIndex } from './indexer'
+import { backfillJobNames, listJobs } from './job'
 import { indexJobs } from './jobs'
 import type { Lane } from './parse'
 import { searchHistory, searchMessages } from './search'
@@ -177,7 +178,10 @@ async function refreshIndex(db: ReturnType<typeof openDb>, full?: boolean) {
   const spawns = await indexSpawns(db, { projectsDir: PROJECTS_DIR, full })
   const workflows = await indexWorkflowRuns(db, { projectsDir: PROJECTS_DIR, full })
   const jobs = await indexJobs(db, { claudeDir: CLAUDE_DIR })
-  return { ...stats, spawns, workflows, jobs }
+  // Names for the jobs the daemon has forgotten, off the other side's rows
+  // (job.ts). After the transcripts and the state files, since it reads both.
+  const named = backfillJobNames(db)
+  return { ...stats, spawns, workflows, jobs: { ...jobs, peerNamed: named.named } }
 }
 
 cli.command('index', {
@@ -490,6 +494,22 @@ cli.command('agents', {
     const db = openDb(DB_PATH)
     const agents = await listAgents(db)
     return { count: agents.length, active: agents.filter((a) => a.state === 'working' || a.state === 'blocked').length, agents }
+  },
+})
+
+cli.command('jobs', {
+  description:
+    'The jobs: every background agent the index knows, live or long deleted, newest activity first — one row per JOB, which is an agent over time across /clears and daemon respawns (CLAUDE.md, the three ids), not per session and not per well. Keyed on the bridge id (`key`, the id in commit trailers and every transcript), which survives everything; the root for pre-bridge sessions; an interactive session is its own one-session job (`--all` includes them). `name` is a property, not the key: `nameSource` says whose word it is — `state` (the daemon\'s state.json, so `jobId` and `state` are set) or `peer` (the daemon has forgotten the job; the name is what the other side of its threads called it, recovered through msg_id). `incarnations` counts the roots under the bridge (every respawn minted one); `wells` is where its sessions live (a job crosses worktrees); `peers` every agent it exchanged messages with (`lore thread <name> <peer>`); `latest` the newest session and its opener — what the job is on now. `lore api job <key>` (or a name, a session id, the daemon id) is one job with its sessions.',
+  options: z.object({
+    all: z.boolean().optional().describe('Include interactive sessions as one-session jobs'),
+    since: z.string().optional().describe('Only jobs active since this ISO date (by last activity)'),
+    limit: z.coerce.number().default(200).describe('Max rows'),
+  }),
+  alias: { limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    const jobs = listJobs(db, { all: options.all, since: options.since, limit: options.limit })
+    return { count: jobs.length, named: jobs.filter((j) => j.name).length, jobs }
   },
 })
 

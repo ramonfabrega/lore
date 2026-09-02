@@ -26,6 +26,11 @@ function short(id: string) {
 function label(side: Thread['a']) {
   return side.name ?? short(side.query)
 }
+// A side is a job: its chip is the way to the job page, when it has one.
+function sideChip(side: Thread['a'], which: 'a' | 'b') {
+  const chip = html`<span class="kind side-${which}">@${label(side)}</span>`
+  return side.key ? html`<a href="/job/${encodeURIComponent(side.key)}" title="the job">${chip}</a>` : chip
+}
 
 export function threadBody(t: Thread) {
   const rows = t.rows
@@ -41,7 +46,7 @@ export function threadBody(t: Thread) {
   return html`
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/thread">threads</a></p>
-    <h1 class="mono"><span class="kind side-a">@${A}</span> <span class="muted">↔</span> <span class="kind side-b">@${B}</span></h1>
+    <h1 class="mono">${sideChip(t.a, 'a')} <span class="muted">↔</span> ${sideChip(t.b, 'b')}</h1>
     <p class="muted">${first ? html`${day(first)} ${hms(first)} → ${day(last) === day(first) ? '' : `${day(last)} `}${hms(last)} ${zone()} · ${ms(span)}` : 'no messages'}
       · ${messages} messages${yours ? html` · <a href="?you=0" title="the agents' traffic alone">${yours} of yours</a>` : ''} · ${A}: ${t.a.sessions.length} session${t.a.sessions.length === 1 ? '' : 's'} · ${B}: ${t.b.sessions.length} session${t.b.sessions.length === 1 ? '' : 's'}</p>
     <div class="tiles">

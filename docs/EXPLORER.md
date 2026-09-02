@@ -46,17 +46,24 @@ sparklines (the dataviz skill's palette). Hono via incur's `fetch` mount, so
 tailnet reaches it as `<host>:<port>/…` (incur mounts the handler; listening
 is `Bun.serve` — the bind address is ours to get right).
 
-- `/` — wells with usage sparklines (week), spend by model.
+- `/` — the control room: today and the week, the day chart by model,
+  recent activity folded by JOB (a job /cleared a dozen times today is one
+  row, headed by its newest session), the live agents, the active wells.
 - `/well/:dir` — sessions, oldest-first, with fee, requests, tools, duration;
-  the `sessions` verb plus `usage --by session`.
+  the `sessions` verb plus `usage --by session`. The well is the "where"
+  facet — a column and a filter — not the front door (the Job section).
 - `/session/:id` — the block: header (well, branch, job, first/last, fee,
   spawns, links), then transactions, each expandable to steps and
   instructions; instruction logs collapsed by default; thinking collapsed.
+- `/job/<key>` — one job: the agent over time, across /clears and respawns,
+  with its threads; takes a name, a bridge id, a daemon id, a root or a
+  session id (the Job section).
 - `/usage` — the profile: by week/day, by model, by well; the same numbers
   `lore usage` prints.
-- `/agents` — the live roster from `claude agents --json --all` and each
-  job's `state.json` (state, detail, live tokens); attach is a command to
-  copy, never an embedded terminal. The agents-view replacement is a page.
+- `/agents` — every job, live first: the daemon's roster (state, detail,
+  live tokens, attach) over the index's jobs, the deleted ones included;
+  attach is a command to copy, never an embedded terminal. The agents-view
+  replacement is a page. `lore jobs` is the CLI twin of the index half.
 - `/thread` — every pair of agents that has talked; `/thread/<a>/<b>` the
   pair's ledger, both halves of every message (the Thread section below).
 
@@ -106,27 +113,66 @@ default, tools or everything on request. A hit links to its transaction
 (`/session/<id>#tx-<promptId>`). Speed is FTS5's (2–12 ms on 300k rows);
 no client code, no reimplemented ranking. `lore search` is the CLI twin.
 
-## Agents (landed)
+## Agents (landed; every job since 2026-09-02)
 
-The daemon's listing (`claude agents --json --all`, ~140 ms) + each job's
-`state.json` (state, detail, tempo, LIVE tokens, links, worktree branch)
-joined to the index (well, requests, list $, last indexed activity — as of
-the last `lore index`). Active first. Attach is a command to copy.
-`lore agents` is the CLI twin; `/cli/agents` the route.
+A row is a JOB (below), live first. The daemon's listing (`claude agents
+--json --all`, ~140 ms) + each job's `state.json` (state, detail, tempo,
+LIVE tokens, links, worktree branch, attach) decorate the rows the daemon
+still lists; the index's jobs (`lore jobs`) are the rest of the list — 17
+state files against 67 bridge ids on 2026-09-02, so keyed on the daemon
+the page showed a quarter of the fleet's history. Working, then blocked,
+then everything by last activity. A deleted job says `gone` in the state
+column and keeps the name its peers gave it (`peer` chip). `?all=1` adds
+interactive sessions as one-session jobs; by default the 250 of them since
+mid-August would drown 67 agents. Attach is a command to copy.
+`lore agents` is the CLI twin of the live half, `lore jobs` of the index
+half; `/cli/agents` and `/cli/jobs` the routes.
 
 Each row names its **model** — see below; neither of the harness's two
 files carries one, so a live agent's is read from its own transcript.
 
-## Job (landed)
+## Job (landed; re-keyed 2026-09-02)
 
-`/job/<job_session_id>`: every transcript one background job produced
-across its `/clear`s, with fees — the conversation as the user lived it,
-which is never one transcript. Since v16 the page widens the root it was
-opened with to every session sharing that root's **bridge id**: a daemon
-respawn mints a new root (CLAUDE.md, the three ids), so a job keyed on the
-root alone showed one incarnation. The agent's name on a session header
-joins on the same key — the root in state.json is the first incarnation's
-and, after a respawn, matches nothing.
+The unit the user lives in. The explorer's spine was well → session, which
+is the harness's sharding; the job is an agent over time, across `/clear`s
+and daemon respawns (CLAUDE.md, the three ids). `lore` has run since
+2026-07-17 as one bridge id over 61 sessions and 21 incarnations;
+`attrition` 176 sessions since 08-19. A job's sessions cross wells (a
+worktree per branch) and a well's sessions cross jobs, so neither nests in
+the other: wells are the "where" facet, jobs the "who".
+
+**One key, the bridge id** — the one id that survives everything and sits
+in every transcript and every commit trailer. The root (`job_session_id`)
+keys the pre-bridge sessions (161, June to August 25), which split on a
+respawn and that is accepted; a session with neither is an interactive
+session and is its own job of one. A pre-bridge session whose root is the
+one in a state.json rides on that row's bridge, which is what keeps lore's
+first three transcripts in lore rather than in a second "lore" that
+claimed the same daemon id. Every session belongs to exactly one job
+(`job.ts`, `JOB_KEY_SQL`).
+
+**The name is a property, never the key.** The daemon's `state.json` while
+the job exists there; else the name its peers used — the receiver's copy of
+every message it sent carries the sender's name in `peer`, and the msg_id
+pairs it to the sender's ack, so `lore index` backfills a `jobs` row
+(`source = 'peer'`) for each bridge the daemon has forgotten: eight of the
+fifty nameless bridges on 2026-09-02, `ssh-noti` and `site` among them.
+Names are unique today by luck; a second job named `lore` would merge with
+the first if anything keyed on the name, so nothing does — the thread's
+sides and the job page resolve a name to a key and carry the key.
+
+`/job/<key>` takes anything that names the job — the bridge id in any
+spelling (`session_X`, `cse_X`, bare), the daemon's id, a root (older links
+hold), a session id or prefix, the agent's name — and renders the same
+page: the name chip and key, what kind of key, the daemon's state as of the
+last index, first → last, the wells it lived in, the models, the peers
+(each a link into the thread), the tiles (sessions, incarnations, requests,
+output, list $, lines), then its sessions bucketed by local day, newest
+first, each with the well, the model, the opener and the fee, and a
+`respawn` chip on the session where a new root began. Flat on purpose: a
+job is not a tree of incarnations of sessions of turns, the way the thread
+page is not one agent nested in the other. `?json=1` / `lore api job <key>`
+is the data.
 
 ## Thread (landed 2026-09-02)
 
@@ -141,9 +187,13 @@ chip linking the turn that read it, `lost` with the ack's reason, `unseen`
 other, which is the thing a session page structurally cannot do. Sides wear
 the first two series hues (identity); landing chips wear the status colours
 (state). A session page links here for every peer it spoke with (`thread
-with @ccc` in the header). A side may be a peer name with no indexed job or
-session at all (`ssh-noti`): then the ledger is the other side's copies of
-what it said, and sends to it land `unseen`.
+with @ccc` in the header), and a job page for every peer the job has; the
+side chips link back to the job pages. A side may be a peer name with no
+indexed session at all: then the ledger is the other side's copies of what
+it said, and sends to it land `unseen`. (`ssh-noti` and `site` read that
+way until the peer-named backfill — the Job section — because their
+sessions were indexed but the daemon had forgotten the jobs: a
+name-resolution gap, not a data gap.)
 
 `lore thread <a> <b>` / `/thread/<a>/<b>?json=1`: every message two agents sent
 each other, in order, with both halves — the sender's `SendMessage` (its

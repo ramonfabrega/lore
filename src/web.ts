@@ -7,6 +7,7 @@ import { basename, join } from 'node:path'
 import { z } from 'zod'
 import { type AgentRow, listAgents } from './agents'
 import { WIKI_DIR } from './config'
+import { JOB_KEY_SQL, type JobKind, type JobRow, jobNames, jobsOfSessions, listJobs, resolveJob } from './job'
 import type { Lane } from './parse'
 import { FAMILIES, type ModelFamily, modelFamily } from './model'
 import { searchSessions } from './search'
@@ -49,7 +50,7 @@ type Db = () => Database
 // The CLI as a fetch handler exposes EVERY verb — archive, index, docs index,
 // wiki commit, serve itself — and over the tailnet that is a footgun, so the
 // fall-through is GET-only against this list. `docs` is split by subcommand.
-const READ_VERBS = new Set(['wells', 'sessions', 'session', 'trace', 'usage', 'search', 'spawns', 'workflows', 'tools', 'stats', 'agents'])
+const READ_VERBS = new Set(['wells', 'sessions', 'session', 'trace', 'usage', 'search', 'spawns', 'workflows', 'tools', 'stats', 'agents', 'jobs'])
 const READ_DOCS = new Set(['search', 'list'])
 const SPEC_PATHS = new Set(['/openapi.json', '/openapi.yml', '/openapi.yaml', '/.well-known/openapi.json'])
 
@@ -183,102 +184,123 @@ export function createApp(
     return c.html(page(q ? `${q} · search · lore` : 'search · lore', body, { q, ...chrome(c), nav: 'search' }))
   })
 
+  // Every job, live first (docs/EXPLORER.md, Agents). The daemon's roster
+  // says what is running NOW — state, detail, live tokens, attach — and the
+  // index's jobs (job.ts) say everything the fleet has ever run, the deleted
+  // ones included: a row is a job, decorated with the roster when the daemon
+  // still lists it. `?all=1` adds interactive sessions as one-session jobs.
   app.get('/agents', async (c) => {
-    let rows: AgentRow[] = []
+    const db = getDb()
+    let live: AgentRow[] = []
     let error: string | null = null
     try {
-      rows = await roster()
+      live = await roster()
     } catch (e) {
       memo.delete('roster')
       error = e instanceof Error ? e.message : String(e)
     }
-    const data = { agents: rows, error }
+    const all = c.req.query('all') === '1'
+    const jobs = listJobs(db, { all, limit: 2000 })
+    const refs = jobsOfSessions(db, live.flatMap((a) => (a.sessionId ? [a.sessionId] : [])))
+    const rows = mergeAgents(jobs, live, (sid) => refs.get(sid)?.key ?? null)
+    const data = { count: rows.length, live: live.length, agents: live, jobs, error }
     if (wantsJson(c.req.raw)) return c.json(data)
-    const maxLive = Math.max(...rows.map((a) => a.liveTokens ?? 0), 0)
+    const maxLive = Math.max(...live.map((a) => a.liveTokens ?? 0), 0)
+    const maxUsd = Math.max(...jobs.map((j) => j.listUsd ?? 0), 0)
     const counts = new Map<string, number>()
-    for (const a of rows) counts.set(a.state, (counts.get(a.state) ?? 0) + 1)
+    for (const a of live) counts.set(a.state, (counts.get(a.state) ?? 0) + 1)
     const body = html`
       <div class="panel">
-        <header><h2>agents</h2><span>${[...counts].map(([st, n]) => html`<span class="kind st-${st}">${n} ${st}</span> `)}</span>
-          <span class="sp small">the daemon's roster + each job's state.json, joined to the index · a live agent's model is read from its transcript · attach in a terminal</span></header>
+        <header><h2>agents</h2><span>${[...counts].map(([st, n]) => html`<span class="kind st-${st}">${n} ${st}</span> `)} · ${jobs.length} jobs${
+          all ? html` · <a href="/agents">background only</a>` : html` · <a href="/agents?all=1" title="interactive sessions as one-session jobs">+ interactive</a>`
+        }</span>
+          <span class="sp small">a row is a JOB — an agent across /clears and respawns, keyed on its bridge id · the daemon's roster for what runs now · a deleted job keeps the name its peers gave it · attach in a terminal</span></header>
         ${error ? html`<p class="footnote err">${error}</p>` : ''}
-        <div class="scroll list roster">
-          <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num">req</span><span class="num">list $</span><span>indexed</span><span>links</span><span>attach</span></div>
-          ${rows.map(
-            (a) => html`<div class="row ${a.state}" title="started ${a.startedAt.slice(0, 16)}${a.updatedAt ? ` · updated ${a.updatedAt.slice(0, 16)}` : ''}">
-              <span title="${a.tempo ?? ''}${a.waitingFor ? ` · waiting for ${a.waitingFor}` : ''}"><span class="dot st-${a.state}"></span> ${a.state}</span>
-              <span title="${a.name ?? ''}">${a.name ?? ''}</span>
-              <span class="${a.modelSource === 'index' ? 'stale' : ''}">${modelChip(a.model, { title: modelTitle(a) })}</span>
-              <span class="mono muted" title="${a.cwd}${a.branch ? ` @ ${a.branch}` : ''}">${shortPath(a.cwd)}${a.branch ? ` @ ${a.branch}` : ''}</span>
-              <span title="${a.detail ?? ''}">${a.detail ?? ''}</span>
-              <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
-              <span class="num">${a.indexed ? a.indexed.requests : ''}</span>
-              <span class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</span>
-              <span class="mono">${a.sessionId ? (a.indexed ? html`<a href="/session/${a.sessionId}" title="${a.indexed.last ?? ''}">${a.indexed.last ? agoText(Date.now() - Date.parse(a.indexed.last)) : 'yes'}</a>` : html`<span class="muted">not yet</span>`) : ''}</span>
-              <span>${a.children.length > 3
-                ? html`<details><summary>${a.children.length} links</summary>${a.children.map((ch) => html`<a href="${ch.href}">${ch.kind === 'pr' ? `#${ch.id}` : ch.kind}</a> `)}</details>`
-                : a.children.map((ch) => html`<a href="${ch.href}">${ch.kind === 'pr' ? `#${ch.id}` : ch.kind}</a> `)}</span>
-              <span class="mono">${a.attach ?? ''}</span>
-            </div>`,
-          )}
+        <div class="scroll list jobsall">
+          <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num">sess</span><span class="num">req</span><span class="num">list $</span><span>last</span><span>peers</span><span>attach</span></div>
+          ${rows.map((r) => agentRow(r, maxLive, maxUsd))}
         </div>
       </div>`
     return c.html(page('agents · lore', body, { ...chrome(c), layout: 'one', nav: 'agents', bare: true }))
   })
 
+  // One job (docs/EXPLORER.md, Job): the agent over time. The url takes
+  // anything that names it — a bridge id in any spelling, the root an older
+  // link carried, the daemon's id, a session id, the agent's name — and the
+  // page is the same. A months-long job is a timeline, so its sessions are
+  // bucketed by local day, newest first, and a respawn (a new root under the
+  // same bridge) is marked where it happened. Flat: a job is not a tree of
+  // incarnations of sessions of turns.
   app.get('/job/:id', (c) => {
     const db = getDb()
     const id = c.req.param('id')
-    const rows = z
-      .array(z.object({ sessionId: z.string(), well: z.string(), first: z.string().nullable(), last: z.string().nullable(), lines: z.number() }))
-      .parse(
-        db
-          .prepare(
-            // A job is every incarnation of it: a respawn mints a new root
-            // (`job_session_id`), so the chain keyed on the root the page was
-            // opened with is widened to every session sharing that root's
-            // bridge id. The url stays the root the header linked.
-            `SELECT s.session_id AS sessionId, w.dir AS well, s.first_ts AS first, COALESCE(s.last_activity_ts, s.last_ts) AS last, s.lines
-             FROM sessions s JOIN wells w ON w.id = s.well_id
-             WHERE s.job_session_id = ?
-                OR (s.bridge_key IS NOT NULL AND s.bridge_key IN (SELECT bridge_key FROM sessions WHERE job_session_id = ? AND bridge_key IS NOT NULL))
-             ORDER BY s.first_ts`,
-          )
-          .all(id, id),
-      )
-    if (rows.length === 0) return c.notFound()
-    const fee = new Map(listUsage(db, { by: 'session', sessions: rows.map((r) => r.sessionId), limit: 10000 }).rows.map((r) => [r.key, r]))
-    const models = modelsFor(db, rows.map((r) => r.sessionId))
-    const sessions = rows.map((r) => ({ ...r, usage: fee.get(r.sessionId) ?? null, models: models.get(r.sessionId) ?? [] }))
-    const totals = sessions.reduce(
-      (t, s) => ({ requests: t.requests + (s.usage?.requests ?? 0), output: t.output + (s.usage?.output ?? 0), listUsd: t.listUsd + (s.usage?.listUsd ?? 0) }),
-      { requests: 0, output: 0, listUsd: 0 },
-    )
-    const data = { job: id, totals, sessions }
+    const ref = resolveJob(db, id)
+    const job = ref ? listJobs(db, { key: ref.key, limit: 1 })[0] : undefined
+    if (!ref || !job) return c.notFound()
+    const members = z
+      .array(z.object({ sessionId: z.string(), root: z.string().nullable() }))
+      .parse(db.prepare(`SELECT s.session_id AS sessionId, s.job_session_id AS root FROM sessions s WHERE ${JOB_KEY_SQL} = ? ORDER BY s.first_ts, s.session_id`).all(ref.key))
+    const ids = members.map((m) => m.sessionId)
+    const rootOf = new Map(members.map((m) => [m.sessionId, m.root]))
+    const fee = new Map(listUsage(db, { by: 'session', sessions: ids, limit: 10000 }).rows.map((r) => [r.key, r]))
+    // Oldest first here, to see the root change; rendered newest first.
+    let prevRoot: string | null = null
+    const sessions = listSessions(db, { sessions: ids, limit: ids.length }).map((s) => {
+      const root = rootOf.get(s.sessionId) ?? null
+      const respawn = root != null && prevRoot != null && root !== prevRoot
+      if (root != null) prevRoot = root
+      return { ...s, root, respawn, usage: fee.get(s.sessionId) ?? null }
+    })
+    const data = { job, sessions }
     if (wantsJson(c.req.raw)) return c.json(data)
+    const today = todayLocal()
     const maxUsd = Math.max(...sessions.map((s) => s.usage?.listUsd ?? 0), 0)
+    const days = new Map<string, typeof sessions>()
+    for (const s of sessions.slice().reverse()) {
+      const d = s.first ?? '?'
+      days.set(d, [...(days.get(d) ?? []), s])
+    }
+    const kindText = { bridge: 'bridge id · the key that survives /clear and a daemon respawn', root: 'root id · a pre-bridge job, one incarnation', session: 'interactive session · a job of one' }[job.kind]
+    const title = job.name ? `@${job.name}` : job.key.slice(0, 8)
     const body = html`
       <div class="page-head">
-        <p class="crumbs"><a href="/">lore</a> / job</p>
-        <h1 class="mono">${id}</h1>
-        <p class="muted small">${sessions.length} transcripts across /clears · ${totals.requests.toLocaleString()} requests · ${tok(totals.output)} out · ${usd(Math.round(totals.listUsd * 100) / 100)} list-equivalent</p>
+        <p class="crumbs"><a href="/">lore</a> / <a href="/agents">agents</a> / job</p>
+        <h1 class="mono">${job.name ? html`<span class="kind side-a">@${job.name}</span> ` : ''}<span class="muted" title="${kindText}">${job.key}</span></h1>
+        <p class="muted">${kindText}${job.nameSource === 'peer' ? html` · <span class="kind peer" title="the daemon has forgotten this job; its peers called it this">named by its peers</span>` : ''}${
+          job.jobId ? html` · daemon ${job.jobId} · <span class="kind st-${job.state ?? ''}">${job.state ?? '?'}</span> as of the last index` : job.kind === 'session' ? '' : ' · not at the daemon'
+        }
+          · ${day(job.first)} → ${day(job.last)} · in ${job.wells.map((w, i) => html`${i ? ', ' : ''}<a class="mono" href="/well/${encodeURIComponent(w)}" title="${w}">${shortWell(w)}</a>`)}
+          ${job.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
+            job.peers.length ? html` · thread with ${job.peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(job.name ?? job.key)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
+          }</p>
+        <div class="tiles">
+          ${tile('sessions', String(job.sessions))}
+          ${tile(html`<span title="distinct roots under the bridge: one per daemon respawn">incarnations</span>`, String(job.incarnations))}
+          ${tile('requests', job.requests.toLocaleString())}
+          ${tile('output', tok(job.output))}
+          ${tile('list $', usd(job.listUsd))}
+          ${tile('lines', job.lines.toLocaleString())}
+        </div>
       </div>
-      <div class="panel"><div class="scroll list jobs">
-        <div class="row head"><span>first</span><span>last</span><span>well</span><span>model</span><span class="num">lines</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
-        ${sessions.map(
-          (s) => html`<div class="row">
-            <span class="mono"><a href="/session/${s.sessionId}">${s.first?.slice(0, 16).replace('T', ' ') ?? ''}</a></span>
-            <span class="mono muted">${s.last?.slice(0, 16).replace('T', ' ') ?? ''}</span>
-            <span class="mono"><a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a></span>
-            <span>${modelChips(s.models)}</span>
-            <span class="num">${s.lines}</span>
-            <span class="num">${s.usage?.requests ?? ''}</span>
-            <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
-            <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd)}${usd(s.usage.listUsd)}` : ''}</span>
-          </div>`,
+      <div class="panel"><div class="scroll list jobsess">
+        <div class="row head"><span>at</span><span>well</span><span>model</span><span>opening</span><span class="num">turns</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
+        ${[...days].map(
+          ([d, ss]) => html`<div class="row day"><span>${d}${d === today ? ' · today' : ''}</span><span>${ss.length} session${ss.length === 1 ? '' : 's'}</span><span class="sp">${usd(ss.reduce((n, s) => n + (s.usage?.listUsd ?? 0), 0))}</span></div>
+          ${ss.map(
+            (s) => html`<div class="row">
+              <span class="mono"><a href="/session/${s.sessionId}" title="${s.firstAt ?? ''}">${hm(s.firstAt)}</a></span>
+              <span class="mono"><a href="/well/${encodeURIComponent(s.well)}" title="${s.well}">${shortWell(s.well)}</a></span>
+              <span>${modelChips(s.models)}</span>
+              <span title="${s.firstPrompt ?? ''}">${s.respawn ? html`<span class="kind respawn" title="a new root: the daemon respawned the job here (${s.root ?? ''})">respawn</span>` : ''}${opener(s)}</span>
+              <span class="num">${s.prompts || ''}</span>
+              <span class="num">${s.usage?.requests ?? ''}</span>
+              <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
+              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd)}${usd(s.usage.listUsd)}` : ''}</span>
+            </div>`,
+          )}`,
         )}
       </div></div>`
-    return c.html(page(`job ${id.slice(0, 8)} · lore`, body, { ...chrome(c), layout: 'head' }))
+    return c.html(page(`${title} · job · lore`, body, { ...chrome(c), layout: 'head', nav: 'agents' }))
   })
 
   // Liveness + provenance for `lore server status`.
@@ -296,12 +318,18 @@ export function createApp(
     const today = todayLocal()
     const weekAgo = isoDay(Date.now() - 7 * 86_400_000)
     const since45 = isoDay(Date.now() - 45 * 86_400_000)
-    const recentSessions = listSessions(db, { limit: 60, byActivity: true }).reverse()
+    // 100 sessions fold into a few dozen jobs (a busy job /clears a dozen
+    // times a day); the window is sized for the rows that survive folding.
+    const recentSessions = listSessions(db, { limit: 100, byActivity: true }).reverse()
     const feeById = new Map(
       listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 200 }).rows.map((r) => [r.key, r]),
     )
     // Harness-only sessions (no prompt, no request) are noise here.
-    const recent = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null })).filter((s) => s.prompts > 0 || s.usage)
+    const recentRows = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null })).filter((s) => s.prompts > 0 || s.usage)
+    // Grouped by JOB (job.ts): a job /cleared five times today is one row,
+    // headed by its newest session, not five. An interactive session is
+    // its own job and reads exactly as before.
+    const recent = groupRecent(recentRows, jobsOfSessions(db, recentRows.map((s) => s.sessionId)), jobNames(db))
     const active = listUsage(db, { by: 'well', since: weekAgo, limit: 40 })
     const todayU = listUsage(db, { by: 'day', since: today, limit: 2 })
     const days = listUsage(db, { by: 'day', since: since45, limit: 60, split: true })
@@ -313,6 +341,7 @@ export function createApp(
       memo.delete('roster')
       agentsError = e instanceof Error ? e.message : String(e)
     }
+    const liveRefs = jobsOfSessions(db, live.flatMap((a) => (a.sessionId ? [a.sessionId] : [])))
     const data = { today: todayU.totals, week: active.totals, recent, active: active.rows, days: days.rows, agents: live, agentsError }
     if (wantsJson(c.req.raw)) return c.json(data)
 
@@ -342,11 +371,13 @@ export function createApp(
       <div class="area-recent panel">
         <header><h2>recent</h2><span>newest by last activity</span><span class="sp small"><a href="/search">search →</a></span></header>
         <div class="scroll list recent">
-          <div class="row head"><span>at</span><span>well</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
+          <div class="row head"><span>at</span><span>who · where</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
           ${recent.map(
             (s) => html`<div class="row">
               <span class="mono"><a href="/session/${s.sessionId}" title="${s.lastAt ?? ''}">${whenLabel(s.lastAt, today)}</a></span>
-              <span class="mono"><a href="/well/${encodeURIComponent(s.well)}" title="${s.well}">${shortWell(s.well)}</a></span>
+              <span class="mono" title="${s.well}${s.sessions > 1 ? ` · ${s.sessions} sessions in this window` : ''}">${
+                s.name ? html`<a href="/job/${encodeURIComponent(s.key)}">@${s.name}</a>` : html`<a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a>`
+              }${s.sessions > 1 ? html` <span class="kind">×${s.sessions}</span>` : ''}</span>
               <span>${modelChips(s.models)}</span>
               <span title="${s.firstPrompt ?? ''}">${opener(s)}</span>
               <span class="num hide">${s.prompts || ''}</span>
@@ -364,7 +395,11 @@ export function createApp(
           ${live.slice(0, 14).map(
             (a) => html`<div class="row ${a.state}" title="${a.state}${a.tempo ? ` · ${a.tempo}` : ''}${a.waitingFor ? ` · ${a.waitingFor}` : ''} · ${a.cwd}">
               <span class="dot st-${a.state}"></span>
-              <span>${a.sessionId && a.indexed ? html`<a href="/session/${a.sessionId}">${a.name ?? shortPath(a.cwd)}</a>` : (a.name ?? shortPath(a.cwd))}</span>
+              <span>${(() => {
+                const label = a.name ?? shortPath(a.cwd)
+                const ref = a.sessionId ? liveRefs.get(a.sessionId) : undefined
+                return ref ? html`<a href="/job/${encodeURIComponent(ref.key)}">${label}</a>` : a.sessionId && a.indexed ? html`<a href="/session/${a.sessionId}">${label}</a>` : label
+              })()}</span>
               <span>${modelChip(a.model, { title: modelTitle(a) })}</span>
               <span class="muted">${a.detail ?? ''}</span>
               <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
@@ -720,6 +755,109 @@ function modelTitle(a: AgentRow): string {
   const mix = (a.indexed?.models ?? []).map((m) => `${m.model} ×${m.requests}`).join('\n')
   const how = a.modelSource === 'transcript' ? 'verified from the transcript' : `as of the last index${mix ? '' : ''}`
   return `${a.model} — ${how}${mix ? `\n${mix}` : ''}`
+}
+
+// ---- jobs on the pages (job.ts) -------------------------------------------
+
+type RecentSession = ReturnType<typeof listSessions>[number] & { usage: UsageRow | null }
+type RecentJob = {
+  key: string
+  kind: JobKind
+  name: string | null
+  // The newest session of the job in the window — the row's link and opener.
+  sessionId: string
+  well: string
+  lastAt: string | null
+  firstPrompt: string | null
+  openedBy: string | null
+  models: { model: string; requests: number }[]
+  sessions: number
+  prompts: number
+  usage: { requests: number; output: number; listUsd: number }
+}
+
+// The recent panel's rows: sessions (newest first) folded into their jobs,
+// first-seen order kept, so the row sits where its newest session was.
+function groupRecent(rows: RecentSession[], refs: Map<string, { key: string; kind: JobKind }>, name: (key: string, kind: JobKind) => string | null): RecentJob[] {
+  const groups = new Map<string, RecentJob & { members: RecentSession[] }>()
+  for (const s of rows) {
+    const ref = refs.get(s.sessionId) ?? { key: s.sessionId, kind: 'session' as const }
+    let g = groups.get(ref.key)
+    if (!g) {
+      g = {
+        key: ref.key, kind: ref.kind, name: name(ref.key, ref.kind),
+        sessionId: s.sessionId, well: s.well, lastAt: s.lastAt, firstPrompt: s.firstPrompt, openedBy: s.openedBy,
+        models: [], sessions: 0, prompts: 0, usage: { requests: 0, output: 0, listUsd: 0 }, members: [],
+      }
+      groups.set(ref.key, g)
+    }
+    g.sessions++
+    g.prompts += s.prompts
+    g.usage.requests += s.usage?.requests ?? 0
+    g.usage.output += s.usage?.output ?? 0
+    g.usage.listUsd += s.usage?.listUsd ?? 0
+    g.members.push(s)
+  }
+  return [...groups.values()].map(({ members, ...g }) => ({ ...g, models: tallyWellModels(members) }))
+}
+
+// The agents page's row: a job, and the roster's live half when the daemon
+// still lists it. A roster row the index has no job for yet (a job that has
+// not been indexed) rides alone.
+type AgentJob = { key: string | null; job: JobRow | null; live: AgentRow | null }
+function mergeAgents(jobs: JobRow[], live: AgentRow[], keyOfSession: (sid: string) => string | null): AgentJob[] {
+  // A daemon id names one job; were two rows to claim it, the bridge-keyed
+  // one is the job and the other a fragment.
+  const byJobId = new Map<string, JobRow>()
+  for (const j of jobs.slice().sort((x, y) => (x.kind === 'bridge' ? 0 : 1) - (y.kind === 'bridge' ? 0 : 1))) if (j.jobId && !byJobId.has(j.jobId)) byJobId.set(j.jobId, j)
+  const byKey = new Map(jobs.map((j) => [j.key, j]))
+  const taken = new Set<string>()
+  const rows: AgentJob[] = []
+  for (const a of live) {
+    const key = (a.id && byJobId.get(a.id)?.key) || (a.sessionId ? keyOfSession(a.sessionId) : null)
+    const job = key ? (byKey.get(key) ?? null) : null
+    if (job) taken.add(job.key)
+    rows.push({ key: key ?? null, job, live: a })
+  }
+  for (const j of jobs) if (!taken.has(j.key)) rows.push({ key: j.key, job: j, live: null })
+  // Attention first — working, then blocked — then everything by last activity.
+  const active = (r: AgentJob) => (r.live?.state === 'working' ? 0 : r.live?.state === 'blocked' ? 1 : 2)
+  const last = (r: AgentJob) => r.job?.last ?? r.live?.updatedAt ?? r.live?.startedAt ?? ''
+  rows.sort((x, y) => active(x) - active(y) || (last(y) < last(x) ? -1 : last(y) > last(x) ? 1 : 0))
+  return rows
+}
+
+function agentRow(r: AgentJob, maxLive: number, maxUsd: number) {
+  const a = r.live
+  const j = r.job
+  const name = a?.name ?? j?.name ?? null
+  const label = name ? `@${name}` : j ? j.key.slice(0, 8) : a ? shortPath(a.cwd) : '?'
+  const href = r.key ? `/job/${encodeURIComponent(r.key)}` : null
+  const gone = !a && !j?.jobId
+  // The live session when there is one — what runs now — else the newest.
+  const sid = a?.sessionId ?? j?.latest?.sessionId ?? null
+  const lastAt = j?.last ?? a?.indexed?.last ?? null
+  const cls = a ? a.state : gone ? 'gone' : ''
+  return html`<div class="row ${cls}" title="${a ? `started ${a.startedAt.slice(0, 16)}${a.updatedAt ? ` · updated ${a.updatedAt.slice(0, 16)}` : ''}` : j ? `${j.first?.slice(0, 10) ?? ''} → ${j.last?.slice(0, 10) ?? ''} · ${j.kind} ${j.key}` : ''}">
+    <span title="${a?.tempo ?? ''}${a?.waitingFor ? ` · waiting for ${a.waitingFor}` : ''}">${
+      a ? html`<span class="dot st-${a.state}"></span> ${a.state}` : j?.jobId ? html`<span class="muted">${j.state ?? ''}</span>` : html`<span class="muted" title="the daemon no longer lists this job">gone</span>`
+    }</span>
+    <span title="${name ?? ''}${j?.nameSource === 'peer' ? ' · the daemon has forgotten this job; its peers called it this' : ''}">${href ? html`<a href="${href}">${label}</a>` : label}${
+      j?.nameSource === 'peer' ? html` <span class="kind peer">peer</span>` : ''
+    }</span>
+    <span class="${a?.modelSource === 'index' ? 'stale' : ''}">${a ? modelChip(a.model, { title: modelTitle(a) }) : modelChips(j?.models)}</span>
+    <span class="mono muted" title="${a ? `${a.cwd}${a.branch ? ` @ ${a.branch}` : ''}` : (j?.wells ?? []).join('\n')}">${
+      a ? html`${shortPath(a.cwd)}${a.branch ? ` @ ${a.branch}` : ''}` : j ? html`${shortWell(j.wells[0] ?? '')}${j.wells.length > 1 ? html` <span class="kind">+${j.wells.length - 1}</span>` : ''}` : ''
+    }</span>
+    <span title="${a?.detail ?? j?.latest?.firstPrompt ?? ''}">${a?.detail ?? (j?.latest ? opener(j.latest) : '')}</span>
+    <span class="num">${a?.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
+    <span class="num" title="${j ? `${j.incarnations} incarnation${j.incarnations === 1 ? '' : 's'}` : ''}">${j?.sessions ?? ''}</span>
+    <span class="num">${j ? j.requests.toLocaleString() : (a?.indexed?.requests ?? '')}</span>
+    <span class="num">${j ? html`${ibar(j.listUsd ?? 0, maxUsd)}${usd(j.listUsd)}` : a?.indexed ? usd(a.indexed.listUsd) : ''}</span>
+    <span class="mono">${sid && (j || a?.indexed) ? html`<a href="/session/${sid}" title="${lastAt ?? ''}">${lastAt ? agoText(Date.now() - Date.parse(lastAt)) : 'yes'}</a>` : sid ? html`<span class="muted">not yet</span>` : ''}</span>
+    <span>${(j?.peers ?? []).map((p, i) => html`${i ? ' ' : ''}<a href="/thread/${encodeURIComponent(name ?? r.key ?? '')}/${encodeURIComponent(p)}">@${p}</a>`)}</span>
+    <span class="mono">${a?.attach ?? ''}</span>
+  </div>`
 }
 
 // Every model a well's sessions ran on, heaviest first.

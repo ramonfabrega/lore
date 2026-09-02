@@ -90,7 +90,15 @@ import { z } from 'zod'
 // subagent follow-up). Indexed on relay rows and on SendMessage result rows,
 // it pairs both halves of every message across sessions with zero
 // inference — `lore thread` is that join.
-const SCHEMA_VERSION = 17
+// v18: jobs.source — where a job's name came from. `state` is the daemon's
+// own `state.json`; `peer` is a name recovered from the other side of a
+// thread: the daemon forgets a job when the user deletes it (17 state files
+// against 67 bridge ids in the transcripts, 2026-09-02), but every message
+// it ever sent carries its name in the receiver's `peer`, and the msg_id
+// pairs the two halves. A job is keyed on its bridge id (jobs.ts): the root
+// changes on a respawn, the daemon id dies with the job, the bridge id is in
+// every transcript and every commit trailer.
+const SCHEMA_VERSION = 18
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -241,7 +249,8 @@ CREATE TABLE IF NOT EXISTS jobs(
   cwd TEXT,
   state TEXT,
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  source TEXT NOT NULL DEFAULT 'state'
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_bridge ON jobs(bridge_key);
 CREATE INDEX IF NOT EXISTS idx_jobs_session ON jobs(session_id);

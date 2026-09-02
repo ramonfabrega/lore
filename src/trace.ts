@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { ackHead, metaHead, relayHead, type Sent, sentHead } from './envelope'
 import { cut, cutProse } from './fmt'
+import { JOB_KEY_SQL } from './job'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
 import { rateFor } from './usage'
@@ -47,6 +48,9 @@ const Meta = z.object({
   // gone or the session was never a job — the header simply omits it.
   name: z.string().nullable(),
   jobSessionId: z.string().nullable(),
+  // The job this session belongs to (job.ts): the bridge id, else the root.
+  // Null for an interactive session, which is its own job.
+  jobKey: z.string().nullable(),
   first: z.string().nullable(),
   last: z.string().nullable(),
   lines: z.number(),
@@ -256,7 +260,8 @@ export function getTrace(
         // and matched nothing for lore's sessions after this morning's
         // respawn). The root and the short id remain as fallbacks for
         // transcripts without bridge records.
-        `SELECT w.dir AS well, s.session_id AS sessionId, s.job_session_id AS jobSessionId, s.first_ts AS first,
+        `SELECT w.dir AS well, s.session_id AS sessionId, s.job_session_id AS jobSessionId,
+                CASE WHEN s.bridge_key IS NULL AND s.job_session_id IS NULL THEN NULL ELSE ${JOB_KEY_SQL} END AS jobKey, s.first_ts AS first,
                 COALESCE(s.last_activity_ts, s.last_ts) AS last, s.lines, j.name AS name
          FROM sessions s JOIN wells w ON w.id = s.well_id
          LEFT JOIN jobs j ON (s.bridge_key IS NOT NULL AND j.bridge_key = s.bridge_key)

@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { ackHead, relayHead, sentHead, sentMessage } from './envelope'
 import { cutProse } from './fmt'
+import { JOB_KEY_SQL } from './job'
 import { resolveSessionId } from './session'
 
 // The thread between two agents: every message either sent the other, in
@@ -29,6 +30,9 @@ export type Side = {
   // The agent's name, as the other side's rows spell it in `peer`. Null when
   // the sessions were never a named job — then only msg_id pairs them.
   name: string | null
+  // The job's key (job.ts): its bridge id, else its root, else the session.
+  // Null for a peer name with no indexed session at all.
+  key: string | null
   sessions: string[]
 }
 
@@ -72,7 +76,7 @@ export function resolveSide(db: Database, q: string): Side {
   const byName = SessionIds.parse(
     db.prepare(`SELECT s.session_id AS sessionId FROM sessions s ${NAME_JOIN} WHERE j.name = ? ORDER BY s.first_ts, s.session_id`).all(q),
   )
-  if (byName.length) return { query: q, name: q, sessions: byName.map((r) => r.sessionId) }
+  if (byName.length) return { query: q, name: q, key: keyOf(db, byName[0]!.sessionId), sessions: byName.map((r) => r.sessionId) }
   // Not a job name: a session id (or prefix), expanded to its job — or, when
   // it matches no session either, a PEER name the other side's rows carry
   // (`ssh-noti`, `site`: sessions that were never indexed jobs). Such a side
@@ -83,7 +87,7 @@ export function resolveSide(db: Database, q: string): Side {
     sid = resolveSessionId(db, q, {})
   } catch (e) {
     const known = z.object({ n: z.number() }).parse(db.prepare("SELECT COUNT(*) AS n FROM messages WHERE lane = 'relay' AND peer = ?").get(q))
-    if (known.n > 0) return { query: q, name: q, sessions: [] }
+    if (known.n > 0) return { query: q, name: q, key: null, sessions: [] }
     throw e
   }
   const me = z
@@ -102,7 +106,11 @@ export function resolveSide(db: Database, q: string): Side {
       )
       .all(sid, me.bridgeKey, me.bridgeKey, me.root, me.root),
   )
-  return { query: q, name: me.name, sessions: sessions.map((r) => r.sessionId) }
+  return { query: q, name: me.name, key: keyOf(db, sid), sessions: sessions.map((r) => r.sessionId) }
+}
+
+function keyOf(db: Database, sessionId: string): string {
+  return z.object({ key: z.string() }).parse(db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE s.session_id = ?`).get(sessionId)).key
 }
 
 const SendRow = z.object({ session: z.string(), ts: z.string().nullable(), promptId: z.string().nullable(), toolUseId: z.string().nullable(), text: z.string() })

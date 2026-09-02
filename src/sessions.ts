@@ -26,6 +26,7 @@ const ModelRow = z.object({ sessionId: z.string(), model: z.string(), requests: 
 // conversation names what ran it, so neither a person nor a miner has to
 // open a session to learn whether it was opus or a sonnet fan-out.
 export type SessionRow = Omit<z.infer<typeof Row>, 'openerId' | 'openerLane' | 'openerPeer'> & {
+  firstAt: string | null
   lastAt: string | null
   // The peer that OPENED this session, when a relay did — `firstPrompt` is
   // then that message, not the user's. Null for a session the user opened.
@@ -54,10 +55,17 @@ export function listSessions(
   // the explorer's "recent" (a long-lived session that worked today is
   // recent; a session created today that never ran is not). Rendering stays
   // oldest-first either way.
-  opts: { well?: string; exact?: boolean; since?: string; limit: number; byActivity?: boolean },
+  // sessions: an explicit id list (a job's members, the explorer decorating
+  // a page's rows) — the same shape listUsage takes.
+  opts: { well?: string; exact?: boolean; since?: string; limit: number; byActivity?: boolean; sessions?: string[] },
 ): SessionRow[] {
   const where: string[] = []
   const params: (string | number)[] = []
+  if (opts.sessions) {
+    if (opts.sessions.length === 0) return []
+    where.push(`s.session_id IN (${opts.sessions.map(() => '?').join(',')})`)
+    params.push(...opts.sessions)
+  }
   if (opts.well) {
     // exact matters when the target well's name is a substring of others — the
     // ~/code root well is a prefix of every other well and LIKE can't isolate it.
@@ -121,6 +129,7 @@ export function listSessions(
       ...r,
       first: day(r.first) || null,
       last: day(r.last) || null,
+      firstAt: r.first ?? null,
       lastAt: r.last ?? null,
       idleUntil: day(r.idleUntil) || null,
       openedBy,

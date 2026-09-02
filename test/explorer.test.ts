@@ -159,10 +159,25 @@ describe('explorer pages: search, agents, job, anchors', () => {
     // the roster names the model without opening the session, and says how it knows
     expect(agents).toContain('<i class="sw m-fable"></i>fable-5.1')
     expect(agents).toContain('verified from the transcript')
+    // A row is a job: the live row merged with the index's job (both
+    // sessions under the root), named by the roster, linking the job page.
+    expect(agents).toContain(`/job/${JOB}`)
+    expect(agents).toContain('>@live<')
+    const ajson = Any.parse(await (await app.request('/agents?json=1')).json())
+    expect(ajson.count).toBe(1)
+    expect(ajson.jobs[0]).toMatchObject({ key: JOB, kind: 'root', sessions: 2, name: null })
 
+    // The job page, from the root (an older link), its sessions by local
+    // day, the newest session as the opener.
     const job = await (await app.request(`/job/${JOB}`)).text()
     expect(job).toContain('/session/sess-1')
     expect(job).toContain('/session/sess-2')
+    expect(job).toContain('root id')
+    expect(job).toContain('class="row day"')
+    const jjson = Any.parse(await (await app.request(`/job/sess-2?json=1`)).json())
+    expect(jjson.job.key).toBe(JOB)
+    expect(jjson.job.latest.sessionId).toBe('sess-2')
+    expect(jjson.sessions.map((s: { sessionId: string }) => s.sessionId)).toEqual(['sess-1', 'sess-2'])
     expect((await app.request('/job/nope')).status).toBe(404)
 
     const session = await (await app.request('/session/sess-1')).text()
