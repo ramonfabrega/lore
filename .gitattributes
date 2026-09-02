@@ -1,0 +1,4 @@
+# LF in the working tree on every platform. Windows checkouts default to
+# core.autocrlf=true, which would rewrite the `#!/bin/sh` shim and risk making
+# a fresh CI checkout look dirty to install.ts's clean-tree gate.
+* text=auto eol=lf

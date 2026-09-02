@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # one platform's failure must not hide another's
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit
+      - run: bun test
+
+      # The installer is the one thing unit tests can't reach: it writes a
+      # platform-specific shim (#!/bin/sh vs .cmd) and produces the artifact
+      # every session actually runs. Build it, then execute what it installed.
+      # install.ts gates on a clean tree, which a fresh checkout is.
+      - name: install the frozen bin
+        run: bun scripts/install.ts
+
+      - name: the installed bin answers
+        if: runner.os != 'Windows'
+        run: "$HOME/.bun/bin/lore --version"
+
+      - name: the installed bin answers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # Quoted: a bare leading '&' is a YAML anchor indicator, not a string.
+        run: '& "$env:USERPROFILE\.bun\bin\lore.cmd" --version'
