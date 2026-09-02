@@ -112,6 +112,9 @@ joined to the index (well, requests, list $, last indexed activity — as of
 the last `lore index`). Active first. Attach is a command to copy.
 `lore agents` is the CLI twin; `/cli/agents` the route.
 
+Each row names its **model** — see below; neither of the harness's two
+files carries one, so a live agent's is read from its own transcript.
+
 ## Job (landed)
 
 `/job/<job_session_id>`: every transcript one background job produced
@@ -126,6 +129,62 @@ nav says `indexed N min ago`; `/_lore` carries the timestamp and the last
 error. Never `full` from the timer — a schema bump is a reinstall and a
 restart. Ran alongside a CLI `lore index`, the shared db's busy_timeout
 covers the overlap.
+
+## Which model ran this (landed 2026-09-02)
+
+The complaint that opened it: *"if I'm in a specific session, I wanna know
+what model it ran … part of the reason I don't like agent view is that I
+can't tell which model is what conv without opening"*. Model attribution
+was in the index from v12 and on exactly one surface — the session
+header. Every listing that names a conversation now names what ran it.
+
+**The chip** (`src/model.ts`, rendered by `viz.ts`): family hue, short
+label, full id in the `title`. `claude-opus-4-8` → `opus-4.8`,
+`claude-haiku-4-5-20251001` → `haiku-4.5`; a `[1m]` tag stays, and an id
+that is not a family-version pair passes through untouched rather than
+being guessed at.
+
+**Colour is the family, and only the family.** Four families fit the
+categorical palette exactly (opus → series-1, fable → 2, sonnet → 3,
+haiku → 4, anything else neutral), so a hue means the same model wherever
+it appears, and the generation rides in the text where a fifth and sixth
+hue would have failed anyway. This replaced rank-assigned slots in the day
+chart, where the same blue was opus in one window and fable in another and
+agreed with no chip on the page. The stacked charts now stack by family
+and their legend is stable; the exact ids ride in the column tooltip and
+in the `by model` table, which is the ledger.
+
+Where it lands:
+
+- `/` — a model column in **recent** (identity, so it sits left of the
+  prompt with the well, never among the numbers) and a chip in the
+  **agents** panel.
+- `/agents` — a model column. For a **live** agent (working/blocked) the
+  model is read from the last assistant record of its own transcript
+  (`modelSource: transcript`); otherwise it is the session's dominant
+  model as of the last index (`modelSource: index`, rendered dimmed). The
+  fleet rule is that a model is verified from the JSONL and never from a
+  parameter or a notification (CLAUDE.md's fan-out rules) — the roster
+  holds itself to it. Two candidate wells are tried, cwd-slug and indexed,
+  because a session that enters a worktree has been observed under both.
+- `/well/<dir>` — a model column per session and the well's own mix as a
+  tile; `/job/<id>` — which `/clear` ran on what.
+- `/search` — a chip on each hit's meta line.
+- `/session/<id>` — the mix in the header, and, **only when the session
+  switched**, a model column in the spine: which prompt ran on what. Each
+  step's fee cell names its model too.
+- the **fan-out ledger** under the fee bar: agent type × verified model ×
+  output tokens for the session's spawns, with the requested alias shown
+  when the served model does not contain it (the drift rule `lore spawns`
+  uses, now one definition in `model.ts`). "Which tokens came from which
+  agent" is answered on the page where the fan-out happened.
+
+Layer 1 carries it too, so miners and agents get it without the page:
+`lore sessions` rows gain `models` (one grouped query over the picked
+ids — never a correlated subquery per row), `lore agents` gains `model` +
+`modelSource`, `lore trace` gains top-level `models` and `spawns` and a
+per-transaction `model`. No schema change: `requests.model` (v12) and
+`spawns.model` (v6) already held everything.
 
 ## The block view (design pass, landed 2026-09-01)
 
@@ -302,7 +361,8 @@ the live window is not at (memory `headless-chrome-layout-check`).
 2. `lore serve` skeleton — landed; `/cli/` + `lore server` — landed.
 3. Recent, search, annotations, agents, job — landed.
 4. Jobs (trailer → transcript) + self-refresh — landed. Core complete.
-5. Design pass — the block view, then the console layout: landed (above).
+5. Design pass — the block view, then the console layout: landed (above);
+   model attribution across every listing: landed (above).
    Open: a search palette (search-as-you-type over titles) if the nav
    search proves too slow to reach for; light-mode screenshots (the
    headless checks ran dark).

@@ -13,9 +13,14 @@ const Row = z.object({
   workDirs: z.number(),
   firstPrompt: z.string().nullable(),
 })
+const ModelRow = z.object({ sessionId: z.string(), model: z.string(), requests: z.number() })
+
 // lastAt is the full last-activity timestamp (`last` is its day) — the
-// explorer's recent list wants the hour.
-export type SessionRow = z.infer<typeof Row> & { lastAt: string | null }
+// explorer's recent list wants the hour. `models` is what SERVED the
+// session, most requests first (model.ts): a listing that names a
+// conversation names what ran it, so neither a person nor a miner has to
+// open a session to learn whether it was opus or a sonnet fan-out.
+export type SessionRow = z.infer<typeof Row> & { lastAt: string | null; models: { model: string; requests: number }[] }
 
 // The arc spine of a well: its sessions in order, each headed by the prompt
 // that opened it. Ingest reads this before touching any transcript.
@@ -81,18 +86,37 @@ export function listSessions(
       ORDER BY ${opts.byActivity ? 'COALESCE(s.last_activity_ts, s.last_ts)' : 's.first_ts'} DESC LIMIT ?
     ) p ORDER BY ${opts.byActivity ? 'p.last, p.first' : 'p.first'}`
   params.push(opts.limit)
-  return z
-    .array(Row)
-    .parse(db.prepare(sql).all(...params))
-    .map((r) => {
-      const flat = r.firstPrompt?.replace(/\s+/g, ' ').trim() ?? null
-      return {
-        ...r,
-        first: r.first?.slice(0, 10) ?? null,
-        last: r.last?.slice(0, 10) ?? null,
-        lastAt: r.last ?? null,
-        idleUntil: r.idleUntil?.slice(0, 10) ?? null,
-        firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
-      }
-    })
+  const picked = z.array(Row).parse(db.prepare(sql).all(...params))
+  const models = modelsFor(db, picked.map((r) => r.sessionId))
+  return picked.map((r) => {
+    const flat = r.firstPrompt?.replace(/\s+/g, ' ').trim() ?? null
+    return {
+      ...r,
+      first: r.first?.slice(0, 10) ?? null,
+      last: r.last?.slice(0, 10) ?? null,
+      lastAt: r.last ?? null,
+      idleUntil: r.idleUntil?.slice(0, 10) ?? null,
+      firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
+      models: models.get(r.sessionId) ?? [],
+    }
+  })
+}
+
+// The served models of a set of sessions, most requests first. One grouped
+// query over the PICKED ids (idx_requests_session), never a correlated
+// subquery per row — the same rule the page/decorate split above follows.
+export function modelsFor(db: Database, sessionIds: string[]): Map<string, { model: string; requests: number }[]> {
+  const out = new Map<string, { model: string; requests: number }[]>()
+  if (sessionIds.length === 0) return out
+  const rows = z.array(ModelRow).parse(
+    db
+      .prepare(
+        `SELECT session_id AS sessionId, model, COUNT(*) AS requests FROM requests
+         WHERE model IS NOT NULL AND session_id IN (${sessionIds.map(() => '?').join(',')})
+         GROUP BY 1, 2 ORDER BY 3 DESC, 2`,
+      )
+      .all(...sessionIds),
+  )
+  for (const r of rows) (out.get(r.sessionId) ?? out.set(r.sessionId, []).get(r.sessionId)!).push({ model: r.model, requests: r.requests })
+  return out
 }

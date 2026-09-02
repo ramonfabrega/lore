@@ -8,13 +8,14 @@ import { z } from 'zod'
 import { type AgentRow, listAgents } from './agents'
 import { WIKI_DIR } from './config'
 import type { Lane } from './parse'
+import { FAMILIES, type ModelFamily, modelFamily } from './model'
 import { searchSessions } from './search'
 import { resolveSessionId } from './session'
-import { listSessions } from './sessions'
+import { listSessions, modelsFor } from './sessions'
 import { annotationLine, sessionBody, tile } from './block'
 import { cut, tok, usd } from './fmt'
 import { CSS } from './style'
-import { bars, feeBar, feeLegend, ibar, spark, stackedBars } from './viz'
+import { bars, feeBar, feeLegend, ibar, modelChip, modelChips, spark, stackedBars } from './viz'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
 
@@ -28,6 +29,12 @@ import { listUsage, type UsageRow } from './usage'
 // title names the series); one hue from the reference palette (series-1
 // blue, stepped for dark), 2px lines, 2px surface gaps, per-mark <title>
 // tooltips. Numbers wear text ink, never the series color.
+//
+// Model attribution (model.ts) runs through every listing that names a
+// conversation — recent, a well's sessions, a search hit, the roster — as
+// one chip: family hue, short label, full id in the title. The stacked
+// charts stack by the same families, so a band and a chip of the same
+// colour mean the same model wherever they appear.
 
 type Db = () => Database
 
@@ -125,7 +132,15 @@ export function createApp(
         error = e instanceof Error ? e.message : String(e)
       }
     }
-    const data = { q, lanes, sort, well: well ?? null, error, ...(result ?? { query: '', sessions: [], hits: 0 }) }
+    const models: Map<string, { model: string; requests: number }[]> = result ? modelsFor(db, result.sessions.map((x) => x.sessionId)) : new Map()
+    const data = {
+      q,
+      lanes,
+      sort,
+      well: well ?? null,
+      error,
+      ...(result ? { ...result, sessions: result.sessions.map((x) => ({ ...x, models: models.get(x.sessionId) ?? [] })) } : { query: '', sessions: [], hits: 0 }),
+    }
     if (wantsJson(c.req.raw)) return c.json(data)
     const laneOpt = (v: string, label: string) => html`<label><input type="radio" name="lanes" value="${v}" ${lanes.join(',') === v ? 'checked' : ''}> ${label}</label>`
     const body = html`
@@ -147,6 +162,7 @@ export function createApp(
                 <div>
                   <a class="mono" href="/session/${s.sessionId}">${s.sessionId.slice(0, 8)}</a>
                   <a class="mono" href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a>
+                  ${modelChips(models.get(s.sessionId), { max: 2 })}
                   <span class="muted mono">${s.first ?? ''} → ${s.last ?? ''}</span>
                   <span class="muted">${s.hits} hit${s.hits === 1 ? '' : 's'}</span>
                 </div>
@@ -177,14 +193,15 @@ export function createApp(
     const body = html`
       <div class="panel">
         <header><h2>agents</h2><span>${[...counts].map(([st, n]) => html`<span class="kind st-${st}">${n} ${st}</span> `)}</span>
-          <span class="sp small">the daemon's roster + each job's state.json, joined to the index · live tokens are the harness's counter · attach in a terminal</span></header>
+          <span class="sp small">the daemon's roster + each job's state.json, joined to the index · a live agent's model is read from its transcript · attach in a terminal</span></header>
         ${error ? html`<p class="footnote err">${error}</p>` : ''}
         <div class="scroll list roster">
-          <div class="row head"><span>state</span><span>name</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num">req</span><span class="num">list $</span><span>indexed</span><span>links</span><span>attach</span></div>
+          <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num">req</span><span class="num">list $</span><span>indexed</span><span>links</span><span>attach</span></div>
           ${rows.map(
             (a) => html`<div class="row ${a.state}" title="started ${a.startedAt.slice(0, 16)}${a.updatedAt ? ` · updated ${a.updatedAt.slice(0, 16)}` : ''}">
               <span title="${a.tempo ?? ''}${a.waitingFor ? ` · waiting for ${a.waitingFor}` : ''}"><span class="dot st-${a.state}"></span> ${a.state}</span>
               <span title="${a.name ?? ''}">${a.name ?? ''}</span>
+              <span class="${a.modelSource === 'index' ? 'stale' : ''}">${modelChip(a.model, { title: modelTitle(a) })}</span>
               <span class="mono muted" title="${a.cwd}${a.branch ? ` @ ${a.branch}` : ''}">${shortPath(a.cwd)}${a.branch ? ` @ ${a.branch}` : ''}</span>
               <span title="${a.detail ?? ''}">${a.detail ?? ''}</span>
               <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
@@ -217,7 +234,8 @@ export function createApp(
       )
     if (rows.length === 0) return c.notFound()
     const fee = new Map(listUsage(db, { by: 'session', sessions: rows.map((r) => r.sessionId), limit: 10000 }).rows.map((r) => [r.key, r]))
-    const sessions = rows.map((r) => ({ ...r, usage: fee.get(r.sessionId) ?? null }))
+    const models = modelsFor(db, rows.map((r) => r.sessionId))
+    const sessions = rows.map((r) => ({ ...r, usage: fee.get(r.sessionId) ?? null, models: models.get(r.sessionId) ?? [] }))
     const totals = sessions.reduce(
       (t, s) => ({ requests: t.requests + (s.usage?.requests ?? 0), output: t.output + (s.usage?.output ?? 0), listUsd: t.listUsd + (s.usage?.listUsd ?? 0) }),
       { requests: 0, output: 0, listUsd: 0 },
@@ -232,12 +250,13 @@ export function createApp(
         <p class="muted small">${sessions.length} transcripts across /clears · ${totals.requests.toLocaleString()} requests · ${tok(totals.output)} out · ${usd(Math.round(totals.listUsd * 100) / 100)} list-equivalent</p>
       </div>
       <div class="panel"><div class="scroll list jobs">
-        <div class="row head"><span>first</span><span>last</span><span>well</span><span class="num">lines</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
+        <div class="row head"><span>first</span><span>last</span><span>well</span><span>model</span><span class="num">lines</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
         ${sessions.map(
           (s) => html`<div class="row">
             <span class="mono"><a href="/session/${s.sessionId}">${s.first?.slice(0, 16).replace('T', ' ') ?? ''}</a></span>
             <span class="mono muted">${s.last?.slice(0, 16).replace('T', ' ') ?? ''}</span>
             <span class="mono"><a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a></span>
+            <span>${modelChips(s.models)}</span>
             <span class="num">${s.lines}</span>
             <span class="num">${s.usage?.requests ?? ''}</span>
             <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
@@ -306,11 +325,12 @@ export function createApp(
       <div class="area-recent panel">
         <header><h2>recent</h2><span>newest by last activity</span><span class="sp small"><a href="/search">search →</a></span></header>
         <div class="scroll list recent">
-          <div class="row head"><span>at</span><span>well</span><span>opening prompt</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
+          <div class="row head"><span>at</span><span>well</span><span>model</span><span>opening prompt</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
           ${recent.map(
             (s) => html`<div class="row">
               <span class="mono"><a href="/session/${s.sessionId}" title="${s.lastAt ?? ''}">${whenLabel(s.lastAt, today)}</a></span>
               <span class="mono"><a href="/well/${encodeURIComponent(s.well)}" title="${s.well}">${shortWell(s.well)}</a></span>
+              <span>${modelChips(s.models)}</span>
               <span title="${s.firstPrompt ?? ''}">${s.firstPrompt ?? html`<span class="muted">—</span>`}</span>
               <span class="num hide">${s.prompts || ''}</span>
               <span class="num hide">${s.usage?.requests ?? ''}</span>
@@ -328,6 +348,7 @@ export function createApp(
             (a) => html`<div class="row ${a.state}" title="${a.state}${a.tempo ? ` · ${a.tempo}` : ''}${a.waitingFor ? ` · ${a.waitingFor}` : ''} · ${a.cwd}">
               <span class="dot st-${a.state}"></span>
               <span>${a.sessionId && a.indexed ? html`<a href="/session/${a.sessionId}">${a.name ?? shortPath(a.cwd)}</a>` : (a.name ?? shortPath(a.cwd))}</span>
+              <span>${modelChip(a.model, { title: modelTitle(a) })}</span>
               <span class="muted">${a.detail ?? ''}</span>
               <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
               <span class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</span>
@@ -411,7 +432,7 @@ export function createApp(
           <div class="row head"><span>model</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span>fee by class</span><span class="num">list $</span></div>
           ${models.rows.map(
             (r) => html`<div class="row">
-              <span class="mono">${r.key}</span>
+              <span class="mono" title="${r.key}"><i class="sw m-${modelFamily(r.key)}"></i>${r.key}</span>
               <span class="num">${r.requests.toLocaleString()}</span>
               <span class="num">${r.sessions}</span>
               <span class="num">${tok(r.output)}</span>
@@ -466,7 +487,9 @@ export function createApp(
     const weeks = listUsage(db, { by: 'week', well: dir, exact: true, limit: 26 })
     const byId = new Map(usage.rows.map((r) => [r.key, r]))
     const rows = sessions.map((s) => ({ ...s, usage: byId.get(s.sessionId) ?? null }))
-    const data = { well: dir, totals: usage.totals, sessions: rows }
+    // The well's own mix: every model that served it, heaviest first.
+    const wellModels = tallyWellModels(rows)
+    const data = { well: dir, totals: usage.totals, models: wellModels, sessions: rows }
     if (wantsJson(c.req.raw)) return c.json(data)
     const maxUsd = Math.max(...rows.map((s) => s.usage?.listUsd ?? 0), 0)
     const wiki = wikiPageFor(dir, wikiDir)
@@ -481,15 +504,17 @@ export function createApp(
           ${tile('cache-read', tok(usage.totals.cacheRead))}
           ${tile('list $', usd(usage.totals.listUsd))}
           ${usage.totals.spawns ? tile('spawns', `${usage.totals.spawns} · ${tok(usage.totals.spawnOutput ?? 0)} out`) : ''}
+          ${wellModels.length ? html`<div class="tile models"><div class="v">${wellModels.map((m) => modelChip(m.model, { title: `${m.model} · ${m.requests.toLocaleString()} requests` }))}</div><div class="l">models</div></div>` : ''}
           ${weeks.rows.length > 1 ? html`<div class="tile wide">${bars(weeks.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)}` })), { height: 28 })}</div>` : ''}
         </div>
       </div>
       <div class="panel"><div class="scroll list sessions">
-        <div class="row head"><span>first</span><span>last</span><span>opening prompt</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num">list $</span><span class="num">spawns</span></div>
+        <div class="row head"><span>first</span><span>last</span><span>model</span><span>opening prompt</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num">list $</span><span class="num">spawns</span></div>
         ${rows.map(
           (s) => html`<div class="row">
             <span class="mono"><a href="/session/${s.sessionId}">${s.first ?? ''}</a></span>
             <span class="mono muted" title="${s.idleUntil ? `open until ${s.idleUntil} with no work` : ''}">${s.last ?? ''}${s.idleUntil ? ' ⋯' : ''}</span>
+            <span>${modelChips(s.models)}</span>
             <span title="${s.firstPrompt ?? ''}">${s.firstPrompt ?? html`<span class="muted">—</span>`}</span>
             <span class="num">${s.prompts || ''}</span>
             <span class="num">${s.usage?.requests ?? ''}</span>
@@ -571,13 +596,16 @@ function whenLabel(ts: string | null, today: string): string {
   return ts.slice(0, 10) === today ? ts.slice(11, 16) : ts.slice(5, 10)
 }
 
-// The day chart: list $ stacked by model — the top three models over the
-// window in series order, everything else folded into "other" (neutral).
-const MODEL_SLOTS = ['s1', 's2', 's3'] as const
-function topModels(days: UsageRow[]): string[] {
-  const total = new Map<string, number>()
-  for (const d of days) for (const m of d.models ?? []) total.set(m.model, (total.get(m.model) ?? 0) + (m.listUsd ?? 0))
-  return [...total].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m]) => m)
+// The day chart: list $ stacked by model FAMILY (model.ts). Stacking by
+// exact id meant the colours were assigned by rank within the window — the
+// same blue was opus in one window and fable in another, and a chip
+// elsewhere on the page agreed with neither. Families are four, fixed, and
+// hold their hue everywhere; the exact ids ride in the column's tooltip,
+// where the generation belongs.
+function familiesIn(rows: UsageRow[]): ModelFamily[] {
+  const present = new Set<ModelFamily>()
+  for (const d of rows) for (const m of d.models ?? []) if ((m.listUsd ?? 0) > 0) present.add(modelFamily(m.model))
+  return FAMILIES.filter((f) => present.has(f))
 }
 // The usage page's window: a relative range (7d/30d/90d/all) or absolute
 // since/until dates (inclusive, as a person writes them; the query's `until`
@@ -608,20 +636,45 @@ function usageWindow(raw: Record<string, string | undefined>) {
 
 function bucketChart(rows: UsageRow[], height = 72) {
   const days = rows.slice().sort((a, b) => (a.key < b.key ? -1 : 1))
-  const top = topModels(days)
-  const series = [
-    ...top.map((m, i) => ({ name: m.replace(/^claude-/, ''), cls: MODEL_SLOTS[i]!, values: days.map((d) => (d.models ?? []).find((x) => x.model === m)?.listUsd ?? 0) })),
-    { name: 'other', cls: 's0', values: days.map((d) => (d.models ?? []).filter((x) => !top.includes(x.model)).reduce((a, x) => a + (x.listUsd ?? 0), 0)) },
-  ].filter((s) => s.values.some((v) => v > 0))
+  const series = familiesIn(days).map((f) => ({
+    name: f,
+    cls: `m-${f}`,
+    values: days.map((d) => (d.models ?? []).filter((x) => modelFamily(x.model) === f).reduce((a, x) => a + (x.listUsd ?? 0), 0)),
+  }))
+  const detail = (d: UsageRow) =>
+    (d.models ?? [])
+      .filter((m) => (m.listUsd ?? 0) > 0)
+      .sort((a, b) => (b.listUsd ?? 0) - (a.listUsd ?? 0))
+      .map((m) => `${m.model} ${usd(m.listUsd)}`)
+      .join('\n')
   return stackedBars(
     days.map((d) => d.key),
     series,
-    { height, title: (i) => `${days[i]!.key}: ${usd(days[i]!.listUsd)} · ${tok(days[i]!.output)} out · ${days[i]!.requests} req` },
+    {
+      height,
+      title: (i) => `${days[i]!.key}: ${usd(days[i]!.listUsd)} · ${tok(days[i]!.output)} out · ${days[i]!.requests} req\n${detail(days[i]!)}`,
+    },
   )
 }
 function modelLegend(rows: UsageRow[]) {
-  const top = topModels(rows)
-  return html`<span class="legend small muted">${top.map((m, i) => html`<span class="key"><i class="sw ${MODEL_SLOTS[i]}"></i>${m.replace(/^claude-/, '')}</span>`)}<span class="key"><i class="sw s0"></i>other</span></span>`
+  return html`<span class="legend small muted">${familiesIn(rows).map((f) => html`<span class="key"><i class="sw m-${f}"></i>${f}</span>`)}</span>`
+}
+
+// A roster row's model, and where the answer came from — a live agent's is
+// read from its transcript, a finished one's from the index, which a
+// mid-session /model switch can outdate.
+function modelTitle(a: AgentRow): string {
+  if (!a.model) return 'no model recorded yet'
+  const mix = (a.indexed?.models ?? []).map((m) => `${m.model} ×${m.requests}`).join('\n')
+  const how = a.modelSource === 'transcript' ? 'verified from the transcript' : `as of the last index${mix ? '' : ''}`
+  return `${a.model} — ${how}${mix ? `\n${mix}` : ''}`
+}
+
+// Every model a well's sessions ran on, heaviest first.
+function tallyWellModels(rows: { models: { model: string; requests: number }[] }[]): { model: string; requests: number }[] {
+  const n = new Map<string, number>()
+  for (const r of rows) for (const m of r.models) n.set(m.model, (n.get(m.model) ?? 0) + m.requests)
+  return [...n].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests || (a.model < b.model ? -1 : 1))
 }
 
 function agoText(msAgo: number): string {

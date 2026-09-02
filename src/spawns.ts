@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { modelDrift } from './model'
 
 // The spawn observatory (lore#5): every subagent leaves a transcript at
 // <projectsDir>/<well>/<sessionId>/subagents/agent-<id>.jsonl plus a
@@ -337,7 +338,7 @@ export function listSpawns(
     .parse(db.prepare(sql).all(...params, opts.limit))
     .map(({ lastStopReason, ...r }) => ({
       ...r,
-      ...(r.requestedModel && r.model ? { drift: !r.model.includes(r.requestedModel) } : {}),
+      ...(r.requestedModel && r.model ? { drift: modelDrift(r.requestedModel, r.model) === true } : {}),
       // Surfaced only when the run didn't end cleanly — a floor-not-measurement
       // warning plus the reason ('tool_use' = interrupted mid-tool, null = the
       // terminal usage row never landed), not fields to skim past on every

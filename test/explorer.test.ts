@@ -120,13 +120,19 @@ describe('agents join', () => {
         ['bbb', { detail: 'running tests', tempo: 'active', tokens: 12345, worktreeBranch: 'x', children: [{ id: '7', href: 'https://github.com/o/r/pull/7', kind: 'pr' }], updatedAt: '2023-11-14T22:18:20.000Z' }],
         ['ccc', null],
       ]),
-      (sid) => (sid === 'sess-1' ? { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z' } : null),
+      (sid) =>
+        sid === 'sess-1'
+          ? { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-opus-5', requests: 5 }] }
+          : null,
     )
     expect(rows.map((r) => r.id)).toEqual(['bbb', 'ccc', 'eee', 'ddd', 'aaa'])
     expect(rows[0]).toMatchObject({ liveTokens: 12345, branch: 'x', attach: 'claude attach bbb', indexed: null })
     expect(rows[0]!.children[0]!.id).toBe('7')
     expect(rows[1]!.waitingFor).toBe('permission prompt')
     expect(rows[4]!.indexed).toMatchObject({ requests: 5, listUsd: 0.23 })
+    // the model rides on the row, from the index, and says so
+    expect(rows[4]).toMatchObject({ model: 'claude-opus-5', modelSource: 'index' })
+    expect(rows[0]).toMatchObject({ model: null, modelSource: null })
   })
 })
 
@@ -135,7 +141,7 @@ describe('explorer pages: search, agents, job, anchors', () => {
     const db = await seeded()
     const app = createApp(() => db, {
       agents: async () => [
-        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, children: [], attach: 'claude attach bbb', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z' } },
+        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, children: [], attach: 'claude attach bbb', model: 'claude-fable-5-1', modelSource: 'transcript', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-fable-5-1', requests: 5 }] } },
       ],
       wikiDir: '/nonexistent',
     })
@@ -150,6 +156,9 @@ describe('explorer pages: search, agents, job, anchors', () => {
     expect(agents).toContain('claude attach bbb')
     expect(agents).toContain('running tests')
     expect(agents).toContain('/session/sess-1')
+    // the roster names the model without opening the session, and says how it knows
+    expect(agents).toContain('<i class="sw m-fable"></i>fable-5.1')
+    expect(agents).toContain('verified from the transcript')
 
     const job = await (await app.request(`/job/${JOB}`)).text()
     expect(job).toContain('/session/sess-1')

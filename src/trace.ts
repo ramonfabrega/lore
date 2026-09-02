@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
 import { rateFor } from './usage'
 
@@ -42,6 +43,17 @@ const Meta = z.object({
   lines: z.number(),
 })
 const SpawnRow = z.object({ n: z.number(), output: z.number() })
+// The fan-out ledger for one session, by agent type × VERIFIED model — the
+// standing fleet question (CLAUDE.md's fan-out rules) answered on the page
+// that shows the session, not only by `lore spawns`.
+const SpawnGroup = z.object({
+  agentType: z.string().nullable(),
+  model: z.string().nullable(),
+  requestedModel: z.string().nullable(),
+  n: z.number(),
+  output: z.number(),
+})
+export type SpawnGroup = z.infer<typeof SpawnGroup>
 
 export type Instruction = {
   tool: string
@@ -143,6 +155,10 @@ export type Transaction = {
   output: number
   thinking: number
   listUsd: number | null
+  // The model that served most of this transaction's steps (model.ts) —
+  // present whether or not `steps` was asked for, because "which model ran
+  // this prompt" is a question about the transaction, not about its detail.
+  model: string | null
   reply: string
   ms: number | null
   requests?: Step[]
@@ -164,6 +180,9 @@ export type Trace = {
     spawnOutput: number
     ms: number | null
   }
+  // What served the session, most requests first, and what its fan-out ran on.
+  models: { model: string; requests: number }[]
+  spawns: SpawnGroup[]
   transactions: Transaction[]
 }
 
@@ -213,6 +232,16 @@ export function getTrace(
   const spawns = SpawnRow.parse(
     db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(output_tokens), 0) AS output FROM spawns WHERE session_id = ?').get(sessionId),
   )
+  const spawnGroups = z.array(SpawnGroup).parse(
+    db
+      .prepare(
+        `SELECT agent_type AS agentType, model, requested_model AS requestedModel,
+                COUNT(*) AS n, COALESCE(SUM(output_tokens), 0) AS output
+         FROM spawns WHERE session_id = ? GROUP BY 1, 2, 3 ORDER BY 5 DESC, 4 DESC`,
+      )
+      .all(sessionId),
+  )
+  const models = tallyModels([...reqs.values()].map((r) => r.model))
 
   // Group by prompt id in order of first appearance. Rows before any prompt
   // id (pre-2026-06 transcripts, or a harness preamble) fall into one
@@ -310,6 +339,7 @@ export function getTrace(
       thoughts,
       annotations,
       errors: instructions.filter((i) => i.error).length,
+      model: dominantModel(tallyModels(steps.map((st) => st.model))),
       ...fee,
       reply,
       ms: first && last ? Math.max(0, Date.parse(last) - Date.parse(first)) : null,
@@ -354,6 +384,8 @@ export function getTrace(
   return {
     session,
     totals: { ...totals, listUsd: totals.listUsd == null ? null : round2(totals.listUsd) },
+    models,
+    spawns: spawnGroups,
     transactions: transactions.slice(0, opts.limit).map((x) => ({ ...x, listUsd: x.listUsd == null ? null : round2(x.listUsd) })),
   }
 }

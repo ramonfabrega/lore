@@ -59,7 +59,7 @@ cli.command('wells', {
 
 cli.command('sessions', {
   description:
-    'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt). `last` is the last WORK-lane line (prompt/text/thinking/tool), NOT the last line in the file: harness heartbeats keep timestamping a dormant session for weeks and they DO index (into the event lane), so `idleUntil` — present only when it exceeds `last` — is how long the session stayed open after the work stopped. --limit takes the NEWEST n and renders them oldest-first; use --since (activity-based) for delta ingests.',
+    'List indexed sessions chronologically — the arc spine of a well (dates, lines, opening prompt). `last` is the last WORK-lane line (prompt/text/thinking/tool), NOT the last line in the file: harness heartbeats keep timestamping a dormant session for weeks and they DO index (into the event lane), so `idleUntil` — present only when it exceeds `last` — is how long the session stayed open after the work stopped. --limit takes the NEWEST n and renders them oldest-first; use --since (activity-based) for delta ingests. Every row names the models that SERVED it (`models`, most requests first) — a listing answers "what ran this" without opening the session.',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
@@ -119,7 +119,7 @@ cli.command('session', {
 
 cli.command('trace', {
   description:
-    'One session opened like a block (docs/EXPLORER.md): transactions (one user prompt and everything until the next; slash commands are `kind: command`), each with its steps (API requests), fee (four token classes + thinking, dated list-price `listUsd`), instructions (tool calls with the paired result\'s latency `ms` and `error` flag), the assistant\'s closing text, and wall time. Zero inference — every field is a transcript field or a join. Accepts a unique id prefix. `--steps` expands each transaction\'s requests (model, stop reason, per-request fee).',
+    'One session opened like a block (docs/EXPLORER.md): transactions (one user prompt and everything until the next; slash commands are `kind: command`), each with its steps (API requests), fee (four token classes + thinking, dated list-price `listUsd`), instructions (tool calls with the paired result\'s latency `ms` and `error` flag), the assistant\'s closing text, and wall time. Zero inference — every field is a transcript field or a join. Accepts a unique id prefix. `--steps` expands each transaction\'s requests (model, stop reason, per-request fee). Top level: `models` (what served the session, most requests first) and `spawns` (the fan-out ledger — agent type x verified model x output tokens); each transaction carries the `model` that served most of its steps.',
   args: z.object({
     id: z.string().describe('Session id or unique prefix (see the sessions listing or `usage --by session`)'),
   }),
@@ -419,7 +419,7 @@ cli.command('api', {
 
 cli.command('agents', {
   description:
-    'The live roster joined to the index: what `claude agents --json --all` lists (state, name, cwd, waitingFor) + each job\'s state.json (detail, tempo, LIVE tokens, links, worktree branch) + lore\'s side per session (well, requests, list $, last indexed activity — as of the last `lore index`). Active (working/blocked) first, then by last update. Attach is a command to copy, never done for you. The agents page of the explorer is this verb rendered.',
+    'The live roster joined to the index: what `claude agents --json --all` lists (state, name, cwd, waitingFor) + each job\'s state.json (detail, tempo, LIVE tokens, links, worktree branch) + lore\'s side per session (well, requests, list $, last indexed activity — as of the last `lore index`). Active (working/blocked) first, then by last update. Attach is a command to copy, never done for you. Each row names its `model`: for a live agent (working/blocked) read from the transcript\'s last assistant record and marked `modelSource: transcript`, otherwise the session\'s dominant model as of the last index (`modelSource: index`) — neither the daemon listing nor state.json carries a model at all. The agents page of the explorer is this verb rendered.',
   run: async () => {
     const db = openDb(DB_PATH)
     const agents = await listAgents(db)

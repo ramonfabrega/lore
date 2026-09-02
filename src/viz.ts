@@ -1,6 +1,7 @@
 import { html } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
 import { tok, usd } from './fmt'
+import { modelClass, modelLabel, orderModels } from './model'
 
 // The explorer's marks (dataviz skill): thin bars, 2px surface gaps, per-mark
 // <title> tooltips, text in text ink, series hues from the reference
@@ -117,4 +118,28 @@ export function spark(values: number[], o: { height?: number; title?: (i: number
     const bh = Math.max(1, (v / max) * h)
     return html`<rect class="mark ${i === n - 1 ? 'last' : ''}" x="${i * 10}" y="${(h - bh).toFixed(2)}" width="8" height="${bh.toFixed(2)}">${o.title ? html`<title>${o.title(i)}</title>` : ''}</rect>`
   })}</svg></div>`
+}
+
+// ---- model identity (model.ts) ----------------------------------------
+
+// A model chip: the family's hue as a swatch, the short label as text, the
+// full id in the title. Identity, not a measurement — it wears the same
+// shape in a dense row, a header and a legend, so the eye learns it once.
+export function modelChip(id: string | null | undefined, o: { title?: string } = {}) {
+  if (!id) return html``
+  return html`<span class="mchip" title="${o.title ?? id}"><i class="sw ${modelClass(id)}"></i>${modelLabel(id)}</span>`
+}
+
+// A mix, most work first: the leading chips, then `+n` for the tail. One
+// line, whatever the session did.
+export function modelChips(models: { model: string; requests: number }[] | null | undefined, o: { max?: number } = {}) {
+  if (!models || models.length === 0) return html``
+  const ordered = orderModels(models)
+  const max = o.max ?? 1
+  const head = ordered.slice(0, max)
+  const rest = ordered.slice(max)
+  const all = ordered.map((m) => `${m.model} ×${m.requests}`).join('\n')
+  return html`${head.map((m) => modelChip(m.model, { title: all }))}${
+    rest.length ? html`<span class="mchip more" title="${all}">+${rest.length}</span>` : ''
+  }`
 }

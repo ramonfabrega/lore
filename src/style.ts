@@ -103,6 +103,7 @@ main.layout-usage { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-t
 .kpis .tile .spark svg { display: block; width: 100%; } .kpis .tile .spark .mark { fill: var(--series-1); opacity: .55; } .kpis .tile .spark .mark.last { opacity: 1; }
 .tiles { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
 .tile { background: var(--surface-2); border-radius: 6px; padding: 4px 10px; min-width: 84px; }
+.tile.models .v { font: 500 var(--fs-125) var(--mono); display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 2px 0 1px; }
 .tile .v { font: 500 var(--fs-15) var(--mono); } .tile .l { font: var(--fs-105) var(--mono); color: var(--ink-3); } .tile .l .warn { color: var(--warn); }
 .tile.warn .v { color: var(--warn); } .tile.good .v { color: var(--good); }
 .footnote { font: var(--fs-115) var(--mono); color: var(--ink-3); padding: 4px 10px; }
@@ -125,15 +126,17 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list .row:not(.head):hover { background: var(--surface-2); }
 .list .row .num { text-align: right; font-family: var(--mono); font-size: var(--fs-12); }
 .list .row.done, .list .row.muted { color: var(--ink-3); }
-.list.recent .row { grid-template-columns: calc(42px * var(--z)) calc(200px * var(--z)) minmax(0, 1fr) calc(30px * var(--z)) calc(40px * var(--z)) calc(44px * var(--z)) calc(104px * var(--z)); }
+.list.recent .row { grid-template-columns: calc(42px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(30px * var(--z)) calc(40px * var(--z)) calc(44px * var(--z)) calc(104px * var(--z)); }
 .list.active .row { grid-template-columns: minmax(0, 1fr) calc(40px * var(--z)) calc(52px * var(--z)) calc(112px * var(--z)); }
-.list.agents .row { grid-template-columns: calc(12px * var(--z)) minmax(calc(70px * var(--z)), 1fr) minmax(0, 2fr) calc(96px * var(--z)) calc(60px * var(--z)); }
-.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(140px * var(--z)) calc(190px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
+.list.agents .row { grid-template-columns: calc(12px * var(--z)) minmax(calc(70px * var(--z)), 1fr) calc(76px * var(--z)) minmax(0, 2fr) calc(96px * var(--z)) calc(60px * var(--z)); }
+.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
+/* a model read from the index, not the transcript: only as fresh as the last index run */
+.list.roster .row .stale .mchip { color: var(--ink-3); } .list.roster .row .stale .sw { opacity: .55; }
 .list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(122px * var(--z)); }
 .list.wells .row { grid-template-columns: minmax(0, 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
 .list.days .row { grid-template-columns: calc(74px * var(--z)) calc(52px * var(--z)) calc(34px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
-.list.sessions .row { grid-template-columns: calc(84px * var(--z)) calc(92px * var(--z)) minmax(0, 1fr) calc(28px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(44px * var(--z)); }
-.list.jobs .row { grid-template-columns: calc(120px * var(--z)) calc(120px * var(--z)) minmax(0, 1fr) calc(44px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(104px * var(--z)); }
+.list.sessions .row { grid-template-columns: calc(84px * var(--z)) calc(92px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(28px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(44px * var(--z)); }
+.list.jobs .row { grid-template-columns: calc(120px * var(--z)) calc(120px * var(--z)) minmax(0, 1fr) calc(76px * var(--z)) calc(44px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(104px * var(--z)); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); vertical-align: middle; }
 .dot.st-working { background: var(--series-1); box-shadow: 0 0 0 0 var(--series-1); animation: pulse 1.8s cubic-bezier(.2, .6, .3, 1) infinite; }
 /* a heartbeat, not a ripple: the ring leaves in the first 55% and the dot rests for the remainder */
@@ -146,6 +149,8 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .viz { margin: 0; } .viz svg { display: block; max-width: 100%; }
 .viz .axis { display: flex; justify-content: space-between; font-size: var(--fs-10); color: var(--ink-3); font-family: var(--mono); margin-top: 2px; }
 .viz .mark { fill: var(--series-1); } .viz .mark.s2 { fill: var(--series-2); } .viz .mark.s3 { fill: var(--series-3); } .viz .mark.s0 { fill: var(--ink-3); }
+.viz .mark.m-opus { fill: var(--series-1); } .viz .mark.m-fable { fill: var(--series-2); }
+.viz .mark.m-sonnet { fill: var(--series-3); } .viz .mark.m-haiku { fill: var(--series-4); } .viz .mark.m-other { fill: var(--ink-3); }
 .viz a:hover .mark { opacity: .8; }
 .legend .key { margin-right: 12px; }
 .ib { display: inline-block; width: 40px; height: 5px; margin-right: 6px; vertical-align: middle; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
@@ -155,12 +160,24 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; background: var(--ink-3); }
 .sw.read { background: var(--series-1); } .sw.write { background: var(--series-2); } .sw.run { background: var(--series-3); }
 .sw.s1 { background: var(--series-1); } .sw.s2 { background: var(--series-2); } .sw.s3 { background: var(--series-3); } .sw.s0 { background: var(--ink-3); }
+/* model identity (model.ts): hue is the FAMILY and only the family — four families, four series
+   tokens, the same colour on every page and in every window; the generation rides in the text. */
+.sw.m-opus { background: var(--series-1); } .sw.m-fable { background: var(--series-2); }
+.sw.m-sonnet { background: var(--series-3); } .sw.m-haiku { background: var(--series-4); } .sw.m-other { background: var(--ink-3); }
+.mchip { font: var(--fs-115) var(--mono); color: var(--ink-2); white-space: nowrap; }
+.mchip + .mchip, .mchip + .mchip.more { margin-left: 6px; } .mchip.more { color: var(--ink-3); }
+.mchip .sw { width: 6px; height: 6px; margin-right: 4px; }
+a .mchip, .row a .mchip { color: inherit; }
 .fee { margin: 6px 0 2px; } .feebar { display: flex; gap: 2px; height: 8px; max-width: 720px; }
 .feebar .seg { display: block; min-width: 2px; border-radius: 2px; }
 .seg.output, .sw.output { background: var(--series-1); } .seg.cache-read, .sw.cache-read { background: var(--series-2); }
 .seg.cache-write, .sw.cache-write { background: var(--series-3); } .seg.input, .sw.input { background: var(--series-4); }
 .fee figcaption { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; } .fee .key b { font-weight: 500; color: var(--ink-2); } .fee .pct { color: var(--ink-3); }
 .list .fee { margin: 0; display: inline-block; width: 100%; vertical-align: middle; } .list .feebar { height: 6px; }
+
+/* the fan-out ledger: agent type x verified model, one line under the fee bar */
+.fan { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 2px; color: var(--ink-2); font-family: var(--mono); }
+.fan .g { white-space: nowrap; } .fan b { font-weight: 500; } .fan .kind.err { margin-left: 4px; }
 
 /* the block view (block.ts) */
 .tl { margin: 8px 0 0; display: grid; grid-template-columns: 40px minmax(0, 1fr); }
@@ -173,6 +190,7 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .tl .m { fill: var(--ink-3); rx: 1; } .tl .m.read { fill: var(--series-1); } .tl .m.write { fill: var(--series-2); } .tl .m.run { fill: var(--series-3); }
 .tl .m.say { fill: var(--ink-2); } .tl .m.err { fill: var(--crit); }
 .spine .row { display: grid; grid-template-columns: calc(30px * var(--z)) calc(64px * var(--z)) minmax(0, 1fr) calc(48px * var(--z)) calc(48px * var(--z)) calc(36px * var(--z)) calc(56px * var(--z)) calc(112px * var(--z)) calc(100px * var(--z)); gap: 0 8px; align-items: baseline; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.spine.mixed .row { grid-template-columns: calc(30px * var(--z)) calc(64px * var(--z)) minmax(0, 1fr) calc(80px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(36px * var(--z)) calc(56px * var(--z)) calc(112px * var(--z)) calc(100px * var(--z)); }
 .spine .row.head { position: sticky; top: 0; color: var(--ink-3); font: 500 var(--fs-115) var(--mono); background: var(--surface); z-index: 1; }
 .spine .row .num { text-align: right; font-family: var(--mono); font-size: var(--fs-12); } .spine .row .n { text-align: right; }
 .spine details.txn > summary { transition: background-color var(--t-hover) var(--ease-out); } .spine details.txn > summary:hover { background: var(--surface-2); }
@@ -208,6 +226,6 @@ mark { background: color-mix(in oklab, var(--series-1) 22%, transparent); color:
 @media (max-width: 900px) {
   body { overflow: auto; height: auto; } html { height: auto; }
   main { display: flex; flex-direction: column; } .panel { max-height: 70vh; } .panel > .scroll { max-height: 60vh; }
-  .list.recent .row { grid-template-columns: 42px 100px minmax(0, 1fr) 100px; } .list.recent .row > .hide { display: none; }
+  .list.recent .row { grid-template-columns: 42px 96px 74px minmax(0, 1fr) 100px; } .list.recent .row > .hide { display: none; }
 }
 `

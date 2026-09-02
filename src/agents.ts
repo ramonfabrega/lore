@@ -2,8 +2,10 @@ import type { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { CLAUDE_DIR } from './config'
+import { CLAUDE_DIR, PROJECTS_DIR } from './config'
+import { dominantModel } from './model'
 import { listUsage } from './usage'
+import { slugWellDir } from './wells'
 
 // The live roster (docs/EXPLORER.md, the agents page): what `claude agents`
 // shows, joined to what lore knows. Two sources, both files the harness
@@ -71,8 +73,18 @@ export type AgentRow = {
   liveTokens: number | null
   children: { id: string; href: string; kind: string }[]
   attach: string | null
+  // What is running this conversation (model.ts), and how we know.
+  model: string | null
+  modelSource: 'transcript' | 'index' | null
   // lore's side — null when the session is not indexed yet
-  indexed: { well: string; requests: number; output: number; listUsd: number | null; last: string | null } | null
+  indexed: {
+    well: string
+    requests: number
+    output: number
+    listUsd: number | null
+    last: string | null
+    models: { model: string; requests: number }[]
+  } | null
 }
 
 export async function listAgentsRaw(): Promise<ListedAgent[]> {
@@ -106,6 +118,8 @@ export function joinAgents(
   const rows = listed.map((a): AgentRow => {
     const st = a.id ? (states.get(a.id) ?? null) : null
     const sessionId = a.sessionId ?? st?.sessionId ?? null
+    const indexed = sessionId ? lookup(sessionId) : null
+    const model = dominantModel(indexed?.models)
     return {
       id: a.id ?? null,
       name: a.name ?? st?.name ?? null,
@@ -121,7 +135,9 @@ export function joinAgents(
       liveTokens: st?.tokens ?? null,
       children: st?.children ?? [],
       attach: a.id ? `claude attach ${a.id}` : null,
-      indexed: sessionId ? lookup(sessionId) : null,
+      model,
+      modelSource: model ? 'index' : null,
+      indexed,
     }
   })
   rows.sort((x, y) => rank(x.state) - rank(y.state) || (y.updatedAt ?? y.startedAt).localeCompare(x.updatedAt ?? x.startedAt))
@@ -131,7 +147,9 @@ export function joinAgents(
 const IndexedRow = z.object({ sessionId: z.string(), well: z.string(), last: z.string().nullable() })
 
 export function indexedLookup(db: Database): (sessionId: string) => AgentRow['indexed'] {
-  const fee = new Map(listUsage(db, { by: 'session', limit: 100000 }).rows.map((r) => [r.key, r]))
+  // `split` costs nothing here — the same (key, model, day) cells the fee is
+  // already folded from carry the model mix.
+  const fee = new Map(listUsage(db, { by: 'session', limit: 100000, split: true }).rows.map((r) => [r.key, r]))
   const meta = new Map(
     z
       .array(IndexedRow)
@@ -149,7 +167,14 @@ export function indexedLookup(db: Database): (sessionId: string) => AgentRow['in
     const m = meta.get(sessionId)
     if (!m) return null
     const f = fee.get(sessionId)
-    return { well: m.well, requests: f?.requests ?? 0, output: f?.output ?? 0, listUsd: f?.listUsd ?? null, last: m.last }
+    return {
+      well: m.well,
+      requests: f?.requests ?? 0,
+      output: f?.output ?? 0,
+      listUsd: f?.listUsd ?? null,
+      last: m.last,
+      models: (f?.models ?? []).map((x) => ({ model: x.model, requests: x.requests })),
+    }
   }
 }
 
@@ -157,5 +182,59 @@ export async function listAgents(db: Database): Promise<AgentRow[]> {
   const listed = await listAgentsRaw()
   const states = new Map<string, JobState | null>()
   await Promise.all(listed.map(async (a) => a.id && states.set(a.id, await readJobState(a.id))))
-  return joinAgents(listed, states, indexedLookup(db))
+  const rows = joinAgents(listed, states, indexedLookup(db))
+  await verifyModels(rows)
+  return rows
+}
+
+// The last model a transcript actually served, read from its tail. Records
+// are one JSON object per line; the last one is what is running now. The
+// first line of a byte-slice is a fragment, so it is dropped, and a tail
+// that holds no assistant record answers null rather than a guess — the
+// caller falls back to the index and says so.
+export async function verifyModel(path: string, bytes = 256 * 1024): Promise<string | null> {
+  const f = Bun.file(path)
+  const size = f.size
+  if (!size) return null
+  const text = await (size > bytes ? f.slice(size - bytes) : f).text()
+  const lines = text.split('\n')
+  const from = size > bytes ? 1 : 0
+  for (let i = lines.length - 1; i >= from; i--) {
+    const line = lines[i]
+    if (!line || !line.includes('"model"')) continue
+    try {
+      const rec = JSON.parse(line) as { type?: string; message?: { model?: string } }
+      if (rec.type === 'assistant' && typeof rec.message?.model === 'string') return rec.message.model
+    } catch {
+      // a truncated or non-record line — keep walking back
+    }
+  }
+  return null
+}
+
+// Verify the LIVE rows only. A finished agent's model is settled and the
+// index already holds it; a working or blocked one is exactly where the
+// index lags, and it is the row a person is reading.
+export async function verifyModels(rows: AgentRow[]): Promise<void> {
+  await Promise.all(
+    rows.map(async (r) => {
+      if (r.state !== 'working' && r.state !== 'blocked') return
+      if (!r.sessionId) return
+      // Two candidate wells, and which one holds the file is not ours to
+      // assume: the transcript shards by cwd, the index records the well as
+      // of the last `lore index`, and a session that entered a worktree has
+      // been observed under BOTH (2026-09-02, this session's own transcript
+      // moved to the worktree well). Take whichever exists.
+      const path = [slugWellDir(r.cwd), r.indexed?.well]
+        .filter((w): w is string => !!w)
+        .map((w) => join(PROJECTS_DIR, w, `${r.sessionId}.jsonl`))
+        .find((p) => existsSync(p))
+      if (!path) return
+      const model = await verifyModel(path)
+      if (model) {
+        r.model = model
+        r.modelSource = 'transcript'
+      }
+    }),
+  )
 }

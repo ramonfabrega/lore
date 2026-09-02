@@ -13,6 +13,17 @@ function seedDb(): Database {
     CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, uuid TEXT, ts TEXT,
       lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
+    CREATE TABLE requests(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, message_id TEXT NOT NULL, ts TEXT, model TEXT,
+      effort TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+      thinking_tokens INTEGER NOT NULL DEFAULT 0, stop_reason TEXT, UNIQUE(session_id, message_id));
+  `)
+  db.exec(`
+    INSERT INTO requests(session_id, message_id, ts, model) VALUES
+      ('s-old', 'r1', '2026-07-09T10:01:00Z', 'claude-opus-5'),
+      ('s-old', 'r2', '2026-07-09T10:02:00Z', 'claude-opus-5'),
+      ('s-old', 'r3', '2026-07-09T11:02:00Z', 'claude-fable-5-1'),
+      ('s-new', 'r4', '2026-07-12T10:01:00Z', 'claude-sonnet-5');
   `)
   db.exec(`
     INSERT INTO wells(id, dir, real_path) VALUES
@@ -64,6 +75,14 @@ describe('listSessions', () => {
     expect(old.idleUntil).toBe('2026-08-01')
     expect(old.prompts).toBe(2)
     expect(old.firstPrompt).toBe('i want to make a disk util tool')
+    // what SERVED the session, heaviest first — a listing names what ran it
+    expect(old.models).toEqual([
+      { model: 'claude-opus-5', requests: 2 },
+      { model: 'claude-fable-5-1', requests: 1 },
+    ])
+    expect(rows.find((r) => r.sessionId === 's-new')!.models).toEqual([{ model: 'claude-sonnet-5', requests: 1 }])
+    // a session with no requests answers an empty mix, never a guess
+    expect(rows.find((r) => r.sessionId === 's-tv')!.models).toEqual([])
   })
 
   test('well substring filter matches dir or real path', () => {

@@ -1,16 +1,19 @@
 import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
 import { cut, hm, hms, ms, tok, usd } from './fmt'
-import type { Annotations, Instruction, Trace, Transaction } from './trace'
+import { modelDrift, modelLabel } from './model'
+import type { Annotations, Instruction, SpawnGroup, Trace, Transaction } from './trace'
 import { rateFor } from './usage'
-import { type FeeSplit, feeBar, ibar } from './viz'
+import { type FeeSplit, feeBar, ibar, modelChip } from './viz'
 
 // The block view (docs/EXPLORER.md, design pass 2026-09-01): one session
 // rendered from `getTrace` alone. Three reads, top to bottom —
 //
 //   1. the header: identity, the fee split by token class (dollars, not
 //      tokens — cache reads are 100× the tokens and a tenth of the money),
-//      the model mix;
+//      the model mix, and the fan-out ledger (which agent type ran on which
+//      VERIFIED model — the standing fleet question, answered here and not
+//      only in `lore spawns`);
 //   2. the map: a swimlane timeline of every instruction at its wall-clock
 //      position, one lane per tool family, width = latency, errors in the
 //      status color, transactions as bands you can click into;
@@ -67,10 +70,12 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
   const openAll = prompts.length <= 2
   const maxUsd = Math.max(...txs.map((x) => x.listUsd ?? 0), 0)
   const maxMs = Math.max(...txs.map((x) => x.ms ?? 0), 0)
-  const models = modelMix(txs)
   const fee = feeByClass(txs)
   // Transactions the user started get the numbers; harness preamble (meta)
   // rows stay unnumbered so #1 is the first prompt on every surface.
+  // A session that ran one model says so once, in the header. A session that
+  // SWITCHED gets a column: which prompt ran on what is the whole question.
+  const mixed = trace.models.length > 1
   const num = new Map<Transaction, number>()
   txs.forEach((x) => {
     if (x.kind !== 'meta') num.set(x, num.size + 1)
@@ -81,7 +86,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     <h1 class="mono">${s.sessionId}</h1>
     <p class="muted">${s.first?.slice(0, 10) ?? ''} ${hms(s.first)} → ${s.last?.slice(0, 10) === s.first?.slice(0, 10) ? '' : `${s.last?.slice(0, 10) ?? ''} `}${hms(s.last)} UTC
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}
-      ${models.length ? html` · ${models.map((m, i) => html`${i ? ', ' : ''}<span class="mono">${m.model}</span> ×${m.n}`)}` : ''}</p>
+      ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}</p>
     <div class="tiles">
       ${tile('transactions', String(prompts.length))}
       ${tile('steps', String(t.steps))}
@@ -93,20 +98,30 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
       ${t.spawns ? tile('spawns', `${t.spawns} · ${tok(t.spawnOutput)} out`) : ''}
     </div>
     ${feeBar(fee, { unpriced: fee.unpriced })}
+    ${fanout(trace.spawns)}
     ${timeline(trace, num)}
     </div>
     <div class="panel"><div class="scroll">
-    <section class="spine">
-      <div class="row head"><span class="n">#</span><span class="at">at</span><span class="p">prompt</span><span class="num">steps</span><span class="num">instr</span><span class="num">err</span><span class="num">out</span><span class="num">list $</span><span class="num">wall</span></div>
-      ${txs.map((x, i) => txRow(x, i, { n: num.get(x) ?? null, open: (openAll || o.open === true) && x.kind === 'prompt', openPhases: o.open === true, maxUsd, maxMs }))}
+    <section class="spine ${mixed ? 'mixed' : ''}">
+      <div class="row head"><span class="n">#</span><span class="at">at</span><span class="p">prompt</span>${mixed ? html`<span class="m">model</span>` : ''}<span class="num">steps</span><span class="num">instr</span><span class="num">err</span><span class="num">out</span><span class="num">list $</span><span class="num">wall</span></div>
+      ${txs.map((x, i) => txRow(x, i, { n: num.get(x) ?? null, open: (openAll || o.open === true) && x.kind === 'prompt', openPhases: o.open === true, maxUsd, maxMs, mixed }))}
     </section>
     </div></div>`
 }
 
-function modelMix(txs: Transaction[]): { model: string; n: number }[] {
-  const n = new Map<string, number>()
-  for (const x of txs) for (const r of x.requests ?? []) if (r.model) n.set(r.model, (n.get(r.model) ?? 0) + 1)
-  return [...n].map(([model, count]) => ({ model, n: count })).sort((a, b) => b.n - a.n)
+// The fan-out ledger: agent type × verified model, heaviest first. The
+// requested alias is shown only when it was passed AND the served model does
+// not contain it — the drift rule `lore spawns` uses (model.ts), on the page
+// where the fan-out actually happened.
+function fanout(groups: SpawnGroup[]) {
+  if (groups.length === 0) return html``
+  return html`<p class="fan small"><span class="muted">fan-out</span>
+    ${groups.map((g) => {
+      const drift = modelDrift(g.requestedModel, g.model) === true
+      const asked = g.requestedModel ? ` · asked ${g.requestedModel}` : ''
+      return html`<span class="g" title="${g.n} spawn${g.n === 1 ? '' : 's'} · ${g.model ?? 'model unknown'}${asked} · ${g.output.toLocaleString()} output tokens">
+        <b>${g.n}×</b> ${g.agentType ?? '?'} ${modelChip(g.model)}${drift ? html` <span class="kind err">asked ${g.requestedModel}</span>` : ''} <span class="muted">· ${tok(g.output)} out</span></span>`
+    })}</p>`
 }
 
 // ---- the fee bar ------------------------------------------------------
@@ -222,10 +237,11 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
 
 // ---- the spine --------------------------------------------------------
 
-function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; openPhases: boolean; maxUsd: number; maxMs: number }) {
+function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; openPhases: boolean; maxUsd: number; maxMs: number; mixed?: boolean }) {
   const id = x.promptId ? `tx-${x.promptId}` : `tx-${i}`
   const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${hms(x.ts)}</span>
     <span class="p">${x.kind !== 'prompt' ? html`<span class="kind ${x.kind}">${x.kind}</span> ` : ''}<span class="${x.kind === 'prompt' ? 'ptext' : 'ptext muted'}">${x.prompt || raw('&nbsp;')}</span></span>
+    ${o.mixed ? html`<span class="m">${modelChip(x.model)}</span>` : ''}
     <span class="num">${x.steps || ''}</span>
     <span class="num">${x.instructions.length || ''}</span>
     <span class="num ${x.errors ? 'err' : ''}">${x.errors || ''}</span>
@@ -272,7 +288,7 @@ function txBody(x: Transaction, openPhases: boolean) {
     ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}`
 }
 
-function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number }>) {
+function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>) {
   const rows: H[] = []
   let lastReq: string | null | undefined
   const thoughts = x.thoughts.filter((t) => t.at >= from && t.at < to)
@@ -288,7 +304,7 @@ function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, 
       <td class="mono small in">${inputHead(ix.tool, ix.input)}</td>
       <td class="num muted">${ms(ix.ms)}</td>
       <td class="small res">${ix.error ? html`<span class="kind err">error</span> ` : ''}${cut(ix.result, 200)}</td>
-      <td class="num muted small fee">${fee ? html`${tok(fee.output)}${fee.thinking ? html` <span title="thinking">(${tok(fee.thinking)}t)</span>` : ''} · ${usd(fee.listUsd)}` : ''}</td>
+      <td class="num muted small fee">${fee ? html`${fee.model ? html`<span title="${fee.model}">${modelLabel(fee.model)}</span> · ` : ''}${tok(fee.output)}${fee.thinking ? html` <span title="thinking">(${tok(fee.thinking)}t)</span>` : ''} · ${usd(fee.listUsd)}` : ''}</td>
     </tr>`)
   }
   return html`<table class="ix">

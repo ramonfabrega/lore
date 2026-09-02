@@ -49,7 +49,9 @@ describe('explorer routes', () => {
     const text = await page.text()
     expect(text).toContain('<title>lore</title>')
     expect(text).toContain(`/well/${encodeURIComponent(WELL)}`)
-    expect(text).toContain('opus-5') // the day chart's legend
+    // the day chart's legend names the FAMILY; the recent row names what ran it
+    expect(text).toContain('<i class="sw m-opus"></i>opus</span>')
+    expect(text).toContain('<i class="sw m-opus"></i>opus-5</span>')
     expect(text).toContain('recent')
     expect(text).toContain('ship the explorer')
     expect(text).toContain('layout-root')
@@ -70,6 +72,12 @@ describe('explorer routes', () => {
     const text = await res.text()
     expect(text).toContain('/session/sess-1')
     expect(text).toContain('ship the explorer')
+    // the well's mix in the head, and the model beside each session
+    expect(text).toContain('tile models')
+    expect(text).toContain('<i class="sw m-opus"></i>opus-5</span>')
+    const wjson = Any.parse(await (await app.request(`/well/${encodeURIComponent(WELL)}?json=1`)).json())
+    expect(wjson.models).toEqual([{ model: 'claude-opus-5', requests: 2 }])
+    expect(wjson.sessions[0].models).toEqual([{ model: 'claude-opus-5', requests: 2 }])
     expect((await app.request('/well/-nope')).status).toBe(404)
   })
 
@@ -82,7 +90,13 @@ describe('explorer routes', () => {
     expect(text).toContain('bun test')
     expect(text).toContain('91 pass')
     expect(text).toContain('Green.')
+    // one model, so it is named once in the header and the spine has no column
+    expect(text).toContain('<i class="sw m-opus"></i>opus-5</span> <span class="muted">×2</span>')
+    expect(text).not.toContain('class="spine mixed"')
     const json = Any.parse(await (await app.request('/session/sess-1?json=1')).json())
+    expect(json.models).toEqual([{ model: 'claude-opus-5', requests: 2 }])
+    expect(json.transactions[0].model).toBe('claude-opus-5')
+    expect(json.spawns).toEqual([])
     expect(json.totals.transactions).toBe(1)
     expect(json.transactions[0].instructions[0].ms).toBe(4000)
     expect((await app.request('/session/zzz')).status).toBe(404)

@@ -45,6 +45,14 @@ export async function listWells(projectsDir: string): Promise<Well[]> {
   return wells
 }
 
+// The forward map: an absolute path to the well dir the harness would shard
+// it into (every non-alphanumeric becomes '-'). Lossy in the other
+// direction, which is what deslugWellDir below exists to undo — so a caller
+// that slugs a path must VERIFY the result exists before trusting it.
+export function slugWellDir(path: string): string {
+  return path.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
 // A memory-only well (album: live repo with memory, zero transcripts) has no
 // cwd record to resolve, and the dir name is lossy — '-' stands for '/', '.',
 // '_', and literal '-' alike (golf-sim, rf-studio, .claude). Reconstruct by
