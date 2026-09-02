@@ -20,7 +20,7 @@ import { listWells } from './wells'
 import { wikiCommit, wikiInit } from './wiki'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
 
-const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta'] as const
+const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta', 'relay'] as const
 
 // Session ids are read in prose as their first segment — the form every
 // listing, job dir and roster row prints.
@@ -99,7 +99,9 @@ cli.command('session', {
     lane: z
       .array(z.enum(LANES))
       .optional()
-      .describe('Lanes to include (default: prompt). gitBranch rides along — well membership ≠ work location'),
+      .describe(
+        'Lanes to include (default: prompt — what the USER typed, and only that). gitBranch rides along; well membership ≠ work location. `relay` is what other sessions sent this one, attributed by `peer`; `meta` is what the harness injected (skill bodies, command wrappers, images) — both used to sit in `prompt` and read as the user\'s own words.',
+      ),
     well: z
       .string()
       .optional()
@@ -186,7 +188,7 @@ cli.command('search', {
     lane: z
       .array(z.enum(LANES))
       .optional()
-      .describe('Lanes to search (default: prompt, text). thinking/tool/event/meta are opt-in'),
+      .describe('Lanes to search (default: prompt, text). thinking/tool/event/meta/relay are opt-in — `relay` is the fleet\'s cross-session traffic'),
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
       .boolean()
@@ -472,7 +474,8 @@ cli.command('agents', {
 })
 
 cli.command('stats', {
-  description: 'Index statistics: lanes, wells, date range',
+  description:
+    'Index statistics: lanes, wells, date range, and `peers` — who has sent this fleet cross-session messages (the relay lane), how many, over what span.',
   run: () => {
     const db = openDb(DB_PATH)
     const lanes = z
@@ -524,7 +527,22 @@ cli.command('stats', {
       warnings.push('docs corpus is EMPTY — canon lint and graduation dedup are blind. Run `lore docs index`.')
     }
     if (totals.sessions === 0) warnings.push('no sessions indexed — run `lore index`.')
-    return { totals, ...(warnings.length ? { warnings } : {}), range, lanes, topWells: wells }
+    // Who has sent this fleet a cross-session message, and when — the routing
+    // ledger the wiki keeps by hand, mechanized. Sessions, not people: a peer
+    // name is whatever the sending session called itself.
+    const peers = z
+      .array(z.object({ peer: z.string(), messages: z.number(), sessions: z.number(), first: z.string().nullable(), last: z.string().nullable() }))
+      .parse(
+        db
+          .prepare(
+            `SELECT peer, COUNT(*) AS messages, COUNT(DISTINCT session_id) AS sessions,
+                    MIN(ts) AS first, MAX(ts) AS last
+             FROM messages WHERE lane = 'relay' AND peer IS NOT NULL
+             GROUP BY peer ORDER BY messages DESC`,
+          )
+          .all(),
+      )
+    return { totals, ...(warnings.length ? { warnings } : {}), range, lanes, ...(peers.length ? { peers } : {}), topWells: wells }
   },
 })
 

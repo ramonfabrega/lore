@@ -63,7 +63,13 @@ import { z } from 'zod'
 // transcript uuid to the claude.ai session id in commit trailers
 // (`Claude-Session: …/session_X` ↔ `bridgeSessionId: cse_X`). Resolves a
 // commit to its transcript (`/s/<id>`, `lore trace session_X`).
-const SCHEMA_VERSION = 14
+// v15: the relay lane + messages.peer. Authorship comes off the record's own
+// fields (parse.ts `Authorship`) instead of a regex over the prose, which had
+// been filing injected skill bodies and other sessions' cross-session messages
+// in the `prompt` lane — 54% of that lane's volume was not the user. Peer
+// traffic now indexes as `relay`, attributed by `peer`, so the fleet's
+// routing is a corpus you can query rather than noise in the user's voice.
+const SCHEMA_VERSION = 15
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -98,7 +104,9 @@ CREATE TABLE IF NOT EXISTS messages(
   prompt_id TEXT,
   tool_use_id TEXT,
   is_error INTEGER NOT NULL DEFAULT 0,
-  request_id TEXT
+  request_id TEXT,
+  -- relay lane only: the session that SENT this message (origin.name).
+  peer TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 -- (session_id, lane, ts): the prompt count and the first prompt per session

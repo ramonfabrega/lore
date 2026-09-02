@@ -11,7 +11,7 @@ function seedDb(): Database {
       size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT,
       last_activity_ts TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, uuid TEXT, ts TEXT,
-      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT);
+      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT, peer TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
   `)
   db.exec(`

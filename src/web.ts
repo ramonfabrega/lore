@@ -154,7 +154,7 @@ export function createApp(
         <input type="search" name="q" value="${q}" placeholder="FTS5: words, &quot;a phrase&quot;, prefix*, AND / OR / NOT" autofocus />
         <button type="submit">search</button>
         <span class="muted small">
-          ${laneOpt('prompt,text', 'conversation')} ${laneOpt('prompt,text,tool', '+ tools')} ${laneOpt('prompt,text,thinking,tool', 'everything')}
+          ${laneOpt('prompt,text', 'conversation')} ${laneOpt('prompt,text,tool', '+ tools')} ${laneOpt('relay', 'relays')} ${laneOpt('prompt,text,thinking,tool,relay', 'everything')}
           · <label><input type="checkbox" name="sort" value="recent" ${sort === 'recent' ? 'checked' : ''}> newest first</label>
           ${well ? html`· well <input type="text" name="well" value="${well}" size="14" />` : html`<input type="hidden" name="well" value="" />`}
         </span>

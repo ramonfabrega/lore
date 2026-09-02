@@ -4,7 +4,7 @@ import { z } from 'zod'
 // Each raw line yields zero or more indexable entries, split into lanes so FTS
 // doesn't drown conversational signal (~3-4% of lines) in tool traffic.
 
-export type Lane = 'prompt' | 'text' | 'thinking' | 'tool' | 'event' | 'meta'
+export type Lane = 'prompt' | 'text' | 'thinking' | 'tool' | 'event' | 'meta' | 'relay'
 
 // toolName is the structured hook for the ambient ROI ledger (lore#7): raw
 // tool name for tool_use blocks, with two refinements so usage counts answer
@@ -14,7 +14,10 @@ export type Lane = 'prompt' | 'text' | 'thinking' | 'tool' | 'event' | 'meta'
 // they'd all read as zero-use).
 // toolUseId pairs a tool_use block with its tool_result (the instruction and
 // its log, in explorer terms — docs/EXPLORER.md); isError is the result's flag.
-export type Entry = { lane: Lane; text: string; toolName?: string; toolUseId?: string; isError?: boolean }
+// peer names the OTHER SESSION that sent a relay-lane entry (origin.name —
+// "ccc", "attrition", "site"), so peer traffic is attributable without
+// re-reading the prose it arrived wrapped in.
+export type Entry = { lane: Lane; text: string; toolName?: string; toolUseId?: string; isError?: boolean; peer?: string }
 
 // One API request's usage envelope, from an assistant record (lore#8, the
 // token profile). Assistant records are streaming snapshots — several lines
@@ -77,9 +80,30 @@ export type Parsed = {
 const TOOL_TEXT_CAP = 2_000
 
 // Harness-injected user content (command wrappers, caveats, skill expansions,
-// interruption markers) — searchable but not a human prompt.
+// interruption markers) — searchable but not a human prompt. This regex was
+// the ONLY test until v15, and a prose sniff can only catch what announces
+// itself in its first characters: a skill body pulled in by a Skill call opens
+// "Approach this as the design lead…" and sailed straight into the prompt lane
+// as if the user had typed it.
 const META_PROMPT =
   /^\s*(<(local-command|command-name|command-message|system-remind|task-notification)|Base directory for this skill:|\[Request interrupted by user)/
+
+// Authorship is a FIELD, not a prose shape. The harness labels every user
+// record it did not receive from a person, and lore ignored the labels:
+// `origin.kind` is `human` for someone typing, `peer` for another Claude
+// session's cross-session message, `task-notification` for the harness's own;
+// `isMeta` marks content injected into the turn (skill bodies — with
+// `sourceToolUseID` pointing back at the Skill call that pulled them in —
+// image placeholders, context reports). Measured 2026-09-02 over the whole
+// corpus: of 5,899 rows lore called `prompt`, 744 were injected and 114 came
+// from a peer — 15% of the rows and 54% of the VOLUME, because injected
+// bodies are long. Miners size buckets on that lane and read it as the user's
+// voice, so the peer half was a provenance bug on top of a sizing one.
+const Authorship = z.object({
+  isMeta: z.boolean().nullish(),
+  origin: z.object({ kind: z.string().nullish(), name: z.string().nullish() }).loose().nullish(),
+})
+type Authorship = z.infer<typeof Authorship>
 
 export function parseLine(line: string): Parsed | null {
   if (!line.trim()) return null
@@ -106,12 +130,15 @@ export function parseLine(line: string): Parsed | null {
   switch (p.type) {
     case 'user': {
       const content = r.message?.content
+      // Read the labels once per record, at the boundary, and let them decide
+      // the lane — the prose is evidence of last resort now.
+      const who = Authorship.safeParse(r).data ?? {}
       if (typeof content === 'string') {
-        p.entries.push(userTextEntry(content))
+        p.entries.push(userTextEntry(content, who))
       } else if (Array.isArray(content)) {
         for (const block of content) {
           if (block?.type === 'text' && block.text) {
-            p.entries.push(userTextEntry(block.text))
+            p.entries.push(userTextEntry(block.text, who))
           } else if (block?.type === 'tool_result') {
             const text = toolResultText(block.content)
             // An empty result still closes its instruction (latency, error).
@@ -198,8 +225,17 @@ export function parseLine(line: string): Parsed | null {
   return p
 }
 
-function userTextEntry(text: string): Entry {
-  if (!META_PROMPT.test(text)) return { lane: 'prompt', text }
+function userTextEntry(text: string, who: Authorship): Entry {
+  // A peer's words are neither the user's nor the harness's — they are another
+  // session's, and the routing doctrine calls them an ingest surface, so they
+  // get a lane of their own rather than being filed away as noise.
+  if (who.origin?.kind === 'peer')
+    return { lane: 'relay', text, ...(who.origin.name ? { peer: who.origin.name } : {}) }
+  // Injected, either by its own admission or — on transcripts older than the
+  // field — by the shape of its prose. Command extraction must survive both
+  // paths: `command:<name>` is how the ambient ROI ledger counts slash
+  // commands, and a wrapper carries isMeta too.
+  if (who.isMeta !== true && !META_PROMPT.test(text)) return { lane: 'prompt', text }
   const command = /<command-name>\/?([\w:-]+)<\/command-name>/.exec(text)?.[1]
   return { lane: 'meta', text, ...(command ? { toolName: `command:${command}` } : {}) }
 }

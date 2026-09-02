@@ -24,6 +24,20 @@ function heartbeatLine(ts: string): string {
   })
 }
 
+// A cross-session message as the harness records it: a user record whose
+// `origin` names the sending session. Verbatim shape from the lore↔site route
+// of 2026-09-02.
+function relayLine(ts: string, peer: string, text: string): string {
+  return JSON.stringify({
+    type: 'user',
+    timestamp: ts,
+    isMeta: true,
+    promptSource: 'system',
+    origin: { kind: 'peer', name: peer, from: `uds:/tmp/cc-socks/40460.sock`, fromMode: 'prompting' },
+    message: { role: 'user', content: `Another Claude session sent a message: <cross-session-message from-name="${peer}">${text}` },
+  })
+}
+
 // An entry-less record (parse.ts `default: break`) — timestamped, indexes
 // nothing at all. Must also not count as activity.
 function structureOnlyLine(ts: string): string {
@@ -74,5 +88,52 @@ describe('buildIndex: last_ts vs last_activity_ts', () => {
     const row = await indexAnd([heartbeatLine('2026-08-17T16:04:00Z')])
     expect(row.last_ts).toBe('2026-08-17T16:04:00Z')
     expect(row.last_activity_ts).toBeNull()
+  })
+
+  test('a peer relay is activity — answering another session is work', async () => {
+    const row = await indexAnd([
+      promptLine('2026-09-02T04:00:00Z', 'kick it off'),
+      relayLine('2026-09-02T06:30:00Z', 'site', 'Site read: one flat project row, ~30-word blurb.'),
+    ])
+    expect(row.last_activity_ts).toBe('2026-09-02T06:30:00Z')
+  })
+})
+
+describe('buildIndex: the relay lane', () => {
+  test('a peer message lands in relay with its sender, out of the prompt lane', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seedWell([
+      promptLine('2026-09-02T04:00:00Z', 'what should the blurb say?'),
+      relayLine('2026-09-02T04:03:51Z', 'site', 'Copy spec: one paragraph, 25-35 words, flat declarative.'),
+      relayLine('2026-09-02T04:19:32Z', 'site', 'All four user calls are in, and phase 2 is built.'),
+      // Injected by the harness in the same session — meta, not the user.
+      JSON.stringify({
+        type: 'user',
+        timestamp: '2026-09-02T04:25:00Z',
+        isMeta: true,
+        turnCompanion: true,
+        message: { role: 'user', content: 'Approach this as the design lead at a small studio…' },
+      }),
+    ])
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+
+    const lanes = z
+      .array(z.object({ lane: z.string(), n: z.number() }))
+      .parse(db.prepare('SELECT lane, COUNT(*) AS n FROM messages GROUP BY lane ORDER BY lane').all())
+    // One typed prompt — not three, and not four.
+    expect(lanes).toEqual([
+      { lane: 'meta', n: 1 },
+      { lane: 'prompt', n: 1 },
+      { lane: 'relay', n: 2 },
+    ])
+    const peers = z
+      .array(z.object({ peer: z.string().nullable(), n: z.number() }))
+      .parse(db.prepare("SELECT peer, COUNT(*) AS n FROM messages WHERE lane = 'relay' GROUP BY peer").all())
+    expect(peers).toEqual([{ peer: 'site', n: 2 }])
+    // The rows a non-relay lane holds carry no sender.
+    const stray = z
+      .object({ n: z.number() })
+      .parse(db.prepare("SELECT COUNT(*) AS n FROM messages WHERE lane != 'relay' AND peer IS NOT NULL").get())
+    expect(stray.n).toBe(0)
   })
 })

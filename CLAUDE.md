@@ -134,6 +134,19 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   `<session>/workflows/wf_*.json`, agents under `subagents/workflows/wf_*/`;
   `lore workflows` is the per-run observatory, `spawns --workflow` the
   drill-down.
+- **Authorship of a user record is a FIELD, never the shape of its prose**:
+  `origin.kind` is `human` (a person typing), `peer` (another session's
+  cross-session message) or `task-notification`; `isMeta` marks what the
+  harness injected into the turn (skill bodies, with `sourceToolUseID` naming
+  the Skill call that pulled them in; image placeholders; context reports).
+  lore sniffed prefixes until v15 and so filed both in `prompt` — **54% of
+  that lane's volume was not the user** (measured 09-02: 3.60M → 1.69M chars,
+  872 rows, reconciled exactly). Lanes now: `prompt` is what the user typed
+  and only that, `meta` what the harness injected, **`relay` what another
+  session sent** (attributed by `peer`; `lore stats` rolls up the routing
+  ledger). Sizing a mining bucket off the old `prompt` lane over-counted, and
+  a miner reading it attributed a peer's words to the user — a provenance
+  bug, not just a sizing one.
 - A background **job id is the id of the session it started with**, and every
   `/clear` after that mints a NEW session id pointing back at that root
   (`sessions.job_session_id`). So a job is a chain of sessions, its root

@@ -140,7 +140,7 @@ export function annotate(instructions: { tool: string; inputFull: string; result
 
 export type Transaction = {
   promptId: string | null
-  kind: 'prompt' | 'command' | 'meta'
+  kind: 'prompt' | 'command' | 'meta' | 'relay'
   ts: string | null
   prompt: string
   steps: number
@@ -210,7 +210,7 @@ export function getTrace(
         `SELECT m.id, m.ts, m.lane, m.type, m.prompt_id AS promptId, m.tool_name AS toolName,
                 m.tool_use_id AS toolUseId, m.is_error AS isError, m.request_id AS requestId, f.text
          FROM messages m JOIN messages_fts f ON f.rowid = m.id
-         WHERE m.session_id = ? AND m.lane IN ('prompt', 'meta', 'text', 'thinking', 'tool')
+         WHERE m.session_id = ? AND m.lane IN ('prompt', 'meta', 'text', 'thinking', 'tool', 'relay')
          ORDER BY m.id`,
       )
       .all(sessionId),
@@ -258,11 +258,14 @@ export function getTrace(
   }
 
   const transactions: Transaction[] = buckets.map((b) => {
-    const opener = b.rows.find((r) => r.lane === 'prompt' || r.lane === 'meta')
+    const opener = b.rows.find((r) => r.lane === 'prompt' || r.lane === 'meta' || r.lane === 'relay')
     const command = opener?.lane === 'meta' ? commandName(opener.text) : null
     // A meta opener with no command wrapper (caveats, context dumps) is
-    // harness preamble, not a transaction the user started.
-    const kind: Transaction['kind'] = opener?.lane === 'meta' ? (command ? 'command' : 'meta') : 'prompt'
+    // harness preamble, not a transaction the user started. A relay opener is
+    // a transaction another SESSION started — the same shape, a different
+    // author, and worth seeing as such when reading a block.
+    const kind: Transaction['kind'] =
+      opener?.lane === 'relay' ? 'relay' : opener?.lane === 'meta' ? (command ? 'command' : 'meta') : 'prompt'
     const promptText = opener ? cut(command ?? opener.text, head) : ''
 
     // Instructions: tool_use rows (assistant, tool lane) paired to their result

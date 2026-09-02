@@ -19,6 +19,9 @@ const Msg = z.object({
   lane: z.string(),
   type: z.string(),
   gitBranch: z.string().nullable(),
+  // relay lane only — which session sent it. A reader must never have to
+  // guess whether a line is the user's voice or a peer's.
+  peer: z.string().nullable(),
   text: z.string(),
 })
 export type SessionDump = {
@@ -114,7 +117,7 @@ export function getSession(
   const messages = z.array(Msg).parse(
     db
       .prepare(
-        `SELECT m.ts, m.lane, m.type, m.git_branch AS gitBranch, f.text
+        `SELECT m.ts, m.lane, m.type, m.git_branch AS gitBranch, m.peer, f.text
          FROM messages m JOIN messages_fts f ON f.rowid = m.id
          WHERE m.session_id = ? AND m.lane IN (${placeholders})
          ORDER BY m.id LIMIT ?`,

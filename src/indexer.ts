@@ -9,7 +9,9 @@ import { listWells } from './wells'
 // excludes `event` (system records, bridge_status heartbeats, pr-links, titles,
 // summaries) and `meta` (slash commands, context dumps) — those keep ticking
 // long after the work stops, which is the whole bug.
-const ACTIVITY_LANES = new Set<Lane>(['prompt', 'text', 'thinking', 'tool'])
+// A peer's message is work arriving, not harness chatter: a session that spent
+// an hour answering relays was not idle.
+const ACTIVITY_LANES = new Set<Lane>(['prompt', 'text', 'thinking', 'tool', 'relay'])
 
 const WellId = z.object({ id: z.number() })
 const ExistingSession = z.object({ id: z.number(), size: z.number(), mtime_ms: z.number() }).nullish()
@@ -49,8 +51,8 @@ export async function buildIndex(
     'DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE session_id = ?)',
   )
   const insertMsg = db.prepare(
-    `INSERT INTO messages(session_id, uuid, ts, lane, type, git_branch, cwd, tool_name, prompt_id, tool_use_id, is_error, request_id)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO messages(session_id, uuid, ts, lane, type, git_branch, cwd, tool_name, prompt_id, tool_use_id, is_error, request_id, peer)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const insertFts = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES(?, ?)')
   const deleteRequests = db.prepare('DELETE FROM requests WHERE session_id = ?')
@@ -132,6 +134,7 @@ export async function buildIndex(
               e.toolUseId ?? null,
               e.isError ? 1 : 0,
               p.type === 'assistant' ? (p.request?.id ?? null) : null,
+              e.peer ?? null,
             )
             insertFts.run(row.lastInsertRowid, e.text)
             messages++

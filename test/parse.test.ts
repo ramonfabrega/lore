@@ -33,6 +33,66 @@ describe('parseLine laning', () => {
     expect(interrupted.entries[0]!.lane).toBe('meta')
   })
 
+  // Authorship comes off the record's fields now. The shapes below are copied
+  // from real transcripts (v2.1.247 / v2.1.258): before v15 all three landed
+  // in the prompt lane and read as the user's own words.
+  test('an injected skill body → meta lane, however its prose opens', () => {
+    // The artifact-design body, pulled in by a Skill call in session 497d1db8.
+    // No prefix a regex could catch — it opens like a person talking.
+    const p = parseLine(
+      env({
+        type: 'user',
+        isMeta: true,
+        turnCompanion: true,
+        sourceToolUseID: 'toolu_01UADnDpcVpjAWfexch4AHgX',
+        message: { content: 'Approach this as the design lead at a small studio known for their versatility…' },
+      }),
+    )!
+    expect(p.entries[0]!.lane).toBe('meta')
+  })
+
+  test('a peer session\'s message → relay lane, attributed', () => {
+    const p = parseLine(
+      env({
+        type: 'user',
+        isMeta: true,
+        promptSource: 'system',
+        origin: { kind: 'peer', name: 'ccc', from: 'uds:/tmp/cc-socks/85001.sock', verifiedPeerPid: 85001 },
+        message: { content: 'Another Claude session sent a message: <cross-session-message from-name="ccc">ccc v0 is closed…' },
+      }),
+    )!
+    expect(p.entries[0]!.lane).toBe('relay')
+    expect(p.entries[0]!.peer).toBe('ccc')
+  })
+
+  test('a typed prompt stays a prompt, and carries no peer', () => {
+    const p = parseLine(
+      env({ type: 'user', origin: { kind: 'human' }, promptSource: 'typed', message: { content: 'ran both, should be good on ccc' } }),
+    )!
+    expect(p.entries).toEqual([{ lane: 'prompt', text: 'ran both, should be good on ccc' }])
+  })
+
+  test('the prose sniff still covers transcripts older than the fields', () => {
+    // No isMeta, no origin — the only tell is the wrapper itself, and the
+    // command name must survive, since `command:<name>` is how the ambient ROI
+    // ledger counts slash commands.
+    const p = parseLine(
+      env({ type: 'user', message: { content: '<command-name>/lore-agents</command-name>\n<command-message>agents</command-message>' } }),
+    )!
+    expect(p.entries[0]!.lane).toBe('meta')
+    expect(p.entries[0]!.toolName).toBe('command:lore-agents')
+  })
+
+  test('a command wrapper that DOES carry isMeta keeps its command name', () => {
+    // isMeta is tested before the regex, so extraction has to live past both
+    // gates or the ledger silently loses every slash command on new records.
+    const p = parseLine(
+      env({ type: 'user', isMeta: true, message: { content: '<command-name>/code-review</command-name>' } }),
+    )!
+    expect(p.entries[0]!.lane).toBe('meta')
+    expect(p.entries[0]!.toolName).toBe('command:code-review')
+  })
+
   test('tool_result user record → tool lane, capped', () => {
     const big = 'x'.repeat(5000)
     const p = parseLine(
