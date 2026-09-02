@@ -282,13 +282,34 @@ export function getThread(db: Database, aq: string, bq: string, opts: { head?: n
   // its window — because a side is a job and lore's job alone is sixty
   // sessions back to July.
   if (opts.you !== false && rows.length) {
-    const first = rows.reduce((m, r) => (r.ts < m ? r.ts : m), rows[0]!.ts)
     const last = rows.reduce((m, r) => (r.ts > m ? r.ts : m), rows[0]!.ts)
     const took = new Set(rows.flatMap((r) => [r.sent?.session, r.received?.session]).filter((x): x is string => x != null))
     for (const side of [a, b]) {
       const t = { sent: 0, turn: 0, midTurn: 0, lost: 0, unseen: 0 }
       const name = side.name ?? side.query
-      for (const p of promptsOf(db, side.sessions.filter((s) => took.has(s)), first, last)) {
+      const mine = side.sessions.filter((s) => took.has(s))
+      // The window opens, per side, at the prompt the agent was ON when its
+      // first message came or went — "standby for a brief from @lore" is the
+      // turn ccc stood in when the kickoff landed, and the thread is not
+      // legible without it. That is the last turn-opening prompt before the
+      // side's first message; anything earlier is another conversation.
+      const firstMine = rows
+        .filter((r) => (r.sent && mine.includes(r.sent.session)) || (r.received && mine.includes(r.received.session)))
+        .reduce((m, r) => (r.ts < m ? r.ts : m), last)
+      const opener = mine.length
+        ? z
+            .object({ ts: z.string() })
+            .nullish()
+            .parse(
+              db
+                .prepare(
+                  `SELECT ts FROM messages WHERE session_id IN (${placeholders(mine.length)}) AND lane = 'prompt' AND type = 'user' AND ts < ?
+                   ORDER BY ts DESC LIMIT 1`,
+                )
+                .get(...mine, firstMine),
+            )
+        : null
+      for (const p of promptsOf(db, mine, opener?.ts ?? firstMine, last)) {
         const landed: Landed = p.type === 'attachment' ? 'mid-turn' : 'turn'
         t.sent++
         t[landed === 'mid-turn' ? 'midTurn' : 'turn']++

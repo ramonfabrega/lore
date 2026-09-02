@@ -165,21 +165,27 @@ describe('getThread', () => {
   })
 
   // The user's words are in the thread by default: what each agent was
-  // answering. Scoped to the sessions that took part and the thread's
-  // window — "standby for a brief" at 06:54:19 precedes the first message
-  // and stays out; "sync" was typed into lore-2, which took part.
-  test('the user\'s words ride in their side\'s column, inside the window, turn and mid-turn alike', async () => {
+  // answering. Scoped to the sessions that took part, and per side the
+  // window opens at the prompt the agent was ON when its first message came
+  // or went: "standby for a brief from @lore" (06:54:19) precedes the
+  // kickoff and is the turn ccc stood in when it landed; "@ccc is booted"
+  // is the turn lore sent it from. "sync" was typed into lore-2, which
+  // took part.
+  test('the user\'s words ride in their side\'s column, from the prompt each side was on, turn and mid-turn alike', async () => {
     const db = await corpus()
     const t = getThread(db, 'lore', 'ccc')
     const you = t.rows.filter((r) => r.kind === 'you')
     expect(you.map((r) => [r.ts, r.to, r.landed, r.message])).toEqual([
+      ['2026-09-02T06:54:19Z', 'ccc', 'turn', 'standby for a brief from @lore'],
+      ['2026-09-02T06:54:36Z', 'lore', 'turn', '@ccc is booted, brief it'],
       ['2026-09-02T07:02:24Z', 'ccc', 'turn', '1. forkpty now imo.'],
       ['2026-09-02T07:20:00Z', 'lore', 'turn', 'sync'],
     ])
-    expect(you[0]!.received).toEqual({ session: 'ccc-1', promptId: 'C3', ts: '2026-09-02T07:02:24Z' })
-    expect(t.totals['you → ccc']).toEqual({ sent: 1, turn: 1, midTurn: 0, lost: 0, unseen: 0 })
-    // In order with the agents' messages, not appended.
-    expect(t.rows.map((r) => r.kind)).toEqual(['message', 'message', 'you', 'you', 'message', 'message', 'message'])
+    expect(you[2]!.received).toEqual({ session: 'ccc-1', promptId: 'C3', ts: '2026-09-02T07:02:24Z' })
+    expect(t.totals['you → ccc']).toEqual({ sent: 2, turn: 2, midTurn: 0, lost: 0, unseen: 0 })
+    // In order with the agents' messages, not appended: the two openers
+    // lead, then the kickoff.
+    expect(t.rows.map((r) => r.kind)).toEqual(['you', 'you', 'message', 'message', 'you', 'you', 'message', 'message', 'message'])
     const page = String(await threadBody(t))
     expect(page).toContain('1. forkpty now imo.')
     expect(page).toContain('/session/ccc-1#tx-C3')
