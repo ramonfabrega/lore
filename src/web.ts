@@ -540,7 +540,7 @@ export function createApp(
     const db = getDb()
     let trace: ReturnType<typeof getTrace>
     try {
-      trace = getTrace(db, c.req.param('id'), { limit: 2000, head: 400, steps: true })
+      trace = getTrace(db, c.req.param('id'), { limit: 2000, head: 400, proseHead: 20_000, steps: true })
     } catch (e) {
       return c.text(e instanceof Error ? e.message : String(e), 404)
     }

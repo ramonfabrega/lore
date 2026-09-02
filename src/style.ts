@@ -213,12 +213,17 @@ tr.agent td .in b { color: var(--series-2); font-weight: 500; }
 .tl .band.relay { fill: color-mix(in oklab, var(--series-2) 9%, var(--surface-2)); }
 .spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
 .spine .txn .ptext::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .spine .txn[open] .ptext::before { transform: rotate(90deg); } .spine .row.txn .ptext::before { content: none; }
-.spine details.txn:not([open]) .ptext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.spine details.txn:not([open]) .ptext, .spine details.txn.hasmsg .ptext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .spine .txn[open] > summary { background: var(--surface-2); }
 .spine .body { padding: 4px 8px 10px calc(102px * var(--z)); border-bottom: 1px solid var(--line); }
 details > summary { cursor: pointer; list-style: none; } summary::-webkit-details-marker { display: none; }
 .phase { margin: 4px 0; } .phase > summary { padding: 2px 0; } .phase > summary::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .phase[open] > summary::before { transform: rotate(90deg); }
 .note { color: var(--ink-2); font-style: italic; } p.note { margin: 6px 0 2px; }
+/* The message in full, once the turn is open. The row above it is a preview
+   cut to 400 characters; this is the thing somebody actually wrote, so it
+   keeps its line breaks and gets a measure rather than the full panel width. */
+p.msg { margin: 2px 0 10px; max-width: 92ch; white-space: pre-wrap; color: var(--ink); border-left: 2px solid var(--line-2); padding-left: 10px; }
+.spine .txn.relay p.msg { border-left-color: color-mix(in oklab, var(--series-2) 55%, transparent); }
 .reply { color: var(--ink-2); margin: 6px 0 2px; } .ann { margin: 2px 0 4px; }
 table.ix { margin: 4px 0; } table.ix th { position: static; } table.ix td { border-bottom: 0; } table.ix tr.step td { border-top: 1px solid var(--line); }
 table.ix td.t, table.ix td.fee, table.ix td.tool { white-space: nowrap; } table.ix td.in { width: 34%; overflow-wrap: anywhere; } table.ix td.res { width: 40%; overflow-wrap: anywhere; }

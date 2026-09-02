@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { metaHead, relayHead, type Sent, sentHead } from './envelope'
-import { cut } from './fmt'
+import { cut, cutProse } from './fmt'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
 import { rateFor } from './usage'
@@ -152,7 +152,11 @@ export type Transaction = {
   // kind for meta (`task`, `stdout`, `image`) — and is null for a prompt the
   // user typed, which wears no envelope. The raw record stays in the index.
   tag: string | null
+  // `prompt` is the row's preview, cut to `head`. `message` is the same text
+  // at `proseHead` and is present ONLY when that is actually longer — a short
+  // prompt is not carried twice.
   prompt: string
+  message: string | null
   // The outbound half of a relay: what this session sent BACK, read off the
   // SendMessage calls in the turn. A peer's message opens a transaction and
   // the reply is the last thing in it — genuinely one turn, not two — but
@@ -209,9 +213,13 @@ const HEAD = 160
 export function getTrace(
   db: Database,
   idPrefix: string,
-  opts: { well?: string; exact?: boolean; limit: number; steps?: boolean; head?: number },
+  opts: { well?: string; exact?: boolean; limit: number; steps?: boolean; head?: number; proseHead?: number },
 ): Trace {
   const head = opts.head ?? HEAD
+  // Prose — the message that opened the turn, the assistant's notes, its
+  // closing reply — is meant to be read, so it gets its own, generous cap.
+  // Defaults to `head`, so the CLI and every existing caller are unchanged.
+  const proseHead = opts.proseHead ?? head
   const sessionId = resolveSessionId(db, idPrefix, opts)
   const session = Meta.parse(
     db
@@ -305,7 +313,9 @@ export function getTrace(
     // The chip: who sent a relay, what kind of injection a meta row is. A
     // command says `command` already, and a typed prompt wears nothing.
     const tag = relay ? (opener?.peer ?? relay.from) : kind === 'meta' ? (meta?.tag ?? null) : null
-    const promptText = cut(relay ? relay.text : meta ? meta.text : opener?.text ?? '', head)
+    const raw = relay ? relay.text : meta ? meta.text : opener?.text ?? ''
+    const promptText = cut(raw, head)
+    const messageText = cutProse(raw, proseHead)
 
     // Instructions: tool_use rows (assistant, tool lane) paired to their result
     // row by tool_use_id. Latency is the timestamp pair.
@@ -319,7 +329,7 @@ export function getTrace(
     for (const r of b.rows) {
       if (r.type !== 'assistant') continue
       if (r.lane === 'text') {
-        texts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, head) })
+        texts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, proseHead) })
         continue
       }
       if (r.lane === 'thinking') {
@@ -382,6 +392,10 @@ export function getTrace(
       ts: first,
       tag,
       prompt: promptText,
+      // Carried when the ROW cannot show it: the preview was truncated, or it
+      // flattened paragraphs the reader wants back. Comparing lengths was
+      // wrong — `cut(messageText, head)` IS the preview, so it never differed.
+      message: promptText.endsWith('…') || messageText.includes('\n') ? messageText : null,
       sent,
       steps: steps.length,
       instructions,

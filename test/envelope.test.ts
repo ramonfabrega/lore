@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { metaHead, relayHead, sentHead } from '../src/envelope'
-import { cut, plain } from '../src/fmt'
+import { cut, cutProse, plain } from '../src/fmt'
 
 const ESC = ''
 
@@ -142,6 +142,25 @@ describe('sentHead — the outbound half', () => {
   test('a call that is not a relay yields nothing to show', () => {
     expect(sentHead('{"pattern":"foo"}')).toEqual({ to: null, name: null, summary: null })
     expect(sentHead('not json at all')).toEqual({ to: null, name: null, summary: null })
+  })
+})
+
+describe('cutProse — the cut for text that will be read, not scanned', () => {
+  const BRIEF = 'Kickoff brief for ccc v0.\n\nREAD FIRST, in order:\n  CLAUDE.md\n  docs/DESIGN.md\n\n\n\nWHAT V0 IS: replicate the roster.'
+
+  test('paragraphs survive; runs of blank lines and stray indentation do not', () => {
+    expect(cutProse(BRIEF, 500)).toBe('Kickoff brief for ccc v0.\n\nREAD FIRST, in order:\nCLAUDE.md\ndocs/DESIGN.md\n\nWHAT V0 IS: replicate the roster.')
+  })
+
+  // The distinction that earns the second function: `cut` flattens a
+  // structured brief into a wall of four hundred words.
+  test('cut flattens what cutProse keeps', () => {
+    expect(cut(BRIEF, 500)).not.toContain('\n')
+    expect(cutProse(BRIEF, 500)).toContain('\n')
+  })
+
+  test('truncates with an ellipsis like cut does', () => {
+    expect(cutProse(BRIEF, 12)).toBe('Kickoff bri…')
   })
 })
 

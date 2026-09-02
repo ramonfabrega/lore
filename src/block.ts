@@ -257,10 +257,11 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
     <span class="num">${x.ms ? html`${ibar(x.ms, o.maxMs)}${ms(x.ms)}` : ''}</span>`
   const body = x.instructions.length || x.reply || x.notes.length
   if (!body) return html`<div class="row txn ${x.kind}" id="${id}">${cells}</div>`
-  return html`<details class="txn ${x.kind}" id="${id}" ${o.open ? 'open' : ''}>
+  return html`<details class="txn ${x.kind} ${x.message ? 'hasmsg' : ''}" id="${id}" ${o.open ? 'open' : ''}>
     <summary class="row">${cells}</summary>
     <div class="body">
       ${annotationLine(x.annotations)}
+      ${x.message ? html`<p class="msg">${x.message}</p>` : ''}
       ${txBody(x, o.openPhases)}
     </div>
   </details>`

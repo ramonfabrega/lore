@@ -146,6 +146,34 @@ describe('getTrace', () => {
     expect(t.totals.transactions).toBe(2)
   })
 
+  // The row is a preview and the body is the message. Carrying the full text
+  // only when the row cannot show it keeps a short prompt from being sent
+  // twice — and the trigger is truncation or lost paragraphs, NOT a length
+  // comparison against the preview, which can never differ from it.
+  test('a message the row cannot show is carried in full; a short one is not', async () => {
+    const db = openDb(':memory:')
+    const long = `${'word '.repeat(60)}\n\nsecond paragraph`
+    const projectsDir = seed([
+      prompt('2026-09-01T12:00:00.000Z', 'r1', 'short one'),
+      assistant('2026-09-01T12:00:05.000Z', 'n1', [{ type: 'text', text: 'ok' }], 10, 'end_turn'),
+      prompt('2026-09-01T12:01:00.000Z', 'r2', long),
+      assistant('2026-09-01T12:01:05.000Z', 'n2', [{ type: 'text', text: 'ok' }], 10, 'end_turn'),
+    ])
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+
+    const t = getTrace(db, 'sess-1', { limit: 10, head: 60, proseHead: 5000 })
+    expect(t.transactions[0]!.prompt).toBe('short one')
+    expect(t.transactions[0]!.message).toBeNull()
+
+    const big = t.transactions[1]!
+    expect(big.prompt.endsWith('…')).toBe(true)
+    expect(big.prompt.length).toBe(60)
+    expect(big.message).toContain('second paragraph')
+    expect(big.message).toContain('\n\n')
+    // proseHead defaults to head, so an unchanged caller sees no growth.
+    expect(getTrace(db, 'sess-1', { limit: 10, head: 60 }).transactions[1]!.message!.length).toBeLessThanOrEqual(60)
+  })
+
   test('--steps expands requests; --head trims; --limit pages transactions but not totals', async () => {
     const db = openDb(':memory:')
     const projectsDir = seed(LINES)

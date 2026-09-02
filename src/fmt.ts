@@ -29,6 +29,20 @@ export function plain(s: string): string {
   return s.replace(ANSI, '')
 }
 
+// `cut` for prose that will be READ rather than scanned: paragraphs survive.
+// A brief arrives with structure — a READ FIRST list, a WHAT V0 IS paragraph —
+// and flattening it to one line, as `cut` does, turns four hundred words into
+// a wall. Runs of blank lines collapse to one; spaces and tabs still collapse,
+// so a wrapped line does not keep its accidental indentation.
+export function cutProse(s: string, n: number): string {
+  const t = plain(s)
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t
+}
+
 export function cut(s: string, n: number): string {
   const one = plain(s).replace(/\s+/g, ' ').trim()
   return one.length > n ? `${one.slice(0, n - 1)}…` : one

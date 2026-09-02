@@ -287,6 +287,22 @@ Re-bucketing conserves: across the whole corpus both versions report 106,196
 requests and $25,094.04 — 71 UTC buckets became 70 local ones, and 2026-09-01
 went from $1,070.64 to $1,364.67 as the evening hours came home.
 
+Two caps, because there are two kinds of text here. A tool argument is a
+label and 400 characters of it is generous; a **message** is prose somebody
+wrote to be read, and clipping it at 400 meant the page could show that a
+brief arrived but never what it said. `getTrace` takes `proseHead` beside
+`head` (defaulting to it, so the CLI is unchanged) and the session page asks
+for 20,000: the golden record's kickoff brief is 4,178 characters and was
+already whole in the index — only the render clipped it. The row keeps its
+two-line preview open or closed, and the body carries the message in full,
+through `cutProse`, which keeps paragraphs where `cut` flattens them: a
+structured brief is a wall of four hundred words on one line otherwise.
+
+Not everything uncaps. An instruction's input and result are capped at 2,000
+characters at INDEX time (`TOOL_TEXT_CAP`), so an outbound relay's body is
+truncated in the database, not just on the page — showing more would be a
+re-index, and a separate decision.
+
 Inside a transaction: **phases**. The assistant's text emitted *between*
 instructions ("Now the tests: one for the coin's two arms…") is its own
 heading for the run of steps that follows — zero inference, and it
