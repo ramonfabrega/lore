@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readPlistConfig, renderPlist, urlFor } from '../src/server'
+import { launchdUnsupported, readPlistConfig, renderPlist, urlFor } from '../src/server'
 import { allowsFallthrough, composeHandler } from '../src/web'
 
 describe('launchd plist', () => {
@@ -17,6 +17,16 @@ describe('launchd plist', () => {
   test('urlFor maps the wildcard bind to localhost', () => {
     expect(urlFor({ port: 4949, host: '0.0.0.0' })).toBe('http://localhost:4949/')
     expect(urlFor({ port: 4949, host: '100.100.100.100' })).toBe('http://100.100.100.100:4949/')
+  })
+
+  // Off macOS the verb used to die on `launchctl: command not found`. It now
+  // names the portable path instead — and points at the right supervisor.
+  test('launchd is refused off macOS, pointing at `lore serve`', () => {
+    expect(launchdUnsupported('darwin')).toBeNull()
+    expect(launchdUnsupported('linux')).toContain('lore serve')
+    expect(launchdUnsupported('linux')).toContain('systemd')
+    expect(launchdUnsupported('win32')).toContain('Scheduled Task')
+    expect(launchdUnsupported('win32')).toContain('macOS-only')
   })
 })
 

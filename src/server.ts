@@ -88,7 +88,22 @@ export function readPlistConfig(xml: string): ServerConfig | null {
 
 const domain = () => `gui/${process.getuid?.() ?? 501}`
 
+// launchd is macOS's, and has no cross-platform equivalent worth faking.
+// `lore serve` is the portable path: the same explorer, in the foreground.
+// Takes the platform as an argument so the message is testable anywhere.
+export function launchdUnsupported(platform: string = process.platform): string | null {
+  if (platform === 'darwin') return null
+  const wrapper = platform === 'win32' ? 'a Scheduled Task' : 'a systemd user unit'
+  return `lore server is macOS-only (it manages a launchd user agent); on ${platform}, run \`lore serve\` — the same explorer, in the foreground — or wrap it in ${wrapper}.`
+}
+
+function requireLaunchd(): void {
+  const msg = launchdUnsupported()
+  if (msg) throw new Error(msg)
+}
+
 async function launchctl(...args: string[]): Promise<{ code: number; out: string; err: string }> {
+  requireLaunchd()
   const r = await Bun.$`launchctl ${args}`.quiet().nothrow()
   return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() }
 }
@@ -104,6 +119,7 @@ export async function launchdState(): Promise<LaunchdState> {
 }
 
 export async function serverUp(cfg: ServerConfig) {
+  requireLaunchd() // before the write: a non-mac host never grows a ~/Library/LaunchAgents
   await Bun.write(PLIST_PATH, renderPlist(cfg))
   const before = await launchdState()
   if (before.loaded) {
