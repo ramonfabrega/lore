@@ -43,7 +43,7 @@ such file; their trailers stay unresolved and the page says so.
 Server-rendered HTML, no build step, no client framework; inline SVG for
 sparklines (the dataviz skill's palette). Hono via incur's `fetch` mount, so
 `lore api …` and `lore serve` are the same routes. Binds `0.0.0.0` so the
-tailnet reaches it as `studio:<port>/…` (incur mounts the handler; listening
+tailnet reaches it as `<host>:<port>/…` (incur mounts the handler; listening
 is `Bun.serve` — the bind address is ours to get right).
 
 - `/` — wells with usage sparklines (week), spend by model.
@@ -74,9 +74,9 @@ is `Bun.serve` — the bind address is ours to get right).
 
 `lore server up|down|restart|status|logs` — a launchd user agent
 (`~/Library/LaunchAgents/com.ramonfabrega.lore.plist`, KeepAlive, throttle
-10s, logs under `~/.lore/`), the fleet's precedent for long-lived local
+10s, logs under `~/.lore/`), the author's precedent for long-lived local
 services. Bind address resolved once at `up`: the Tailscale IP, so
-`http://studio:4949/` works over the tailnet without binding the LAN.
+`http://<host>:4949/` works over the tailnet without binding the LAN.
 `status` compares the running build (`/_lore`) with the installed bin —
 the prod bin is a frozen bundle, so after `scripts/install` the server
 still runs the old one until `restart`. KeepAlive respawns a port race
@@ -295,8 +295,8 @@ explorer; a curses surface would re-implement it for one screen.
 ### Theme (2026-09-01)
 
 Tokens are OKLCH with `light-dark()` pairs — one cool-tinted neutral scale
-(hue 265, the cdn pages') at symmetric lightness steps (album's rule), so
-lore, album, and the cdn read as siblings. The page is the darker ground;
+(hue 265, shared with the author's other pages) at symmetric lightness steps, so
+lore reads as a sibling of them. The page is the darker ground;
 panels sit one step up, tiles one more. Series hues stay the dataviz
 reference palette, re-validated against the new surfaces (dark: all pass;
 light: the known sub-3:1 warning on orange/aqua/yellow, relieved by the
@@ -334,10 +334,10 @@ steering; every rule in `style.ts`, no client code.
   horizontal stretch is exact. Lane labels, band numbers, and the axis are
   HTML at 9px positioned by percentage, so they stay 9px whether the panel
   is 700px or 2000px wide (they were SVG text: 8.4px at a third of the
-  Studio screen, 14.6px at two thirds).
+  3440px ultrawide, 14.6px at two thirds).
 - **Fluid type scale.** One multiplier `--z` from the viewport — 1 up to
-  ~1170px (a third of the Studio screen), 1.18 from ~1640px (two thirds),
-  the Air between — via `tan(atan2(100vw, 2600px))` for a unitless ratio;
+  ~1170px (a third of a 3440px ultrawide), 1.18 from ~1640px (two thirds),
+  a 13" laptop between — via `tan(atan2(100vw, 2600px))` for a unitless ratio;
   every font size is an `--fs-*` token on it. Spacing stays in px, so a wide
   window reads denser, not airier; the grid columns that hold type scale
   with it. Rejected: a modular ratio per level (jh3y/Utopia) — a console
@@ -350,7 +350,7 @@ steering; every rule in `style.ts`, no client code.
   state where the sparkline sits); the usage page says `since <first indexed
   day>`, not "all time" (a lie: it is since the logs begin).
 
-The four viewports this was checked against: a third of the Studio screen
+The four viewports this was checked against: a third of the ultrawide
 (~1146px, the daily driver), two thirds (~2000px), the 13" Air (1470px),
 and the phone (<900px, the stacked layout). Headless Chrome for the widths
 the live window is not at (memory `headless-chrome-layout-check`).

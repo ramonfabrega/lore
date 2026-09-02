@@ -6,11 +6,11 @@
 
 export const CSS = `
 /* Tokens: OKLCH, one cool-tinted neutral scale (hue 265, the cdn pages'),
-   light-dark() pairs at symmetric lightness steps (album's rule: the same
+   light-dark() pairs at symmetric lightness steps (a sibling project's rule: the same
    step away from the ground in both modes). Series hues are the dataviz
    reference palette, validated against these surfaces. */
 :root { color-scheme: light dark;
-  /* the type scale: one multiplier from the viewport — 1 up to a third of the Studio screen (≤1170px), 1.18 from ~1640px (two thirds), the Air in between.
+  /* the type scale: one multiplier from the viewport — 1 up to a third of a 3440px ultrawide (≤1170px), 1.18 from ~1640px (two thirds), a 13" laptop in between.
      Spacing stays in px, so a wide window reads denser, not airier. Column widths that hold type scale with it. */
   --z: clamp(1, calc(0.55 + tan(atan2(100vw, 2600px))), 1.18); /* tan(atan2(a, b)) = a/b as a unitless number */
   --fs-10: calc(10px * var(--z)); --fs-105: calc(10.5px * var(--z)); --fs-115: calc(11.5px * var(--z)); --fs-12: calc(12px * var(--z));

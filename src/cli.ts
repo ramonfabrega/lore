@@ -340,7 +340,7 @@ const web = createApp(() => openDb(DB_PATH), { build: BUILD_INFO, indexed })
 
 cli.command('serve', {
   description:
-    'Serve the explorer (docs/EXPLORER.md) in the foreground: / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee); every page answers JSON with ?json=1. Under /cli/ the read verbs are routes with the JSON envelope (GET /cli/usage?by=week, GET /cli/trace/<id>, spec at /cli/openapi.json); writers (archive, index, wiki commit…) are not exposed. `--host auto` binds the Tailscale address so the tailnet reaches http://studio:<port>/ without binding the LAN; 0.0.0.0 when there is none. For always-on, use `lore server up`.',
+    'Serve the explorer (docs/EXPLORER.md) in the foreground: / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee); every page answers JSON with ?json=1. Under /cli/ the read verbs are routes with the JSON envelope (GET /cli/usage?by=week, GET /cli/trace/<id>, spec at /cli/openapi.json); writers (archive, index, wiki commit…) are not exposed. `--host auto` binds the Tailscale address so the tailnet reaches http://<host>:<port>/ without binding the LAN; 0.0.0.0 when there is none. For always-on, use `lore server up`.',
   options: z.object({
     port: z.coerce.number().default(4949).describe('Port'),
     host: z.string().default('auto').describe('Bind address: auto (Tailscale IP, else 0.0.0.0), 127.0.0.1 (this machine only), or an address'),
@@ -354,7 +354,7 @@ cli.command('serve', {
     const hostname = await resolveHost(options.host)
     const handler = composeHandler(web.fetch, (req) => cli.fetch(req))
     const server = Bun.serve({ hostname, port: options.port, fetch: handler })
-    console.error(`lore serve ${BUILD_INFO} → http://${server.hostname}:${server.port}/  (tailnet: http://studio:${server.port}/)`)
+    console.error(`lore serve ${BUILD_INFO} → http://${server.hostname}:${server.port}/`)
     // Incremental refresh in-process: sub-second when nothing changed, a few
     // seconds after a busy hour; the shared db's busy_timeout covers a CLI
     // `lore index` landing at the same moment. Never `full` — a schema bump

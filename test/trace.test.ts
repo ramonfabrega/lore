@@ -7,8 +7,8 @@ import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { getTrace } from '../src/trace'
 
-// A two-transaction session in the real record shapes (2026-09-01 attrition
-// grind): the user prompt carries promptId; the assistant's request is ONE
+// A two-transaction session in the real record shapes (2026-09-01, an
+// autonomous loop session): the user prompt carries promptId; the assistant's request is ONE
 // LINE PER CONTENT BLOCK sharing message.id (text line, then tool_use line,
 // usage repeated on both); the tool_result comes back on a user record with
 // the same promptId and tool_use_id; a later request closes with text.

@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { LORE_HOME } from './config'
 
-// The always-on explorer as a launchd user agent — the fleet's precedent for
-// long-lived local services (the centaur port-forward agents), wrapped so it
+// The always-on explorer as a launchd user agent — the author's precedent for
+// long-lived local services (hand-written port-forward agents), wrapped so it
 // is one command to turn on, off, restart, and read. incur has no opinion on
 // process management: its recommendation is `Bun.serve(cli)`, which is what
 // `lore serve` does; something has to keep that process alive across logins
@@ -179,7 +179,7 @@ export function urlFor(cfg: ServerConfig): string {
   return `http://${host}:${cfg.port}/`
 }
 
-// Bind address: the Tailscale address keeps `studio:<port>` working over the
+// Bind address: the Tailscale address keeps `<host>:<port>` working over the
 // tailnet without also binding the LAN interface; 0.0.0.0 when there is none.
 export async function resolveHost(host: string): Promise<string> {
   if (host !== 'auto') return host

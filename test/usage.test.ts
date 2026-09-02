@@ -8,7 +8,7 @@ import { buildIndex } from '../src/indexer'
 import { parseLine } from '../src/parse'
 import { listUsage, rateFor } from '../src/usage'
 
-// The real shape, from an attrition grind transcript (2026-09-01): assistant
+// The real shape, from an autonomous-loop transcript (2026-09-01): assistant
 // records are streaming snapshots — two lines per request sharing message.id,
 // identical usage — with `effort` at the record's top level and thinking as a
 // sub-count of output.

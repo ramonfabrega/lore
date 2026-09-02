@@ -576,7 +576,7 @@ function wikiPageFor(dir: string, wikiDir: string): string | null {
 }
 
 // Well dirs are slugged absolute paths; the tail past `code` is the name a
-// human uses (`fun/attrition · replan-pdb`).
+// human uses (`fun/my-app · feature-branch`).
 function shortWell(dir: string): string {
   const i = dir.indexOf('-code-')
   const tail = i >= 0 ? dir.slice(i + '-code-'.length) : dir.replace(/^-/, '')
