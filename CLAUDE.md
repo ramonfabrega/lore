@@ -94,19 +94,25 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
 - Recording channels shard by dir: the transcript shards by cwd (`/clear`
   re-shards to a NEW session id); memory shards to the launch dir. Well
   membership ≠ work location — ground truth is per-message `cwd`/`gitBranch`.
-  **Mid-session worktree entry MOVES the transcript file, retroactively**
-  (2026-09-02, confirmed; the earlier "cwd at session creation" rule and its
-  DISPUTED note are both superseded). The whole file relocates to the
-  worktree well, pre-entry records included, leaving NOTHING in the parent.
-  Re-derived across two independent sessions, different projects and drivers:
-  5a57a968 (an hour of pre-entry work moved), and 57084123, which opens at
-  `cwd=~/code/fun/ccc`, carries 77 records at that parent cwd, and lives
-  entirely in the `…-ccc--claude-worktrees-v0` well. Do not read stubs left
-  in a parent well as residue of a move — sibling stubs there are separate
-  sessions minted by `/model` or `/clear`, which is the re-shard rule, not a
-  counter-example. Code that resolves a session to a file must still try
-  BOTH wells (`verifyModels` in `agents.ts` does), but the worktree well is
-  the likely branch and the parent the fallback.
+  **Mid-session worktree entry MOVES the transcript file, retroactively, on
+  EVERY entry** (2026-09-02, confirmed; the earlier "cwd at session creation"
+  rule and its DISPUTED note are both superseded). The whole file relocates to
+  the well of the worktree the session is in NOW — pre-entry records included,
+  leaving NOTHING in the one it left — and the session's directory
+  (`<id>/subagents/`) travels with it, so a well that had sessions can be
+  emptied to zero entries while the dir itself remains. It is not a one-shot
+  at first entry: session 57084123 moved parent → v0 → v1 and ended up one
+  file in the v1 well carrying all four cwds (89 records at `~/code/fun/ccc`,
+  1298 at v0, 163 in a v0 subdir, 266 at v1), with the v0 well left completely
+  empty. Re-derived across independent sessions, projects and drivers:
+  5a57a968 (an hour of pre-entry work moved) and 57084123 (twice). Do not read
+  stubs left in a parent well as residue of a move — sibling stubs there are
+  separate sessions minted by `/model` or `/clear`, which is the re-shard
+  rule, not a counter-example. Code that resolves a session to a file must
+  still try BOTH wells (`verifyModels` in `agents.ts` does), but the CURRENT
+  worktree well is the likely branch and the parent the fallback; the index
+  keys on session id, so a re-index after a move updates the row's well rather
+  than duplicating it (checked, not assumed).
 - A well dir is its cwd with **every non-alphanumeric replaced by `-`, one
   per NFC character** — ASCII letters and digits alone survive (`slugWellDir`).
   Measured 2026-09-02 against three wells minted for the question: `_`, space,
