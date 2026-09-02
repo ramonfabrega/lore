@@ -220,11 +220,13 @@ export async function verifyModels(rows: AgentRow[]): Promise<void> {
     rows.map(async (r) => {
       if (r.state !== 'working' && r.state !== 'blocked') return
       if (!r.sessionId) return
-      // Two candidate wells, and which one holds the file is not ours to
-      // assume: the transcript shards by cwd, the index records the well as
-      // of the last `lore index`, and a session that entered a worktree has
-      // been observed under BOTH (2026-09-02, this session's own transcript
-      // moved to the worktree well). Take whichever exists.
+      // Two candidate wells. Worktree entry MOVES the transcript file
+      // retroactively — the whole file, pre-entry records included, ends up
+      // in the worktree well with nothing left in the parent (confirmed
+      // 2026-09-02 across two sessions: 5a57a968 and 57084123). So the
+      // agent's CURRENT cwd is the likely holder and is tried first; the
+      // indexed well is the fallback, since it is only as fresh as the last
+      // `lore index`. Take whichever exists.
       const path = [slugWellDir(r.cwd), r.indexed?.well]
         .filter((w): w is string => !!w)
         .map((w) => join(PROJECTS_DIR, w, `${r.sessionId}.jsonl`))

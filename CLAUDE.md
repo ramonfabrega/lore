@@ -91,16 +91,22 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
 - Wells are continuous work streams; the user `/clear`s long-lived sessions.
   Group by well + time, infer arcs from artifacts; never impose conventions
   without evidence from the data.
-- Recording channels shard by dir: the transcript shards by **cwd at session
-  creation** (`/clear` re-shards); memory shards to the launch dir. Well
+- Recording channels shard by dir: the transcript shards by cwd (`/clear`
+  re-shards to a NEW session id); memory shards to the launch dir. Well
   membership ≠ work location — ground truth is per-message `cwd`/`gitBranch`.
-  **DISPUTED (2026-09-02, needs review):** "mid-session worktree entry does
-  NOT move the file" is contradicted by one direct observation — session
-  5a57a968 entered a worktree and its whole transcript (spanning an hour
-  before the entry) moved to the worktree well, leaving nothing behind in
-  the parent. One session, one harness version; not yet re-derived. Code
-  that resolves a session to a file must try BOTH wells (`verifyModels` in
-  `agents.ts` does).
+  **Mid-session worktree entry MOVES the transcript file, retroactively**
+  (2026-09-02, confirmed; the earlier "cwd at session creation" rule and its
+  DISPUTED note are both superseded). The whole file relocates to the
+  worktree well, pre-entry records included, leaving NOTHING in the parent.
+  Re-derived across two independent sessions, different projects and drivers:
+  5a57a968 (an hour of pre-entry work moved), and 57084123, which opens at
+  `cwd=~/code/fun/ccc`, carries 77 records at that parent cwd, and lives
+  entirely in the `…-ccc--claude-worktrees-v0` well. Do not read stubs left
+  in a parent well as residue of a move — sibling stubs there are separate
+  sessions minted by `/model` or `/clear`, which is the re-shard rule, not a
+  counter-example. Code that resolves a session to a file must still try
+  BOTH wells (`verifyModels` in `agents.ts` does), but the worktree well is
+  the likely branch and the parent the fallback.
 - Wells outlive their dirs (worktree deletion loses no transcripts), and
   "gone by id ≠ gone by content" (respawns/resume-forks re-id sessions;
   measure loss by content lineage). Per-spawn subagent transcripts persist
