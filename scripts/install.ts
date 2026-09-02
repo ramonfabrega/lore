@@ -11,10 +11,14 @@ import { $ } from 'bun'
 import { chmodSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import pkg from '../package.json'
 
-const root = new URL('..', import.meta.url).pathname
+// fileURLToPath, not .pathname: on Windows the latter yields '/C:/Users/...',
+// which is not a path anything can open.
+const root = fileURLToPath(new URL('..', import.meta.url))
 const compile = Bun.argv.includes('--compile')
+const windows = process.platform === 'win32'
 $.cwd(root)
 
 const fail = (msg: string): never => {
@@ -40,7 +44,10 @@ const sha = (await $`git rev-parse --short HEAD`.text()).trim()
 const info = `v${pkg.version} b${build} @ ${sha}${compile ? ' (compiled)' : ''}`
 
 const dist = join(homedir(), '.lore', 'dist')
-const bin = join(homedir(), '.bun', 'bin', 'lore')
+// Windows has no shebang and no exec bit: the thing on PATH must be a .cmd
+// (~/.bun/bin is already on PATH there, same as POSIX).
+const bin = join(homedir(), '.bun', 'bin', windows ? 'lore.cmd' : 'lore')
+const exe = join(dist, windows ? 'lore.exe' : 'lore')
 mkdirSync(dist, { recursive: true })
 mkdirSync(join(homedir(), '.bun', 'bin'), { recursive: true })
 
@@ -50,21 +57,31 @@ const out = await Bun.build({
   minify: true,
   define: { LORE_BUILD_INFO: JSON.stringify(info) },
   throw: false,
-  ...(compile ? { bytecode: true, compile: { outfile: join(dist, 'lore') } } : {}),
+  ...(compile ? { bytecode: true, compile: { outfile: exe } } : {}),
 })
 if (!out.success) {
   for (const log of out.logs) console.error(String(log))
   fail('build failed')
 }
 
+// A .cmd shim rather than a copy of the artifact: `exit /b` propagates the
+// exit code, which a bare invocation at the end of a batch file does not
+// reliably do. symlinkSync is avoided on Windows — it needs a privilege
+// unelevated processes don't have.
+const cmdShim = (target: string, viaBun: boolean) => `@echo off\r\n${viaBun ? 'bun ' : ''}"${target}" %*\r\nexit /b %ERRORLEVEL%\r\n`
+
 if (compile) {
   rmSync(bin, { force: true })
-  symlinkSync(join(dist, 'lore'), bin)
+  if (windows) await Bun.write(bin, cmdShim(exe, false))
+  else symlinkSync(exe, bin)
 } else {
   const bundle = out.outputs.find((a) => a.kind === 'entry-point') ?? fail('build produced no entry-point')
   const js = join(dist, 'lore.js')
   await Bun.write(js, bundle)
-  await Bun.write(bin, `#!/bin/sh\nexec bun "${js}" "$@"\n`)
-  chmodSync(bin, 0o755)
+  if (windows) await Bun.write(bin, cmdShim(js, true))
+  else {
+    await Bun.write(bin, `#!/bin/sh\nexec bun "${js}" "$@"\n`)
+    chmodSync(bin, 0o755)
+  }
 }
 console.error(`installed: lore ${info} -> ${bin}`)
