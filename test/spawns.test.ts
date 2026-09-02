@@ -159,4 +159,71 @@ describe('indexSpawns + listSpawns', () => {
     expect(stats.spawnFiles).toBe(0)
     expect(listSpawns(db, { limit: 10 }).spawns).toEqual([])
   })
+
+  // The shape ccc hit on 09-02: `lore agents` prints a job's `id` next to its
+  // `sessionId`, the id resolves to the /model stub the job started with, and
+  // `--session <that>` answered `count: 0` — read, reasonably, as an index gap
+  // for worktree wells. The corpus was fine; the answer was silent.
+  describe('--session that finds nothing says why', () => {
+    // job root `job-root` (a 10-line stub) → `sess-1` after a /clear, which is
+    // where the spawns actually landed. Plus an unrelated interactive session.
+    function seedJobFamily(db: ReturnType<typeof openDb>) {
+      db.exec(`
+        INSERT INTO wells(id, dir, real_path) VALUES (1, '-u-code-fun-app--claude-worktrees-x', '/u/code/fun/app/.claude/worktrees/x');
+        INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, job_session_id) VALUES
+          (1, 'job-root', 0, 0, 10, NULL),
+          (1, 'sess-1', 0, 0, 4502, 'job-root'),
+          (1, 'sess-quiet', 0, 0, 217, 'job-root'),
+          (1, 'solo-session', 0, 0, 80, NULL);
+      `)
+    }
+
+    test('names the job-mate that holds the spawns', async () => {
+      const db = openDb(':memory:')
+      await indexSpawns(db, { projectsDir: seedProjectsDir() })
+      seedJobFamily(db)
+
+      const miss = listSpawns(db, { session: 'job-root', limit: 50 }).sessionMiss
+      expect(miss?.asked).toBe('job-root')
+      // What the prefix DID resolve to — a real session, just the wrong one.
+      expect(miss?.matched).toEqual([{ sessionId: 'job-root', lines: 10 }])
+      expect(miss?.siblings).toEqual([{ sessionId: 'sess-1', job: 'job-root', spawns: 2, lines: 4502 }])
+      // A job-mate that spawned nothing is not offered as an answer.
+      expect(miss?.siblings.map((s) => s.sessionId)).not.toContain('sess-quiet')
+    })
+
+    test('works from any session of the job, not just its root', async () => {
+      const db = openDb(':memory:')
+      await indexSpawns(db, { projectsDir: seedProjectsDir() })
+      seedJobFamily(db)
+      // `sess-quiet` is a real, indexed, spawn-less session — but its /clear
+      // sibling holds the fan-out, and that is the question being asked.
+      expect(listSpawns(db, { session: 'sess-quiet', limit: 50 }).sessionMiss?.siblings.map((s) => s.sessionId)).toEqual(['sess-1'])
+    })
+
+    test('an unknown id is reported as a miss, not as zero spawns', () => {
+      const db = openDb(':memory:')
+      seedJobFamily(db)
+      const miss = listSpawns(db, { session: 'nope', limit: 50 }).sessionMiss
+      expect(miss).toEqual({ asked: 'nope', matched: [], siblings: [] })
+    })
+
+    test('a session with no job has no siblings invented for it', async () => {
+      const db = openDb(':memory:')
+      await indexSpawns(db, { projectsDir: seedProjectsDir() })
+      seedJobFamily(db)
+      const miss = listSpawns(db, { session: 'solo-session', limit: 50 }).sessionMiss
+      expect(miss?.matched).toEqual([{ sessionId: 'solo-session', lines: 80 }])
+      expect(miss?.siblings).toEqual([])
+    })
+
+    test('an answer that found spawns carries no miss block', async () => {
+      const db = openDb(':memory:')
+      await indexSpawns(db, { projectsDir: seedProjectsDir() })
+      seedJobFamily(db)
+      expect(listSpawns(db, { session: 'sess-1', limit: 50 }).sessionMiss).toBeUndefined()
+      // Nor does an empty answer that no --session asked for.
+      expect(listSpawns(db, { agent: 'nobody', limit: 50 }).sessionMiss).toBeUndefined()
+    })
+  })
 })

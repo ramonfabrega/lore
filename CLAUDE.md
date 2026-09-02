@@ -134,6 +134,16 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   `<session>/workflows/wf_*.json`, agents under `subagents/workflows/wf_*/`;
   `lore workflows` is the per-run observatory, `spawns --workflow` the
   drill-down.
+- A background **job id is the id of the session it started with**, and every
+  `/clear` after that mints a NEW session id pointing back at that root
+  (`sessions.job_session_id`). So a job is a chain of sessions, its root
+  usually a stub of a few lines, and the fan-out lives under whichever session
+  was current when it ran. `lore agents` prints the job as `id` and the live
+  session as `sessionId` — **only the latter resolves spawns**, and the former
+  resolves as a real (empty) session, so the wrong copy is a plausible `0`
+  rather than an error. Generalized (ccc, 09-02): **when a listing exposes two
+  ids, say which one survives the thing you are about to do with it** —
+  `spawns --session` does it by naming the job-mate that holds the rows.
 - Wiki durability is CLI-owned: **every wiki op ends with
   `lore wiki commit`** (hooks don't travel across drivers).
 

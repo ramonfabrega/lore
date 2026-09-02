@@ -22,6 +22,10 @@ import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta'] as const
 
+// Session ids are read in prose as their first segment — the form every
+// listing, job dir and roster row prints.
+const short = (id: string) => id.slice(0, 8)
+
 const cli = Cli.create('lore', {
   version: '0.1.0',
   description:
@@ -203,7 +207,7 @@ cli.command('search', {
 
 cli.command('spawns', {
   description:
-    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope + cache reuse, totals. Newest first, with per-agentType and per-week rollups (the trend: did a config change move boot cost). `telemetryPartial` marks a spawn whose transcript never reached a terminal stop_reason (in flight, or its final usage row never landed) — its token totals are a FLOOR, not a measurement; `partialTelemetry` counts them across all matches. Populated by `lore index`.',
+    'The subagent observatory: per-spawn agentType, VERIFIED model (first-request JSONL — the spawn parameter and completion notification are never trusted), boot envelope + cache reuse, totals. Newest first, with per-agentType and per-week rollups (the trend: did a config change move boot cost). `telemetryPartial` marks a spawn whose transcript never reached a terminal stop_reason (in flight, or its final usage row never landed) — its token totals are a FLOOR, not a measurement; `partialTelemetry` counts them across all matches. An empty `--session` answer never stays silent: `sessionMiss` says what the id actually resolved to and which job-mate holds the spawns (a job id and a session id sit side by side in `lore agents`, and only the session id works here). Populated by `lore index`.',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
@@ -219,13 +223,16 @@ cli.command('spawns', {
     session: z
       .string()
       .optional()
-      .describe('Only agents spawned by this session — id or unique prefix (see the sessions listing)'),
+      .describe(
+        'Only agents spawned by this SESSION — id or unique prefix (see the sessions listing). Not the job id `lore agents` prints as `id`: that resolves to the stub session a /clear left behind, which spawned nothing. An empty answer names the job-mate that holds the spawns.',
+      ),
     limit: z.coerce.number().default(50).describe('Max spawn rows (the rollup always covers all matches)'),
   }),
   alias: { well: 'w', agent: 'a', limit: 'n' },
-  run: ({ options }) => {
+  run: (c) => {
     const db = openDb(DB_PATH)
-    const { spawns, partialTelemetry, byAgentType, byWeek } = listSpawns(db, {
+    const { options } = c
+    const { spawns, partialTelemetry, byAgentType, byWeek, sessionMiss } = listSpawns(db, {
       well: options.well,
       exact: options.exact,
       agent: options.agent,
@@ -234,7 +241,44 @@ cli.command('spawns', {
       session: options.session,
       limit: options.limit,
     })
-    return { count: spawns.length, partialTelemetry, byAgentType, byWeek, spawns }
+    const result = {
+      count: spawns.length,
+      partialTelemetry,
+      byAgentType,
+      byWeek,
+      ...(sessionMiss ? { sessionMiss } : {}),
+      spawns,
+    }
+    if (!sessionMiss) return result
+    // Three empty answers, three different next moves — never the same silence.
+    const sib = sessionMiss.siblings[0]
+    if (sib)
+      return c.ok(result, {
+        cta: {
+          description: `${short(sessionMiss.matched[0]?.sessionId ?? sessionMiss.asked)} spawned nothing, but ${short(sib.sessionId)} did — same background job (${short(sib.job)}), a /clear apart. --session wants the session id, not the job id:`,
+          commands: sessionMiss.siblings.slice(0, 3).map((s) => ({
+            command: 'spawns',
+            options: { session: s.sessionId },
+            description: `${s.spawns} spawn${s.spawns === 1 ? '' : 's'} (${s.lines} lines)`,
+          })),
+        },
+      })
+    if (sessionMiss.matched.length)
+      return c.ok(result, {
+        cta: {
+          description: `${short(sessionMiss.matched[0]!.sessionId)} is indexed and really spawned nothing — no job-mate of it did either.`,
+          commands: [{ command: 'trace', args: { id: sessionMiss.matched[0]!.sessionId }, description: 'What it did instead' }],
+        },
+      })
+    return c.ok(result, {
+      cta: {
+        description: `No indexed session starts with "${sessionMiss.asked}" — the 0 is a miss, not a measurement.`,
+        commands: [
+          { command: 'sessions', description: 'The session ids the index actually holds' },
+          { command: 'index', description: 'Refresh first if the session is newer than the last index' },
+        ],
+      },
+    })
   },
 })
 

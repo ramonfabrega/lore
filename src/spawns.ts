@@ -277,6 +277,65 @@ export type SpawnTrendRow = {
   bootReusePct: number | null
 }
 
+// The --session guard (09-02, found by ccc reading `count: 0` as an index
+// gap). `lore agents` prints a background job's `id` and its `sessionId` as
+// sibling fields; the `id` is what a reader copies, and it ALSO resolves as a
+// real session — the stub left behind in the base well when `/clear` or
+// `/model` re-shards the transcript to a new id. So the wrong one of two
+// adjacent ids answers `count: 0`, a plausible number, at exactly the moment
+// the fan-out doctrine says to verify a model. A silent wrong answer is worse
+// than a 404: on an empty --session, say what the prefix actually resolved to
+// and which job-mate holds the spawns.
+export type SessionMiss = {
+  asked: string
+  matched: { sessionId: string; lines: number }[]
+  siblings: { sessionId: string; job: string; spawns: number; lines: number }[]
+}
+
+const Matched = z.object({ sessionId: z.string(), lines: z.number() })
+const Sibling = z.object({ sessionId: z.string(), job: z.string(), spawns: z.number(), lines: z.number() })
+
+function explainSessionMiss(db: Database, asked: string): SessionMiss {
+  const like = `${asked}%`
+  const matched = z
+    .array(Matched)
+    .parse(
+      db
+        .prepare('SELECT session_id AS sessionId, lines FROM sessions WHERE session_id LIKE ? ORDER BY lines DESC LIMIT 5')
+        .all(like),
+    )
+  // A job's sessions are keyed by the id it started with: the root carries no
+  // job_session_id, every /clear after it points back at that root. So the job
+  // key is COALESCE(job_session_id, session_id) — for an interactive session
+  // that is just itself, a singleton job with no mates, which is the right
+  // answer for it too.
+  const roots = z
+    .array(z.object({ job: z.string() }))
+    .parse(
+      db
+        .prepare('SELECT DISTINCT COALESCE(job_session_id, session_id) AS job FROM sessions WHERE session_id LIKE ?')
+        .all(like),
+    )
+    .map((r) => r.job)
+  if (!roots.length) return { asked, matched, siblings: [] }
+  const siblings = z
+    .array(Sibling)
+    .parse(
+      db
+        .prepare(
+          `SELECT s.session_id AS sessionId, COALESCE(s.job_session_id, s.session_id) AS job,
+                  COUNT(p.id) AS spawns, s.lines
+             FROM sessions s JOIN spawns p ON p.session_id = s.session_id
+            WHERE COALESCE(s.job_session_id, s.session_id) IN (${roots.map(() => '?').join(',')})
+            GROUP BY s.session_id
+            ORDER BY spawns DESC, s.lines DESC`,
+        )
+        .all(...roots),
+    )
+    .filter((s) => !matched.some((m) => m.sessionId === s.sessionId))
+  return { asked, matched, siblings }
+}
+
 // Spawn rows newest-first plus two rollups — the observatory's at-a-glance
 // answers: byAgentType (which types run, on which verified models, at what
 // boot cost, with how much cache reuse) and byWeek (the trend — did a config
@@ -291,6 +350,7 @@ export function listSpawns(
   partialTelemetry: number
   byAgentType: SpawnSummary[]
   byWeek: SpawnTrendRow[]
+  sessionMiss?: SessionMiss
 } {
   const where: string[] = []
   const params: (string | number)[] = []
@@ -400,5 +460,8 @@ export function listSpawns(
       }),
     )
     .parse(db.prepare(trendSql).all(...params))
-  return { spawns, partialTelemetry, byAgentType, byWeek }
+  // Only when --session is the reason nothing came back: a 0-count that no
+  // filter explains is a fact about the corpus, not a mis-copied id.
+  const sessionMiss = opts.session && !spawns.length ? explainSessionMiss(db, opts.session) : undefined
+  return { spawns, partialTelemetry, byAgentType, byWeek, ...(sessionMiss ? { sessionMiss } : {}) }
 }
