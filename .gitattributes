@@ -2,3 +2,11 @@
 # core.autocrlf=true, which would rewrite the `#!/bin/sh` shim and risk making
 # a fresh CI checkout look dirty to install.ts's clean-tree gate.
 * text=auto eol=lf
+
+# Fixtures are evidence: git must not touch a byte. `text=auto` above would
+# normalize line endings inside one, silently, between the test that passed on
+# the working file and the bytes that landed in the commit — a path recorded
+# with a CR in it is enough. Borrowed from ccc, which lost 60 KB of a recorded
+# stream to exactly this and only noticed because the replay went blank
+# (2026-09-02).
+test/fixtures/** -text
