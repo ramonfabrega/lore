@@ -107,6 +107,19 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   counter-example. Code that resolves a session to a file must still try
   BOTH wells (`verifyModels` in `agents.ts` does), but the worktree well is
   the likely branch and the parent the fallback.
+- A well dir is its cwd with **every non-alphanumeric replaced by `-`, one
+  per NFC character** — ASCII letters and digits alone survive (`slugWellDir`).
+  Measured 2026-09-02 against three wells minted for the question: `_`, space,
+  `~`, `+`, `@` collapse exactly like `/` and `.`; non-ASCII collapses at one
+  dash per character (`日本語` → `---`, not per UTF-8 byte). The map is
+  many-to-one, so a slug must be VERIFIED against disk, never trusted. The
+  **NFC** clause is the one with teeth: the harness mangles the cwd it
+  recorded, and that arrives NFC, but names read back off a filesystem carry
+  whatever was written and macOS writes NFD freely — mangle a `readdir` entry
+  without normalizing and a live well reads as a deleted source. Corpus of 90
+  real wells at `~/.lore/wells-corpus.jsonl`, a curated subset committed at
+  `test/fixtures/wells-corpus.jsonl`; two independent implementations pass it
+  (lore's, and ccc's `WellPath`).
 - Wells outlive their dirs (worktree deletion loses no transcripts), and
   "gone by id ≠ gone by content" (respawns/resume-forks re-id sessions;
   measure loss by content lineage). Per-spawn subagent transcripts persist

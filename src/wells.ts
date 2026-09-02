@@ -49,20 +49,32 @@ export async function listWells(projectsDir: string): Promise<Well[]> {
 }
 
 // The forward map: an absolute path to the well dir the harness would shard
-// it into (every non-alphanumeric becomes '-'). Lossy in the other
-// direction, which is what deslugWellDir below exists to undo — so a caller
-// that slugs a path must VERIFY the result exists before trusting it.
+// it into. Every non-alphanumeric becomes '-', one dash per NFC character —
+// measured 2026-09-02 against three wells minted for the question (CLI
+// 2.1.258): '_', ' ', '~', '+' and '@' collapse exactly like '/' and '.', and
+// so do non-ASCII letters, at one dash each ('日本語' -> '---', not one per
+// UTF-8 byte). Lossy in the other direction, which is what deslugWellDir
+// below exists to undo — so a caller that slugs a path must VERIFY the result
+// exists before trusting it.
+//
+// The normalize is load-bearing, not hygiene. The harness mangles the cwd it
+// RECORDED, and that arrives NFC; but names read off a filesystem come back
+// however they were written, and macOS writes NFD freely. Without this,
+// slugging a readdir entry for 'café' yielded '-caf' + 'e' + '--' while the
+// well was '-caf--', so deslugWellDir walked past the directory it was
+// standing in and answered null — a live well reported as a deleted source.
 export function slugWellDir(path: string): string {
-  return path.replace(/[^a-zA-Z0-9]/g, '-')
+  return path.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-')
 }
 
 // A memory-only well (a live repo with memory but zero transcripts) has no
-// cwd record to resolve, and the dir name is lossy — '-' stands for '/', '.',
-// '_', and literal '-' alike (my-app, some_dir, .claude). Reconstruct by
-// matching the slug against what is actually on disk: at each level read the
-// directory, and descend into the entries whose own mangled name prefixes
-// what is left. A deleted source resolves null, same as before — "gone by id
-// ≠ gone by content" stays measurable.
+// cwd record to resolve, and the dir name is lossy — '-' stands for every
+// non-alphanumeric and for a literal '-' alike (my-app, some_dir, .claude,
+// 'My Project', café). Reconstruct by matching the slug against what is
+// actually on disk: at each level read the directory, and descend into the
+// entries whose own mangled name prefixes what is left. A deleted source
+// resolves null, same as before — "gone by id ≠ gone by content" stays
+// measurable.
 //
 // This used to enumerate joiners ('/', '-', '.', '_') at every boundary
 // instead. Only the '/' branch pruned (it checked the directory existed); the
