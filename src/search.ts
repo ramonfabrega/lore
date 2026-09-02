@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { relayHead } from './envelope'
+import { day } from './fmt'
 import { ftsMatch } from './fts'
 import type { Lane } from './parse'
 
@@ -192,8 +193,8 @@ export function searchSessions(
     return {
       sessionId: id,
       well: m?.well ?? '?',
-      first: m?.first?.slice(0, 10) ?? null,
-      last: m?.last?.slice(0, 10) ?? null,
+      first: day(m?.first ?? null) || null,
+      last: day(m?.last ?? null) || null,
       openedBy: relay ? (m?.openerPeer ?? relay.from) : null,
       firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
       hits: g.hits,

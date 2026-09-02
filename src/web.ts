@@ -13,7 +13,7 @@ import { searchSessions } from './search'
 import { resolveSessionId } from './session'
 import { listSessions, modelsFor } from './sessions'
 import { annotationLine, sessionBody, tile } from './block'
-import { cut, tok, usd } from './fmt'
+import { cut, day, hm, tok, todayLocal, usd } from './fmt'
 import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
 import { CSS } from './style'
 import { bars, feeBar, feeLegend, ibar, modelChip, modelChips, spark, stackedBars } from './viz'
@@ -281,9 +281,12 @@ export function createApp(
   // whole-corpus aggregates never run here.
   app.get('/', async (c) => {
     const db = getDb()
-    const today = new Date().toISOString().slice(0, 10)
-    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
-    const since45 = new Date(Date.now() - 45 * 86_400_000).toISOString().slice(0, 10)
+    // The front page's windows are LOCAL days — "today" is the day you are
+    // having, not the one Greenwich is. `listUsage` turns each back into the
+    // UTC instant of local midnight, so the window and its buckets agree.
+    const today = todayLocal()
+    const weekAgo = isoDay(Date.now() - 7 * 86_400_000)
+    const since45 = isoDay(Date.now() - 45 * 86_400_000)
     const recentSessions = listSessions(db, { limit: 60, byActivity: true }).reverse()
     const feeById = new Map(
       listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 200 }).rows.map((r) => [r.key, r]),
@@ -604,10 +607,13 @@ function stat(label: string, value: string, days: UsageRow[], pick: (d: UsageRow
   )}</div>`
 }
 
-// "14:32" for today, "08-29" otherwise.
+// "14:32" for today, "08-29" otherwise — both on the local clock, and
+// compared against a local `today`. Slicing the ISO string here while the
+// buckets elsewhere went local is exactly how a page starts contradicting
+// itself, so this reads through the same formatters everything else does.
 function whenLabel(ts: string | null, today: string): string {
   if (!ts) return ''
-  return ts.slice(0, 10) === today ? ts.slice(11, 16) : ts.slice(5, 10)
+  return day(ts) === today ? hm(ts) : day(ts).slice(5)
 }
 
 // The day chart: list $ stacked by model FAMILY (model.ts). Stacking by
@@ -627,7 +633,7 @@ function familiesIn(rows: UsageRow[]): ModelFamily[] {
 // Same names as `lore usage`'s flags. Anything unparseable falls back to the
 // default rather than 400ing — a bad URL still shows the profile.
 const DAY = 86_400_000
-const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10)
+const isoDay = (t: number) => day(new Date(t).toISOString())
 const UsageQuery = z.object({
   range: z.enum(['7d', '30d', '90d', 'all']).optional(),
   by: z.enum(['day', 'week', 'month']).optional(),

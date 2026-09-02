@@ -7,6 +7,7 @@ import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { parseLine } from '../src/parse'
 import { listUsage, rateFor } from '../src/usage'
+import { day } from '../src/fmt'
 
 // The real shape, from an autonomous-loop transcript (2026-09-01): assistant
 // records are streaming snapshots — two lines per request sharing message.id,
@@ -158,18 +159,26 @@ describe('listUsage', () => {
   test('by session carries well + first, and --session narrows by prefix', () => {
     const r = listUsage(seedDb(), { by: 'session', session: 's2', limit: 10 })
     expect(r.rows).toHaveLength(1)
-    expect(r.rows[0]).toMatchObject({ key: 's2', well: '-u-code-a', first: '2026-09-01', listUsd: 1.1, spawnOutput: 5000 })
+    expect(r.rows[0]).toMatchObject({ key: 's2', well: '-u-code-a', first: day('2026-09-01T10:00:00Z'), listUsd: 1.1, spawnOutput: 5000 })
   })
+
+  // Buckets are LOCAL days, so the expectation is computed with the same
+  // formatter the pages render with — a hardcoded UTC day would only be right
+  // in the zone the fixture was written in, and asserting that SQL's bucket
+  // equals fmt's `day()` for the same instant IS the invariant worth holding:
+  // the two halves must never drift apart.
+  const REQ_TS = ['2026-08-30T10:00:00Z', '2026-08-30T11:00:00Z', '2026-09-01T10:00:00Z', '2026-09-01T12:00:00Z']
+  const localDays = [...new Set(REQ_TS.map((t) => day(t)))].sort()
 
   test('time groupings sort ascending and page from the newest end', () => {
     const r = listUsage(seedDb(), { by: 'day', limit: 1 })
-    expect(r.rows.map((x) => x.key)).toEqual(['2026-09-01'])
+    expect(r.rows.map((x) => x.key)).toEqual(localDays.slice(-1))
     expect(r.totals.requests).toBe(4)
     const all = listUsage(seedDb(), { by: 'day', limit: 10 })
-    expect(all.rows.map((x) => x.key)).toEqual(['2026-08-30', '2026-09-01'])
+    expect(all.rows.map((x) => x.key)).toEqual(localDays)
     const month = listUsage(seedDb(), { by: 'month', model: 'opus', limit: 10 })
     expect(month.rows).toEqual([
-      expect.objectContaining({ key: '2026-08', requests: 2, listUsd: 1.05 }),
+      expect.objectContaining({ key: day('2026-08-30T10:00:00Z').slice(0, 7), requests: 2, listUsd: 1.05 }),
     ])
   })
 })

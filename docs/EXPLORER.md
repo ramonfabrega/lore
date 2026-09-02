@@ -246,6 +246,21 @@ one row. Three reads, top to bottom, all from `getTrace` — no client code,
    `openedBy` names the peer when a relay won. The column is `opening`,
    not `opening prompt`, because it is no longer always one.
 
+Time, everywhere: **an instant is UTC, a day is local.** The pages used to
+print `… → 10:26:00 UTC` and bucket `--by day` on `substr(ts, 1, 10)`, which
+is internally consistent and wrong for a reader: at UTC-5 the UTC day
+boundary falls at 7pm local, so an evening's work splits across two buckets
+and the front page's "today" tile answers for a window that ended at 7pm
+yesterday. Days, clocks and windows are now local (`fmt.ts` at the display
+edge, `date(ts, 'localtime')` in the SQL buckets, `dayStart` turning a window
+a person writes into the UTC instant of local midnight); storage, ordering,
+`--since` cursors and rate dates stay UTC. The header prints the real zone
+(`EST`) instead of a hardcoded `UTC`.
+
+Re-bucketing conserves: across the whole corpus both versions report 106,196
+requests and $25,094.04 — 71 UTC buckets became 70 local ones, and 2026-09-01
+went from $1,070.64 to $1,364.67 as the evening hours came home.
+
 Inside a transaction: **phases**. The assistant's text emitted *between*
 instructions ("Now the tests: one for the coin's two arms…") is its own
 heading for the run of steps that follows — zero inference, and it

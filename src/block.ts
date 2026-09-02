@@ -1,6 +1,6 @@
 import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
-import { cut, hm, hms, ms, tok, usd } from './fmt'
+import { cut, day, hm, hms, ms, tok, usd, zone } from './fmt'
 import { modelDrift, modelLabel } from './model'
 import type { Annotations, Instruction, SpawnGroup, Trace, Transaction } from './trace'
 import { rateFor } from './usage'
@@ -83,7 +83,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
     <h1 class="mono">${s.sessionId}</h1>
-    <p class="muted">${s.first?.slice(0, 10) ?? ''} ${hms(s.first)} → ${s.last?.slice(0, 10) === s.first?.slice(0, 10) ? '' : `${s.last?.slice(0, 10) ?? ''} `}${hms(s.last)} UTC
+    <p class="muted">${day(s.first)} ${hms(s.first)} → ${day(s.last) === day(s.first) ? '' : `${day(s.last)} `}${hms(s.last)} ${zone()}
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}
       ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}</p>
     <div class="tiles">
@@ -130,6 +130,8 @@ function feeByClass(txs: Transaction[]): Fee {
   const f: Fee = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, unpriced: 0 }
   for (const x of txs)
     for (const r of x.requests ?? []) {
+      // The rate DATE is a vendor fact (when a price changed), not a day in
+      // the reader's life — it stays UTC while the buckets around it go local.
       const rate = rateFor(r.model, r.ts?.slice(0, 10) ?? null)
       if (!rate) {
         f.unpriced++
@@ -209,7 +211,7 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
     }
   })
 
-  // Axis: clock ticks at a nice step (≤ 12 across), labels HH:MM UTC.
+  // Axis: clock ticks at a nice step (≤ 12 across), labels HH:MM local.
   const stepMin = [1, 2, 5, 10, 15, 30, 60, 120, 240, 480].find((m) => span / (m * 60_000) <= 12) ?? 1440
   const ticks: H[] = []
   const axis: H[] = []

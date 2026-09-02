@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { day, dayStart } from './fmt'
 import { z } from 'zod'
 
 // The token profile (lore#8): where the tokens go, by well / session / model /
@@ -95,13 +96,18 @@ export type UsageReport = {
   note: string
 }
 
+// A DAY is local (config.ts): `--by day` answers "what did I do Tuesday",
+// and at UTC-5 a UTC boundary falls at 7pm and cuts the active hours in two.
+// SQLite's `localtime` reads the OS zone database through the process TZ, so
+// this is DST-correct rather than a hardcoded offset. The instants in
+// `requests.ts` stay UTC — only the bucket they fold into is local.
 const KEY_SQL: Record<Grouping, string> = {
   well: 'w.dir',
   session: 'r.session_id',
   model: "COALESCE(r.model, '?')",
-  day: 'substr(r.ts, 1, 10)',
-  week: "strftime('%Y-W%W', r.ts)",
-  month: 'substr(r.ts, 1, 7)',
+  day: "date(r.ts, 'localtime')",
+  week: "strftime('%Y-W%W', r.ts, 'localtime')",
+  month: "strftime('%Y-%m', r.ts, 'localtime')",
 }
 
 export function listUsage(
@@ -141,13 +147,17 @@ export function listUsage(
     where.push('r.model LIKE ?')
     params.push(`%${opts.model}%`)
   }
+  // A window is written in local days and compared against UTC instants, so
+  // the boundary is the UTC instant of LOCAL midnight — otherwise `--since
+  // today` starts at 7pm yesterday and the window disagrees with the buckets
+  // it contains. A full timestamp is passed through as the instant it is.
   if (opts.since) {
     where.push('r.ts >= ?')
-    params.push(opts.since)
+    params.push(dayStart(opts.since))
   }
   if (opts.until) {
     where.push('r.ts < ?')
-    params.push(opts.until)
+    params.push(dayStart(opts.until))
   }
   const filter = where.join(' AND ')
   // Cells are (key, model, day) so pricing can be applied per model and per
@@ -155,6 +165,8 @@ export function listUsage(
   const cells = z.array(Cell).parse(
     db
       .prepare(
+        // This `day` is the RATE date — which price was in force — so it is
+        // UTC, a vendor fact. The grouping key above is the local day.
         `SELECT ${KEY_SQL[opts.by]} AS key, r.model AS model, substr(r.ts, 1, 10) AS day,
                 COUNT(*) AS requests, COUNT(DISTINCT r.session_id) AS sessions,
                 SUM(r.input_tokens) AS input, SUM(r.cache_write_tokens) AS cacheWrite,
@@ -280,7 +292,7 @@ export function listUsage(
       const row = rows.get(m.key)
       if (row) {
         row.well = m.well
-        row.first = m.first?.slice(0, 10) ?? null
+        row.first = day(m.first) || null
       }
     }
   }

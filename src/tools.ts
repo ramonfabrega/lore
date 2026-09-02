@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { day } from './fmt'
 
 const Row = z.object({
   tool: z.string(),
@@ -48,5 +49,5 @@ export function listToolUsage(
   return z
     .array(Row)
     .parse(db.prepare(sql).all(...params, opts.limit))
-    .map((r) => ({ ...r, first: r.first?.slice(0, 10) ?? null, last: r.last?.slice(0, 10) ?? null }))
+    .map((r) => ({ ...r, first: day(r.first) || null, last: day(r.last) || null }))
 }

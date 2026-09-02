@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { openDb } from '../src/db'
 import { parseLine } from '../src/parse'
 import { listToolUsage } from '../src/tools'
+import { day } from '../src/fmt'
 
 describe('toolName extraction', () => {
   test('tool_use blocks carry the tool name; Skill calls carry the skill', () => {
@@ -59,8 +60,8 @@ describe('listToolUsage', () => {
     expect(bash.n).toBe(3)
     expect(bash.sessions).toBe(2)
     expect(bash.wells).toBe(2)
-    expect(bash.first).toBe('2026-07-01')
-    expect(bash.last).toBe('2026-07-10')
+    expect(bash.first).toBe(day('2026-07-01T10:00:00Z'))
+    expect(bash.last).toBe(day('2026-07-10T10:00:00Z'))
   })
 
   test('prefix, since, and well filters', () => {

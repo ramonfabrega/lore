@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { createApp } from '../src/web'
+import { day } from '../src/fmt'
 
 const Any = z.any()
 
@@ -106,6 +107,6 @@ describe('explorer routes', () => {
     const app = await seededApp()
     const res = await app.request('/usage')
     expect(res.status).toBe(200)
-    expect(await res.text()).toContain('2026-09-01')
+    expect(await res.text()).toContain(day('2026-09-01T10:00:00.000Z'))
   })
 })

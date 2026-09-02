@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { relayHead } from './envelope'
+import { day } from './fmt'
 
 const Row = z.object({
   well: z.string(),
@@ -118,10 +119,10 @@ export function listSessions(
     const flat = (relay ? relay.text : r.firstPrompt)?.replace(/\s+/g, ' ').trim() ?? null
     return {
       ...r,
-      first: r.first?.slice(0, 10) ?? null,
-      last: r.last?.slice(0, 10) ?? null,
+      first: day(r.first) || null,
+      last: day(r.last) || null,
       lastAt: r.last ?? null,
-      idleUntil: r.idleUntil?.slice(0, 10) ?? null,
+      idleUntil: day(r.idleUntil) || null,
       openedBy,
       firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
       models: models.get(r.sessionId) ?? [],

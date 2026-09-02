@@ -28,7 +28,23 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit
+
+      # TZ pinned: `bun test` forces the JS side to UTC but leaves SQLite's
+      # `localtime` on the OS zone, so an UNPINNED run has the two halves
+      # disagreeing and the day-bucket tests cannot hold them to each other.
       - run: bun test
+        env:
+          TZ: UTC
+
+      # UTC hides every day-bucket regression, because there a local day and a
+      # UTC day are the same day. This second pass is the one that would catch
+      # one. POSIX only: Windows does not take its zone from TZ, so pinning it
+      # there would move the JS half and leave SQLite on the runner's clock —
+      # the exact mismatch, manufactured.
+      - run: bun test
+        if: runner.os != 'Windows'
+        env:
+          TZ: Pacific/Kiritimati
 
       # The tests drive the request handler directly and never open a port.
       # This boots the explorer for real and fetches it — the dashboard is the

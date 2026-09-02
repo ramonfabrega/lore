@@ -14,6 +14,24 @@ const env = z
   })
   .parse(process.env)
 
+// An instant is UTC everywhere — storage, ordering, `--since`, index cursors.
+// A DAY is local: `usage --by day` answers "what did I do Tuesday", and at
+// UTC-5 the UTC boundary falls at 7pm, cutting the most active hours in half.
+// lore is a localhost/tailnet explorer where the user is both server and
+// client (CLAUDE.md), so the server's own zone IS the reader's — no client
+// code, no per-viewer negotiation.
+//
+// There is deliberately no LORE_TZ: the zone is the PROCESS zone, the
+// standard `TZ` env var, because that is the only knob both halves obey.
+// SQLite's `localtime` (usage.ts's day buckets) reads TZ through the C
+// library, which caches it at first use — assigning `process.env.TZ` at
+// runtime moves the Intl formatters and leaves the SQL buckets behind, which
+// is precisely the half-migration that makes a page contradict itself
+// (measured 2026-09-02: the runtime assignment reached Intl and not SQLite).
+// So: set TZ in the environment before launch, as with any process, and both
+// layers move together and stay DST-correct off the OS zone database.
+export const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
+
 export const CLAUDE_DIR = env.LORE_CLAUDE_DIR
 export const LORE_HOME = env.LORE_HOME
 export const WIKI_DIR = env.LORE_WIKI_DIR

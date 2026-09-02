@@ -37,6 +37,15 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
 `lore-*` skills (the session is the brain, the CLI is the eyes). No root
 `~/code/CLAUDE.md` map — ambient context must earn its per-session cost.
 
+Deployment assumption (not a hardened property, and not to be defended with
+guards): lore is a **localhost/tailnet explorer where the user is both server
+and client** — one person, one machine, one timezone, never internet-facing.
+So server-side and client-side are a free choice made on convenience, not a
+trust boundary: the server rendering in its own zone IS rendering in the
+reader's zone. Someone reading `web.ts` cold would assume multi-viewer and
+build a per-viewer negotiation that buys nothing here. If this stops being
+true, it is a design change, not a bug fix.
+
 ## Hard constraints
 
 - **Subscription OAuth only.** Never an API key; never design around API
@@ -85,6 +94,26 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   explicit absolute path only — never "from the current directory". openDb
   refuses DBs newer than the build (stale checkouts fail loudly, never
   drop-rebuild). Every invocation self-identifies on stderr.
+- **An instant is UTC, a day is local.** Storage, ordering, `--since`
+  cursors, index deltas and rate dates (a vendor fact: when a price changed)
+  are UTC and stay UTC. A DAY is a human unit — `usage --by day` answers
+  "what did I do Tuesday" — so it is LOCAL, at the display edge only
+  (`fmt.ts`: `day`/`hms`/`hm`/`zone`/`todayLocal`/`dayStart`, and
+  `date(ts,'localtime')` in the SQL buckets). At UTC-5 a UTC day boundary
+  falls at 7pm and cuts the most active hours in half. The failure mode is
+  the HALF migration — localize the buckets, leave a sliced ISO string
+  somewhere, and the page contradicts itself — so a window a person writes
+  goes through `dayStart` to become the UTC instant of local midnight, and
+  nothing compares `ts.slice(0, 10)` against a local day. The zone is the
+  PROCESS zone (standard `TZ`, set before launch): there is deliberately no
+  `LORE_TZ`, because assigning `process.env.TZ` at runtime moves Intl and
+  leaves SQLite's `localtime` behind (measured 2026-09-02). Tests pin their
+  zone or derive expectations from `day()`; a hardcoded day string passes in
+  Panama and fails in CI. The suite needs a PINNED zone (`TZ=UTC bun test`):
+  `bun test` forces the JS half to UTC and cannot move SQLite's, so an
+  unpinned run has the two disagreeing. CI runs UTC on all three platforms
+  and a second POSIX-only pass at UTC+14, because UTC hides every day-bucket
+  regression — there a local day and a UTC day are the same day.
 
 ## Data-model invariants
 

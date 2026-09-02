@@ -31,8 +31,11 @@ if ((await $`git status --porcelain`.text()).trim())
 
 await $`bun install --frozen-lockfile`.quiet()
 
+// TZ pinned: `bun test` forces the JS side to UTC but leaves SQLite's
+// `localtime` on the OS zone, and the day-bucket tests hold the two to each
+// other (CLAUDE.md, "an instant is UTC, a day is local").
 console.error('gate: bun test')
-const tests = await $`bun test`.quiet().nothrow()
+const tests = await $`bun test`.env({ ...process.env, TZ: 'UTC' }).quiet().nothrow()
 if (tests.exitCode !== 0) {
   process.stderr.write(tests.stdout)
   process.stderr.write(tests.stderr)

@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { listSessions } from '../src/sessions'
+import { day } from '../src/fmt'
 
 function seedDb(): Database {
   const db = new Database(':memory:')
@@ -73,9 +74,9 @@ describe('listSessions', () => {
     const rows = listSessions(seedDb(), { limit: 100 })
     expect(rows.map((r) => r.sessionId)).toEqual(['s-old', 's-demo', 's-new'])
     const old = rows[0]!
-    expect(old.first).toBe('2026-07-09')
-    expect(old.last).toBe('2026-07-10')
-    expect(old.idleUntil).toBe('2026-08-01')
+    expect(old.first).toBe(day('2026-07-09T10:00:00Z'))
+    expect(old.last).toBe(day('2026-07-10T10:00:00Z'))
+    expect(old.idleUntil).toBe(day('2026-08-01T10:00:00Z'))
     expect(old.prompts).toBe(2)
     expect(old.firstPrompt).toBe('i want to make a scan util tool')
     // what SERVED the session, heaviest first — a listing names what ran it
@@ -136,13 +137,13 @@ describe('listSessions', () => {
     const rows = listSessions(seedDb(), { limit: 100 })
     const old = rows.find((r) => r.sessionId === 's-old')!
     // last_ts is 08-01 (a heartbeat); the work ended 07-10.
-    expect(old.last).toBe('2026-07-10')
-    expect(old.idleUntil).toBe('2026-08-01')
+    expect(old.last).toBe(day('2026-07-10T10:00:00Z'))
+    expect(old.idleUntil).toBe(day('2026-08-01T10:00:00Z'))
     // A session with no heartbeat tail reports null rather than echoing last.
     expect(rows.find((r) => r.sessionId === 's-new')!.idleUntil).toBeNull()
     // No last_activity_ts at all → fall back to last_ts, and claim no tail.
     const demo = rows.find((r) => r.sessionId === 's-demo')!
-    expect(demo.last).toBe('2026-07-11')
+    expect(demo.last).toBe(day('2026-07-11T10:30:00Z'))
     expect(demo.idleUntil).toBeNull()
   })
 

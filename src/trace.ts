@@ -333,6 +333,7 @@ export function getTrace(
     const stepIds = [...new Set(b.rows.map((r) => r.requestId).filter((x): x is string => x != null))]
     const steps: Step[] = stepIds.map((id) => {
       const q = reqs.get(id)
+      // Rate dates are vendor facts and stay UTC (block.ts).
       const rate = rateFor(q?.model ?? null, q?.ts?.slice(0, 10) ?? null)
       const listUsd =
         q && rate ? (q.input * rate.input + q.cacheWrite * rate.cacheWrite + q.cacheRead * rate.cacheRead + q.output * rate.output) / 1e6 : null
