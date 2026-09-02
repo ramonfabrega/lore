@@ -36,12 +36,14 @@ export function threadBody(t: Thread) {
   const B = label(t.b)
   const dirs = Object.entries(t.totals)
   const lost = dirs.reduce((n, [, d]) => n + d.lost, 0)
+  const messages = rows.filter((r) => r.kind === 'message').length
+  const yours = rows.length - messages
   return html`
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/thread">threads</a></p>
     <h1 class="mono"><span class="kind side-a">@${A}</span> <span class="muted">↔</span> <span class="kind side-b">@${B}</span></h1>
     <p class="muted">${first ? html`${day(first)} ${hms(first)} → ${day(last) === day(first) ? '' : `${day(last)} `}${hms(last)} ${zone()} · ${ms(span)}` : 'no messages'}
-      · ${rows.length} messages · ${A}: ${t.a.sessions.length} session${t.a.sessions.length === 1 ? '' : 's'} · ${B}: ${t.b.sessions.length} session${t.b.sessions.length === 1 ? '' : 's'}</p>
+      · ${messages} messages${yours ? html` · <a href="?you=0" title="the agents' traffic alone">${yours} of yours</a>` : ''} · ${A}: ${t.a.sessions.length} session${t.a.sessions.length === 1 ? '' : 's'} · ${B}: ${t.b.sessions.length} session${t.b.sessions.length === 1 ? '' : 's'}</p>
     <div class="tiles">
       ${dirs.map(([dir, d]) => tile(html`${dir} · <span title="opened a turn">${d.turn} turn</span> · <span title="read inside a running turn">${d.midTurn} mid-turn</span>${d.lost ? html` · <span class="err">${d.lost} lost</span>` : ''}${d.unseen ? html` · ${d.unseen} unseen` : ''}`, String(d.sent)))}
       ${lost ? tile('lost', String(lost), 'warn') : ''}
@@ -56,10 +58,17 @@ export function threadBody(t: Thread) {
 }
 
 function threadRow(r: ThreadRow, t: Thread, prev: ThreadRow | undefined) {
-  const fromA = r.from === label(t.a) || (t.a.name != null && r.from === t.a.name)
-  const side = fromA ? 'from-a' : 'from-b'
   const newDay = !prev || day(prev.ts) !== day(r.ts)
   const at = html`<span class="at">${newDay ? html`<span class="d">${day(r.ts)}</span>` : ''}${hms(r.ts)}</span>`
+  // The user's words sit in the column of the agent they were typed to, in
+  // plain ink, with no arrow: they did not cross between the agents.
+  if (r.kind === 'you') {
+    const toA = r.to === label(t.a) || (t.a.name != null && r.to === t.a.name)
+    const cell = youCell(r)
+    return html`<div class="row you ${toA ? 'to-a' : 'to-b'} ${r.landed}">${at}${toA ? cell : html`<span></span>`}<span></span>${toA ? html`<span></span>` : cell}</div>`
+  }
+  const fromA = r.from === label(t.a) || (t.a.name != null && r.from === t.a.name)
+  const side = fromA ? 'from-a' : 'from-b'
   const gutter = html`<span class="g">${fromA ? '→' : '←'}</span>`
   const message = messageCell(r)
   const landing = landingCell(r)
@@ -88,6 +97,21 @@ function messageCell(r: ThreadRow) {
         ? html`from <a href="/session/${r.sent.session}${r.sent.promptId ? `#tx-${r.sent.promptId}` : ''}">${short(r.sent.session)}</a>`
         : html`sender not indexed`
     }</p>
+  </div>`
+}
+
+// What the user typed to this side, and the turn it landed in — the one it
+// opened, or the running one that read it mid-flight.
+function youCell(r: ThreadRow) {
+  const text = r.message
+  const preview = cut(text, PREVIEW)
+  const long = preview.endsWith('…') || text.includes('\n')
+  const href = r.received ? `/session/${r.received.session}${r.received.promptId ? `#tx-${r.received.promptId}` : ''}` : null
+  return html`<div class="cell you">
+    <div class="who">you${r.landed === 'mid-turn' ? html` <span class="kind land mid-turn" title="typed while the agent was working; read at the next tool result">mid-turn</span>` : ''}</div>
+    <div class="prev">${preview}</div>
+    ${long ? html`<details><summary>full · ${text.length.toLocaleString()} chars</summary><p class="msg">${text}</p></details>` : ''}
+    ${href && r.received ? html`<p class="from muted">in <a href="${href}">${short(r.received.session)}</a></p>` : ''}
   </div>`
 }
 

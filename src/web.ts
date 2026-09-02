@@ -564,7 +564,8 @@ export function createApp(
     const db = getDb()
     let thread: ReturnType<typeof getThread>
     try {
-      thread = getThread(db, c.req.param('a'), c.req.param('b'), { head: 20_000 })
+      // ?you=0 leaves the user's words out: the agents' traffic alone.
+      thread = getThread(db, c.req.param('a'), c.req.param('b'), { head: 20_000, you: c.req.query('you') !== '0' })
     } catch (e) {
       return c.text(e instanceof Error ? e.message : String(e), 404)
     }

@@ -160,11 +160,12 @@ cli.command('thread', {
   options: z.object({
     head: z.coerce.number().default(400).describe('Characters kept of each message'),
     limit: z.coerce.number().optional().describe('Max rows (oldest first)'),
+    agentsOnly: z.boolean().optional().describe('Leave out the user\'s own words. By default rows with `kind: you` carry what the user typed into either side\'s sessions while the thread ran (turns and mid-turn) — what each agent was answering'),
   }),
   alias: { limit: 'n' },
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
-    return getThread(db, args.a, args.b, { head: options.head, limit: options.limit })
+    return getThread(db, args.a, args.b, { head: options.head, limit: options.limit, you: !options.agentsOnly })
   },
 })
 

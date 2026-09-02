@@ -35,6 +35,11 @@ export type Side = {
 export type Landed = 'turn' | 'mid-turn' | 'lost' | 'unseen'
 export type ThreadRow = {
   ts: string
+  // `message`: one agent to the other. `you`: the user, typed into one
+  // side's session while the thread ran — what that agent was answering
+  // when it said what it said next. `from` is then `you`, `to` the side,
+  // `received` the session and turn it landed in (opened, or read mid-turn).
+  kind: 'message' | 'you'
   from: string
   to: string
   msgId: string | null
@@ -178,7 +183,24 @@ function addressed(to: string | null, side: Side, book: Map<string, string>): bo
 // the field): the receiver's copy lands within seconds of the send.
 const WINDOW_MS = 120_000
 
-export function getThread(db: Database, aq: string, bq: string, opts: { head?: number; limit?: number } = {}): Thread {
+// The user's words in a side's sessions, inside a window: the prompt lane
+// (turns) and its mid-turn rows (`type = 'attachment'`), never the harness's.
+const PromptRow = z.object({ session: z.string(), ts: z.string(), type: z.string(), promptId: z.string().nullable(), text: z.string() })
+function promptsOf(db: Database, sessions: string[], from: string, to: string): z.infer<typeof PromptRow>[] {
+  if (sessions.length === 0) return []
+  return z.array(PromptRow).parse(
+    db
+      .prepare(
+        `SELECT m.session_id AS session, m.ts, m.type, m.prompt_id AS promptId, f.text
+         FROM messages m JOIN messages_fts f ON f.rowid = m.id
+         WHERE m.session_id IN (${placeholders(sessions.length)}) AND m.lane = 'prompt' AND m.ts IS NOT NULL AND m.ts >= ? AND m.ts <= ?
+         ORDER BY m.ts`,
+      )
+      .all(...sessions, from, to),
+  )
+}
+
+export function getThread(db: Database, aq: string, bq: string, opts: { head?: number; limit?: number; you?: boolean } = {}): Thread {
   const head = opts.head ?? HEAD
   const a = resolveSide(db, aq)
   const b = resolveSide(db, bq)
@@ -222,6 +244,7 @@ export function getThread(db: Database, aq: string, bq: string, opts: { head?: n
       t[landed === 'mid-turn' ? 'midTurn' : landed]++
       rows.push({
         ts: s.ts,
+        kind: 'message',
         from: from.name ?? from.query,
         to: to.name ?? to.query,
         msgId: s.msgId ?? r?.msgId ?? null,
@@ -241,6 +264,7 @@ export function getThread(db: Database, aq: string, bq: string, opts: { head?: n
       const h = relayHead(r.text)
       rows.push({
         ts: r.ts,
+        kind: 'message',
         from: r.peer ?? h.from ?? from.name ?? from.query,
         to: to.name ?? to.query,
         msgId: r.msgId,
@@ -251,6 +275,38 @@ export function getThread(db: Database, aq: string, bq: string, opts: { head?: n
         landed,
         error: null,
       })
+    }
+  }
+  // The user's words, between the agents': what each side was answering.
+  // Scoped to the thread — only the sessions that took part, only inside
+  // its window — because a side is a job and lore's job alone is sixty
+  // sessions back to July.
+  if (opts.you !== false && rows.length) {
+    const first = rows.reduce((m, r) => (r.ts < m ? r.ts : m), rows[0]!.ts)
+    const last = rows.reduce((m, r) => (r.ts > m ? r.ts : m), rows[0]!.ts)
+    const took = new Set(rows.flatMap((r) => [r.sent?.session, r.received?.session]).filter((x): x is string => x != null))
+    for (const side of [a, b]) {
+      const t = { sent: 0, turn: 0, midTurn: 0, lost: 0, unseen: 0 }
+      const name = side.name ?? side.query
+      for (const p of promptsOf(db, side.sessions.filter((s) => took.has(s)), first, last)) {
+        const landed: Landed = p.type === 'attachment' ? 'mid-turn' : 'turn'
+        t.sent++
+        t[landed === 'mid-turn' ? 'midTurn' : 'turn']++
+        rows.push({
+          ts: p.ts,
+          kind: 'you',
+          from: 'you',
+          to: name,
+          msgId: null,
+          summary: null,
+          message: cutProse(p.text, head),
+          sent: null,
+          received: { session: p.session, promptId: p.promptId, ts: p.ts },
+          landed,
+          error: null,
+        })
+      }
+      if (t.sent) totals[`you → ${name}`] = t
     }
   }
   rows.sort((x, y) => (x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0))

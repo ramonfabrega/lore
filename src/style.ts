@@ -241,6 +241,9 @@ a .mchip, .row a .mchip { color: inherit; }
 .thread .row.from-a .g { color: var(--series-1); } .thread .row.from-b .g { color: var(--series-2); } .thread .row.lost .g { color: var(--err); }
 .thread .cell { min-width: 0; border-left: 3px solid var(--line-2); padding: 1px 0 1px 9px; }
 .thread .row.from-a .cell { border-color: var(--series-1); } .thread .row.from-b .cell { border-color: var(--series-2); } .thread .row.lost .cell { border-color: var(--err); }
+.thread .cell.you { border-color: var(--line-2); } .thread .row.you .prev { color: var(--ink); }
+.thread .who { font: 600 var(--fs-105) var(--mono); color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.thread .who .kind { text-transform: none; letter-spacing: 0; font-weight: 500; margin-left: 4px; }
 .thread .sum { font-weight: 600; } .thread .prev { color: var(--ink-2); font-size: var(--fs-12); }
 .thread details { margin-top: 2px; } .thread summary { font: var(--fs-105) var(--mono); color: var(--ink-3); cursor: pointer; }
 .thread p.msg { margin: 4px 0 2px; }

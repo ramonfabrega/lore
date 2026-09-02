@@ -124,7 +124,7 @@ describe('resolveSide', () => {
 describe('getThread', () => {
   test('both halves of every message, paired on msg_id, in order, with where each landed', async () => {
     const db = await corpus()
-    const t = getThread(db, 'lore', 'ccc')
+    const t = getThread(db, 'lore', 'ccc', { you: false })
     expect(t.rows.map((r) => [r.ts, r.from, r.to, r.landed, r.msgId])).toEqual([
       ['2026-09-02T06:55:01Z', 'lore', 'ccc', 'turn', 'msg-kick'],
       ['2026-09-02T06:57:38Z', 'ccc', 'lore', 'turn', 'msg-conf'],
@@ -159,9 +159,30 @@ describe('getThread', () => {
 
   test('the same thread from a session id, and from either side', async () => {
     const db = await corpus()
-    const byId = getThread(db, 'ccc-1', 'lore-1')
+    const byId = getThread(db, 'ccc-1', 'lore-1', { you: false })
     expect(byId.a.name).toBe('ccc')
     expect(byId.rows.map((r) => r.msgId)).toEqual(['msg-kick', 'msg-conf', null, 'msg-m1b', 'msg-reply'])
+  })
+
+  // The user's words are in the thread by default: what each agent was
+  // answering. Scoped to the sessions that took part and the thread's
+  // window — "standby for a brief" at 06:54:19 precedes the first message
+  // and stays out; "sync" was typed into lore-2, which took part.
+  test('the user\'s words ride in their side\'s column, inside the window, turn and mid-turn alike', async () => {
+    const db = await corpus()
+    const t = getThread(db, 'lore', 'ccc')
+    const you = t.rows.filter((r) => r.kind === 'you')
+    expect(you.map((r) => [r.ts, r.to, r.landed, r.message])).toEqual([
+      ['2026-09-02T07:02:24Z', 'ccc', 'turn', '1. forkpty now imo.'],
+      ['2026-09-02T07:20:00Z', 'lore', 'turn', 'sync'],
+    ])
+    expect(you[0]!.received).toEqual({ session: 'ccc-1', promptId: 'C3', ts: '2026-09-02T07:02:24Z' })
+    expect(t.totals['you → ccc']).toEqual({ sent: 1, turn: 1, midTurn: 0, lost: 0, unseen: 0 })
+    // In order with the agents' messages, not appended.
+    expect(t.rows.map((r) => r.kind)).toEqual(['message', 'message', 'you', 'you', 'message', 'message', 'message'])
+    const page = String(await threadBody(t))
+    expect(page).toContain('1. forkpty now imo.')
+    expect(page).toContain('/session/ccc-1#tx-C3')
   })
 
   test('the index lists every pair that has talked, both directions merged', async () => {
