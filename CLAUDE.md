@@ -14,10 +14,10 @@ narrative: `docs/DESIGN.md`.
 
 ## Thesis
 
-Claude Code memory is **path-sharded** — one well per directory, all mutually
-blind — while knowledge is repo- or workspace-scoped. Conversations and
-memories never compound. lore bridges wells (sync), accumulates knowledge
-(wiki), and graduates it (canon).
+Claude Code memory is **path-sharded** — one well per directory you work in,
+all mutually blind — while knowledge is repo- or workspace-scoped.
+Conversations and memories never compound. lore bridges wells (sync),
+accumulates knowledge (wiki), and graduates it (canon).
 
 ## Architecture
 
