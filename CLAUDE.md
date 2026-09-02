@@ -90,9 +90,15 @@ conventions). (2) **judgment** — interactive sessions drive the CLI via the
   Group by well + time, infer arcs from artifacts; never impose conventions
   without evidence from the data.
 - Recording channels shard by dir: the transcript shards by **cwd at session
-  creation** (`/clear` re-shards; mid-session worktree entry does NOT move the
-  file); memory shards to the launch dir. Well membership ≠ work location —
-  ground truth is per-message `cwd`/`gitBranch`.
+  creation** (`/clear` re-shards); memory shards to the launch dir. Well
+  membership ≠ work location — ground truth is per-message `cwd`/`gitBranch`.
+  **DISPUTED (2026-09-02, needs review):** "mid-session worktree entry does
+  NOT move the file" is contradicted by one direct observation — session
+  5a57a968 entered a worktree and its whole transcript (spanning an hour
+  before the entry) moved to the worktree well, leaving nothing behind in
+  the parent. One session, one harness version; not yet re-derived. Code
+  that resolves a session to a file must try BOTH wells (`verifyModels` in
+  `agents.ts` does).
 - Wells outlive their dirs (worktree deletion loses no transcripts), and
   "gone by id ≠ gone by content" (respawns/resume-forks re-id sessions;
   measure loss by content lineage). Per-spawn subagent transcripts persist
