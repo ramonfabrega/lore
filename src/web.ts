@@ -17,7 +17,8 @@ import { cut, day, hm, tok, todayLocal, usd } from './fmt'
 import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
 import { CSS } from './style'
 import { bars, feeBar, feeLegend, ibar, modelChip, modelChips, spark, stackedBars } from './viz'
-import { getThread } from './thread'
+import { getThread, listThreads } from './thread'
+import { threadBody, threadsBody } from './threadview'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
 
@@ -557,15 +558,26 @@ export function createApp(
     return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), { ...chrome(c), layout: 'head' }))
   })
 
-  // The thread between two agents (thread.ts): the conversation view's
-  // data. JSON only until the page exists — `lore api thread lore ccc`.
+  // The thread between two agents (thread.ts, threadview.ts): the
+  // conversation view. `lore api thread lore ccc` is the data.
   app.get('/thread/:a/:b', (c) => {
     const db = getDb()
+    let thread: ReturnType<typeof getThread>
     try {
-      return c.json(getThread(db, c.req.param('a'), c.req.param('b'), { head: 20_000 }))
+      thread = getThread(db, c.req.param('a'), c.req.param('b'), { head: 20_000 })
     } catch (e) {
       return c.text(e instanceof Error ? e.message : String(e), 404)
     }
+    if (wantsJson(c.req.raw)) return c.json(thread)
+    const a = thread.a.name ?? thread.a.query.slice(0, 8)
+    const b = thread.b.name ?? thread.b.query.slice(0, 8)
+    return c.html(page(`${a} ↔ ${b} · thread · lore`, threadBody(thread), { ...chrome(c), layout: 'head', nav: 'threads' }))
+  })
+  app.get('/thread', (c) => {
+    const db = getDb()
+    const pairs = listThreads(db)
+    if (wantsJson(c.req.raw)) return c.json({ threads: pairs })
+    return c.html(page('threads · lore', threadsBody(pairs), { ...chrome(c), layout: 'head', nav: 'threads' }))
   })
 
   return app
@@ -735,7 +747,7 @@ function page(
   const theme = opts.theme === 'light' || opts.theme === 'dark' ? opts.theme : null
   const link = (href: string, label: string) => html`<a href="${href}" class="${opts.nav === label ? 'on' : ''}">${label}</a>`
   const nav = html`<nav class="nav">
-    ${link('/', 'lore')} ${link('/usage', 'usage')} ${link('/agents', 'agents')}
+    ${link('/', 'lore')} ${link('/usage', 'usage')} ${link('/agents', 'agents')} ${link('/thread', 'threads')}
     <form method="get" action="/search" class="navsearch"><input type="search" name="q" value="${opts.q ?? ''}" placeholder="search sessions…" /></form>
     <span class="muted small" title="${opts.indexedAt ?? 'the server has not refreshed the index; pages show the last lore index'}"><span class="led ${opts.indexError ? 'err' : agoMs != null && agoMs < 15 * 60_000 ? 'fresh' : ''}"></span>${
       opts.indexError ? html`<span class="err">index refresh failed</span>` : ago ? `indexed ${ago}` : 'index: last `lore index`'

@@ -80,13 +80,23 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
   // SWITCHED gets a column: which prompt ran on what is the whole question.
   const mixed = trace.models.length > 1
   const num = new Map<Transaction, number>(turns.map((x, i) => [x, i + 1]))
+  // The peers this session spoke with — a relay that opened a turn, one read
+  // mid-turn, or a send the address book named — each a way into the thread
+  // page, where the exchange reads with neither side nested in the other.
+  const peers = [...new Set(txs.flatMap((x) => [
+    x.kind === 'relay' ? x.tag : null,
+    ...x.received.filter((r) => r.kind === 'relay').map((r) => r.tag),
+    ...x.sent.map((sn) => sn.name),
+  ]).filter((p): p is string => p != null))]
   return html`
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
     <h1 class="mono">${s.sessionId}${s.name ? html` <span class="kind self" title="this session's agent">@${s.name}</span>` : ''}</h1>
     <p class="muted">${day(s.first)} ${hms(s.first)} → ${day(s.last) === day(s.first) ? '' : `${day(s.last)} `}${hms(s.last)} ${zone()}
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}
-      ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}</p>
+      ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
+        peers.length ? html` · thread with ${peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(s.name ?? s.sessionId)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
+      }</p>
     <div class="tiles">
       ${tile('transactions', String(t.transactions))}
       ${tile('steps', String(t.steps))}

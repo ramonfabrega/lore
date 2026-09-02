@@ -57,6 +57,8 @@ is `Bun.serve` — the bind address is ours to get right).
 - `/agents` — the live roster from `claude agents --json --all` and each
   job's `state.json` (state, detail, live tokens); attach is a command to
   copy, never an embedded terminal. The agents-view replacement is a page.
+- `/thread` — every pair of agents that has talked; `/thread/<a>/<b>` the
+  pair's ledger, both halves of every message (the Thread section below).
 
 ### Three surfaces, one definition
 
@@ -126,9 +128,24 @@ root alone showed one incarnation. The agent's name on a session header
 joins on the same key — the root in state.json is the first incarnation's
 and, after a respawn, matches nothing.
 
-## Thread (layer 1 landed 2026-09-02; the page is next)
+## Thread (landed 2026-09-02)
 
-`lore thread <a> <b>` / `/thread/<a>/<b>`: every message two agents sent
+The conversation view. `/thread` lists every pair of agents that has sent
+the other a message; `/thread/<a>/<b>` is one pair's ledger, and `threads`
+sits in the nav. The page is two columns under one clock: a message is a
+ROW, its sender's column carries the summary, a preview, the full text
+under a fold and the turn it was sent from, its receiver's column carries
+what became of it — a `turn` chip linking the turn it opened, a `mid-turn`
+chip linking the turn that read it, `lost` with the ack's reason, `unseen`
+— and the gutter arrow is the direction. Neither agent is nested inside the
+other, which is the thing a session page structurally cannot do. Sides wear
+the first two series hues (identity); landing chips wear the status colours
+(state). A session page links here for every peer it spoke with (`thread
+with @ccc` in the header). A side may be a peer name with no indexed job or
+session at all (`ssh-noti`): then the ledger is the other side's copies of
+what it said, and sends to it land `unseen`.
+
+`lore thread <a> <b>` / `/thread/<a>/<b>?json=1`: every message two agents sent
 each other, in order, with both halves — the sender's `SendMessage` (its
 session, turn and ack) and the receiver's copy (its session, and the turn it
 opened or was read inside). Paired on the harness's own `msg_id`: the ack

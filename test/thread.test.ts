@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
-import { getThread, resolveSide } from '../src/thread'
+import { getThread, listThreads, resolveSide } from '../src/thread'
+import { threadBody } from '../src/threadview'
 
 // The lore↔ccc thread of 2026-09-02 in miniature, in the real record shapes.
 // Two jobs, each with two sessions (a /clear between), and one respawn on
@@ -163,6 +164,27 @@ describe('getThread', () => {
     expect(byId.rows.map((r) => r.msgId)).toEqual(['msg-kick', 'msg-conf', null, 'msg-m1b', 'msg-reply'])
   })
 
+  test('the index lists every pair that has talked, both directions merged', async () => {
+    const db = await corpus()
+    expect(listThreads(db)).toEqual([{ a: 'ccc', b: 'lore', messages: 4, first: '2026-09-02T06:55:03Z', last: '2026-09-02T07:32:15Z' }])
+  })
+
+  test('the page: a message is a row, the sender\'s column says it, the receiver\'s says where it landed', async () => {
+    const db = await corpus()
+    const page = String(await threadBody(getThread(db, 'lore', 'ccc', { head: 20_000 })))
+    expect(page).toContain('@lore')
+    expect(page).toContain('Kickoff brief for ccc v0')
+    // The receiver's copy, whole, under the fold; each half links to its turn.
+    expect(page).toContain('READ FIRST.')
+    expect(page).toContain('/session/ccc-1#tx-C2')
+    expect(page).toContain('/session/lore-1#tx-L1')
+    // The refused send says so, with the ack's reason.
+    expect(page).toContain('lost')
+    expect(page).toContain('ENOENT')
+    // The mid-turn landing links the turn that READ it.
+    expect(page).toContain('/session/ccc-1#tx-C3')
+  })
+
   test('a copy whose sender is not indexed is still a row, with sent: null', async () => {
     const db = openDb(':memory:')
     const projectsDir = seed({
@@ -172,8 +194,15 @@ describe('getThread', () => {
     })
     await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
     db.prepare("INSERT INTO jobs(job_id, session_id, bridge_key, name) VALUES('a18a763f', 'lore-x', 'LORE', 'lore')").run()
-    // `ssh-noti` is a name with no indexed job: it resolves to nothing as a
-    // side, so the thread is asked for from lore's session with the peer name.
-    expect(() => getThread(db, 'lore', 'ssh-noti')).toThrow(/no indexed session/)
+    // `ssh-noti` is a name with no indexed job or session: a peer-only side.
+    // The thread is lore's copies of what it said; the sender half is absent.
+    const t = getThread(db, 'lore', 'ssh-noti')
+    expect(t.b).toEqual({ query: 'ssh-noti', name: 'ssh-noti', sessions: [] })
+    expect(t.rows).toHaveLength(1)
+    expect(t.rows[0]).toMatchObject({ from: 'ssh-noti', to: 'lore', landed: 'turn', sent: null, msgId: 'msg-1' })
+    expect(t.rows[0]!.received).toEqual({ session: 'lore-x', promptId: 'P1', ts: '2026-09-02T05:25:37Z' })
+    expect(t.totals['ssh-noti → lore']).toEqual({ sent: 0, turn: 1, midTurn: 0, lost: 0, unseen: 0 })
+    // A name nothing in the index has heard of is still an error.
+    expect(() => getThread(db, 'lore', 'nobody')).toThrow(/no indexed session/)
   })
 })

@@ -228,6 +228,29 @@ a .mchip, .row a .mchip { color: inherit; }
 .ix tr.recv .in .msgline { color: var(--ink); font-family: var(--sans); font-size: var(--fs-115); } .ix tr.recv.meta .in .msgline { color: var(--ink-3); }
 .ix tr.recv details { display: inline; margin-left: 6px; } .ix tr.recv summary { display: inline; cursor: pointer; }
 .ix tr.recv .msgfull { white-space: pre-wrap; font: var(--fs-115)/1.45 var(--sans); color: var(--ink); margin: 6px 0 2px; max-width: 90ch; }
+
+/* the thread page: two agents, one ledger. Sides wear the first two series hues (identity);
+   the landing chip wears a status colour (state). The gutter arrow is the direction. */
+.kind.side-a { color: var(--series-1); background: color-mix(in oklab, var(--series-1) 12%, var(--surface-2)); font-size: var(--fs-13); vertical-align: middle; }
+.kind.side-b { color: var(--series-2); background: color-mix(in oklab, var(--series-2) 12%, var(--surface-2)); font-size: var(--fs-13); vertical-align: middle; }
+.thread .row { display: grid; grid-template-columns: calc(68px * var(--z)) minmax(0, 1fr) calc(22px * var(--z)) minmax(0, 1fr); gap: 0 10px; padding: 5px 10px; border-bottom: 1px solid var(--line); align-items: start; }
+.thread .row.head { position: sticky; top: 0; background: var(--surface); color: var(--ink-3); font: 500 var(--fs-115) var(--mono); z-index: 1; padding: 4px 10px; }
+.thread .row.head .a { color: var(--series-1); } .thread .row.head .b { color: var(--series-2); }
+.thread .at { font: var(--fs-115) var(--mono); color: var(--ink-3); padding-top: 2px; white-space: nowrap; } .thread .at .d { display: block; color: var(--ink-2); font-size: var(--fs-105); }
+.thread .g { text-align: center; font: 600 var(--fs-15) var(--mono); padding-top: 1px; }
+.thread .row.from-a .g { color: var(--series-1); } .thread .row.from-b .g { color: var(--series-2); } .thread .row.lost .g { color: var(--err); }
+.thread .cell { min-width: 0; border-left: 3px solid var(--line-2); padding: 1px 0 1px 9px; }
+.thread .row.from-a .cell { border-color: var(--series-1); } .thread .row.from-b .cell { border-color: var(--series-2); } .thread .row.lost .cell { border-color: var(--err); }
+.thread .sum { font-weight: 600; } .thread .prev { color: var(--ink-2); font-size: var(--fs-12); }
+.thread details { margin-top: 2px; } .thread summary { font: var(--fs-105) var(--mono); color: var(--ink-3); cursor: pointer; }
+.thread p.msg { margin: 4px 0 2px; }
+.thread .from { margin: 2px 0 0; font: var(--fs-105) var(--mono); }
+.thread .land { padding-top: 2px; font: var(--fs-115) var(--mono); min-width: 0; }
+.kind.land { background: none; text-decoration: none; }
+.kind.land.turn { color: var(--good); border: 1px solid color-mix(in oklab, var(--good) 45%, transparent); }
+.kind.land.mid-turn { color: var(--warn); border: 1px solid color-mix(in oklab, var(--warn) 55%, transparent); }
+.kind.land.unseen { color: var(--ink-3); border: 1px solid var(--line-2); }
+.list.threads .row { grid-template-columns: minmax(0, 1fr) calc(70px * var(--z)) calc(150px * var(--z)) calc(150px * var(--z)); }
 .tl .band.relay { fill: color-mix(in oklab, var(--series-2) 9%, var(--surface-2)); }
 .spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
 .spine .txn .ptext::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .spine .txn[open] .ptext::before { transform: rotate(90deg); } .spine .row.txn .ptext::before { content: none; }

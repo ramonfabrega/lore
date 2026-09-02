@@ -68,8 +68,19 @@ export function resolveSide(db: Database, q: string): Side {
     db.prepare(`SELECT s.session_id AS sessionId FROM sessions s ${NAME_JOIN} WHERE j.name = ? ORDER BY s.first_ts, s.session_id`).all(q),
   )
   if (byName.length) return { query: q, name: q, sessions: byName.map((r) => r.sessionId) }
-  // Not a name: a session id (or prefix), expanded to its job.
-  const sid = resolveSessionId(db, q, {})
+  // Not a job name: a session id (or prefix), expanded to its job — or, when
+  // it matches no session either, a PEER name the other side's rows carry
+  // (`ssh-noti`, `site`: sessions that were never indexed jobs). Such a side
+  // has no sessions of its own; the thread is then the other side's copies
+  // of what it said, and the other side's sends to it, landed `unseen`.
+  let sid: string
+  try {
+    sid = resolveSessionId(db, q, {})
+  } catch (e) {
+    const known = z.object({ n: z.number() }).parse(db.prepare("SELECT COUNT(*) AS n FROM messages WHERE lane = 'relay' AND peer = ?").get(q))
+    if (known.n > 0) return { query: q, name: q, sessions: [] }
+    throw e
+  }
   const me = z
     .object({ bridgeKey: z.string().nullable(), root: z.string().nullable(), name: z.string().nullable() })
     .parse(
@@ -244,6 +255,40 @@ export function getThread(db: Database, aq: string, bq: string, opts: { head?: n
   }
   rows.sort((x, y) => (x.ts < y.ts ? -1 : x.ts > y.ts ? 1 : 0))
   return { a, b, totals, rows: opts.limit ? rows.slice(0, opts.limit) : rows }
+}
+
+// Every pair of agents that has exchanged messages, from the receiving side
+// of the relay lane: who received, from whom, how many, over what span. A
+// receiver without a job name is its session id — `getThread` accepts either.
+// Both directions merge into one unordered pair.
+export type ThreadPair = { a: string; b: string; messages: number; first: string | null; last: string | null }
+const PairRow = z.object({ me: z.string(), peer: z.string(), n: z.number(), first: z.string().nullable(), last: z.string().nullable() })
+export function listThreads(db: Database): ThreadPair[] {
+  const rows = z.array(PairRow).parse(
+    db
+      .prepare(
+        `SELECT COALESCE((SELECT j.name FROM jobs j
+                          WHERE (s.bridge_key IS NOT NULL AND j.bridge_key = s.bridge_key)
+                             OR j.session_id = s.job_session_id OR j.job_id = substr(s.job_session_id, 1, 8)
+                          LIMIT 1), s.session_id) AS me,
+                m.peer, COUNT(*) AS n, MIN(m.ts) AS first, MAX(m.ts) AS last
+         FROM messages m JOIN sessions s ON s.session_id = m.session_id
+         WHERE m.lane = 'relay' AND m.peer IS NOT NULL
+         GROUP BY 1, 2`,
+      )
+      .all(),
+  )
+  const pairs = new Map<string, ThreadPair>()
+  for (const r of rows) {
+    const [a, b] = [r.me, r.peer].sort()
+    const key = `${a} ${b}`
+    const p = pairs.get(key) ?? { a: a!, b: b!, messages: 0, first: null, last: null }
+    p.messages += r.n
+    if (r.first && (!p.first || r.first < p.first)) p.first = r.first
+    if (r.last && (!p.last || r.last > p.last)) p.last = r.last
+    pairs.set(key, p)
+  }
+  return [...pairs.values()].sort((x, y) => ((y.last ?? '') < (x.last ?? '') ? -1 : (y.last ?? '') > (x.last ?? '') ? 1 : 0))
 }
 
 function addressBook(relays: Recv[]): Map<string, string> {
