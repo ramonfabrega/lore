@@ -83,7 +83,14 @@ import { z } from 'zod'
 // agent's name for every lore session since this morning's respawn; the
 // bridge id survives /clear and respawn alike, and jobs.bridge_key already
 // held the other half.
-const SCHEMA_VERSION = 16
+// v17: messages.msg_id — the harness's own key for a cross-session message.
+// The sender's SendMessage ack carries `msg_id`, and the receiver's record
+// carries the same id as `origin.msg_id` (19 of 19 on the ccc→lore leg of
+// 2026-09-02; the two sends without one were a failed socket send and a
+// subagent follow-up). Indexed on relay rows and on SendMessage result rows,
+// it pairs both halves of every message across sessions with zero
+// inference — `lore thread` is that join.
+const SCHEMA_VERSION = 17
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -122,8 +129,12 @@ CREATE TABLE IF NOT EXISTS messages(
   is_error INTEGER NOT NULL DEFAULT 0,
   request_id TEXT,
   -- relay lane only: the session that SENT this message (origin.name).
-  peer TEXT
+  peer TEXT,
+  -- the harness's id for a cross-session message: origin.msg_id on a relay
+  -- row, the ack's msg_id on a SendMessage result row. The pairing key.
+  msg_id TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_messages_msg ON messages(msg_id) WHERE msg_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 -- (session_id, lane, ts): the prompt count and the first prompt per session
 -- were 4 ms each through the session-only index (scan every row of a busy

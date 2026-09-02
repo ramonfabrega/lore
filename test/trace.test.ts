@@ -250,7 +250,7 @@ describe('getTrace', () => {
       { at: 3, ts: '2026-09-02T08:26:36.000Z', kind: 'meta', tag: 'task', text: 'Agent "Metal renderer" finished' },
     ])
     // The follow-up went to the session's own spawn, not to a peer.
-    expect(x.sent).toEqual([{ to: 'af80d234d489e766f', name: null, agent: 'Metal cell-grid renderer + glyph atlas', summary: 'Fix bold glyph drop' }])
+    expect(x.sent).toEqual([{ to: 'af80d234d489e766f', name: null, agent: 'Metal cell-grid renderer + glyph atlas', summary: 'Fix bold glyph drop', delivered: true }])
     expect(x.instructions[2]!.toAgent).toBe('Metal cell-grid renderer + glyph atlas')
     expect(x.reply).toBe('v1 pane is live.')
   })

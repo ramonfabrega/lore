@@ -17,6 +17,7 @@ import { cut, day, hm, tok, todayLocal, usd } from './fmt'
 import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
 import { CSS } from './style'
 import { bars, feeBar, feeLegend, ibar, modelChip, modelChips, spark, stackedBars } from './viz'
+import { getThread } from './thread'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
 
@@ -554,6 +555,17 @@ export function createApp(
     if (wantsJson(c.req.raw)) return c.json(trace)
     // ?open=all unfolds every transaction and phase — one page to ⌘F or print.
     return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), { ...chrome(c), layout: 'head' }))
+  })
+
+  // The thread between two agents (thread.ts): the conversation view's
+  // data. JSON only until the page exists — `lore api thread lore ccc`.
+  app.get('/thread/:a/:b', (c) => {
+    const db = getDb()
+    try {
+      return c.json(getThread(db, c.req.param('a'), c.req.param('b'), { head: 20_000 }))
+    } catch (e) {
+      return c.text(e instanceof Error ? e.message : String(e), 404)
+    }
   })
 
   return app

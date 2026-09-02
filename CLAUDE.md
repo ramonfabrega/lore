@@ -213,6 +213,13 @@ true, it is a design change, not a bug fix.
   message is still the user's voice; count it and read it as such. The
   `queue-operation` records are the queue's bookkeeping (enqueue / dequeue =
   became a turn / remove = pulled into the running turn) and are not indexed.
+  **Both halves of a cross-session message share one id**: the sender's
+  SendMessage ack carries `msg_id` and the receiver's record repeats it as
+  `origin.msg_id` (19/19 on the ccc→lore leg). `messages.msg_id` (v17) holds
+  it on both rows and `lore thread <a> <b>` is the join — pair on it, never
+  on prose or time (the window is a fallback for records older than the
+  field). A failed send (`"success":false`, a stale socket after a respawn)
+  is NOT a tool error in the harness's eyes: read the ack.
 - Wiki durability is CLI-owned: **every wiki op ends with
   `lore wiki commit`** (hooks don't travel across drivers).
 

@@ -13,6 +13,7 @@ import { getSession } from './session'
 import { listSessions } from './sessions'
 import { indexSpawns, listSpawns } from './spawns'
 import { listToolUsage } from './tools'
+import { getThread } from './thread'
 import { getTrace } from './trace'
 import { GROUPINGS, listUsage } from './usage'
 import { composeHandler, createApp } from './web'
@@ -146,6 +147,24 @@ cli.command('trace', {
       head: options.head,
       limit: options.limit,
     })
+  },
+})
+
+cli.command('thread', {
+  description:
+    'The thread between two agents: every message either sent the other, in order, with BOTH halves — the sender\'s SendMessage (session, turn, ack) and the receiver\'s copy (session, and the turn it opened or was read inside) — paired on the harness\'s own `msg_id` (the ack\'s id equals the receiver\'s `origin.msg_id`), never on prose. A side is a JOB, not a session: name it by its agent name (`lore`, `ccc` — the string `lore agents` prints and the other side\'s rows carry as `peer`) or by any session id of the job, which expands to the job through the bridge id across /clears and respawns. `landed` says what became of each message: `turn` (it opened one on the other side), `mid-turn` (read inside a running turn — most of a long thread arrives this way), `lost` (the ack refused it: a stale socket after the peer restarted; the harness does NOT flag this as a tool error), `unseen` (acked, but no receiver copy is indexed). `message` is the receiver\'s copy when the halves paired (stored whole) and the sender\'s otherwise (cut at index time). A row with `sent: null` is a copy whose sender session is not in the index. `totals` is per direction. This is the conversation view\'s data (docs/EXPLORER.md).',
+  args: z.object({
+    a: z.string().describe('One side: an agent name (`lore`) or a session id / unique prefix of the job'),
+    b: z.string().describe('The other side, same forms'),
+  }),
+  options: z.object({
+    head: z.coerce.number().default(400).describe('Characters kept of each message'),
+    limit: z.coerce.number().optional().describe('Max rows (oldest first)'),
+  }),
+  alias: { limit: 'n' },
+  run: ({ args, options }) => {
+    const db = openDb(DB_PATH)
+    return getThread(db, args.a, args.b, { head: options.head, limit: options.limit })
   },
 })
 

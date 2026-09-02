@@ -17,7 +17,10 @@ export type Lane = 'prompt' | 'text' | 'thinking' | 'tool' | 'event' | 'meta' | 
 // peer names the OTHER SESSION that sent a relay-lane entry (origin.name —
 // "ccc", "attrition", "site"), so peer traffic is attributable without
 // re-reading the prose it arrived wrapped in.
-export type Entry = { lane: Lane; text: string; toolName?: string; toolUseId?: string; isError?: boolean; peer?: string }
+// msgId is the harness's id for a cross-session message — `origin.msg_id` on
+// the receiver's record, the ack's `msg_id` on the sender's SendMessage
+// result — the same id on both sides, so the two halves pair exactly.
+export type Entry = { lane: Lane; text: string; toolName?: string; toolUseId?: string; isError?: boolean; peer?: string; msgId?: string }
 
 // One API request's usage envelope, from an assistant record (lore#8, the
 // token profile). Assistant records are streaming snapshots — several lines
@@ -110,7 +113,7 @@ const META_PROMPT =
 // voice, so the peer half was a provenance bug on top of a sizing one.
 const Authorship = z.object({
   isMeta: z.boolean().nullish(),
-  origin: z.object({ kind: z.string().nullish(), name: z.string().nullish() }).loose().nullish(),
+  origin: z.object({ kind: z.string().nullish(), name: z.string().nullish(), msg_id: z.string().nullish() }).loose().nullish(),
 })
 type Authorship = z.infer<typeof Authorship>
 
@@ -152,11 +155,15 @@ export function parseLine(line: string): Parsed | null {
           } else if (block?.type === 'tool_result') {
             const text = toolResultText(block.content)
             // An empty result still closes its instruction (latency, error).
+            // A SendMessage ack names the message it delivered (`msg_id`);
+            // that id is the join to the receiver's copy.
+            const msgId = text.startsWith('{') ? /"msg_id":\s*"([^"]+)"/.exec(text)?.[1] : undefined
             p.entries.push({
               lane: 'tool',
               text: headTail(text),
               ...(typeof block.tool_use_id === 'string' ? { toolUseId: block.tool_use_id } : {}),
               isError: block.is_error === true,
+              ...(msgId ? { msgId } : {}),
             })
           }
         }
@@ -260,7 +267,7 @@ function userTextEntry(text: string, who: Authorship): Entry {
   // session's, and the routing doctrine calls them an ingest surface, so they
   // get a lane of their own rather than being filed away as noise.
   if (who.origin?.kind === 'peer')
-    return { lane: 'relay', text, ...(who.origin.name ? { peer: who.origin.name } : {}) }
+    return { lane: 'relay', text, ...(who.origin.name ? { peer: who.origin.name } : {}), ...(who.origin.msg_id ? { msgId: who.origin.msg_id } : {}) }
   // Injected, either by its own admission or — on transcripts older than the
   // field — by the shape of its prose. Command extraction must survive both
   // paths: `command:<name>` is how the ambient ROI ledger counts slash

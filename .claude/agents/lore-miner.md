@@ -21,7 +21,12 @@ not be "fixed" by relocating.
 
 - `lore session <id-prefix> --lane prompt` — a session's user prompts
   in order, with work-location data (workDirs histogram, per-message gitBranch).
-  Cheap; do this for every assigned session FIRST.
+  Cheap; do this for every assigned session FIRST. A row whose `type` is
+  `attachment` is something the user typed WHILE the agent was working (read
+  mid-turn, not a turn of its own) — it is still the user's voice, and on a
+  long session most of their steering arrives this way. What other sessions
+  sent is NOT in this lane: `--lane relay` (attributed by `peer`), and
+  `lore thread <a> <b>` gives both halves of a peer exchange in order.
 - `lore session <id-prefix> --lane prompt --lane text --token-limit 12000`
   — add assistant prose for decision-heavy sessions. NEVER exceed
   --token-limit 12000 per dump; use --token-offset to page if truly needed.

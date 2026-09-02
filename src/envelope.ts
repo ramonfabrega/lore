@@ -114,7 +114,11 @@ function tagBody(name: string, s: string): string | null {
 // 17-hex task id `SendMessage` takes for a running subagent): the spawn's
 // description, from the spawns table. A follow-up to a subagent is not a
 // message to a peer, and it showed beside `→ @lore` as if it were one.
-export type Sent = { to: string | null; name: string | null; agent: string | null; summary: string | null }
+// `delivered` is read off the ack: the harness answers `{"success":false,
+// "message":"Failed to send to uds:… ENOENT …"}` for a socket whose process
+// has restarted, and does NOT flag the tool result as an error — so the page
+// said "delivered" for a message nobody received. Null when no ack is indexed.
+export type Sent = { to: string | null; name: string | null; agent: string | null; summary: string | null; delivered?: boolean | null }
 export function sentHead(input: string): Sent {
   try {
     const o = JSON.parse(input) as Record<string, unknown>
@@ -124,6 +128,26 @@ export function sentHead(input: string): Sent {
     return { to: field('to', input), name: null, agent: null, summary: field('summary', input) ?? field('message', input) }
   }
 }
+// The message body of a SendMessage input — the sender's copy, which the
+// index cut at TOOL_TEXT_CAP; the receiver's relay row holds it whole.
+export function sentMessage(input: string): string | null {
+  try {
+    const o = JSON.parse(input) as Record<string, unknown>
+    return typeof o.message === 'string' ? o.message : null
+  } catch {
+    return field('message', input)
+  }
+}
+
+// The ack: `success` and the harness's message. A failed send is not a tool
+// error, so this is the only place the failure is written.
+export function ackHead(result: string): { delivered: boolean | null; error: string | null } {
+  if (!result.startsWith('{')) return { delivered: null, error: null }
+  const ok = /"success":\s*(true|false)/.exec(result)?.[1]
+  if (!ok) return { delivered: null, error: null }
+  return { delivered: ok === 'true', error: ok === 'true' ? null : field('message', result) }
+}
+
 function field(name: string, s: string): string | null {
   return new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(s)?.[1]?.replace(/\\(.)/g, '$1') ?? null
 }

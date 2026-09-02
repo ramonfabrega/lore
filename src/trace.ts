@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
-import { metaHead, relayHead, type Sent, sentHead } from './envelope'
+import { ackHead, metaHead, relayHead, type Sent, sentHead } from './envelope'
 import { cut, cutProse } from './fmt'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
@@ -75,6 +75,9 @@ export type Instruction = {
   toName?: string | null
   // …or to one of the session's own subagents: the spawn's description.
   toAgent?: string | null
+  // SendMessage only: what the ack said (envelope.ts `ackHead`) — false is a
+  // message nobody received, and the harness does not mark it an error.
+  delivered?: boolean | null
   ts: string | null
   ms: number | null
   error: boolean
@@ -401,13 +404,14 @@ export function getTrace(
       if (out) {
         out.name = out.to ? peerByAddr.get(out.to) ?? null : null
         out.agent = out.to ? agentByTask.get(out.to) ?? null : null
+        out.delivered = res ? ackHead(res.text).delivered : null
         sent.push(out)
       }
       const error = res ? res.isError === 1 : false
       instructions.push({
         tool,
         input: cut(inputFull, head),
-        ...(out ? { to: out.to, toName: out.name, toAgent: out.agent } : {}),
+        ...(out ? { to: out.to, toName: out.name, toAgent: out.agent, delivered: out.delivered } : {}),
         ts: r.ts,
         ms: res?.ts && r.ts ? Date.parse(res.ts) - Date.parse(r.ts) : null,
         error,

@@ -126,6 +126,26 @@ root alone showed one incarnation. The agent's name on a session header
 joins on the same key — the root in state.json is the first incarnation's
 and, after a respawn, matches nothing.
 
+## Thread (layer 1 landed 2026-09-02; the page is next)
+
+`lore thread <a> <b>` / `/thread/<a>/<b>`: every message two agents sent
+each other, in order, with both halves — the sender's `SendMessage` (its
+session, turn and ack) and the receiver's copy (its session, and the turn it
+opened or was read inside). Paired on the harness's own `msg_id`: the ack
+carries it and the receiver's record repeats it as `origin.msg_id`
+(`messages.msg_id`, v17), so the join is exact and never a prose match; a
+time window is the fallback only for records older than the field. A side
+is a job, named by its agent name or any of its session ids, expanded
+through the bridge id across `/clear`s and respawns — the lore side of the
+2026-09-02 thread is three sessions across two incarnations, and the
+resend after the respawn lands in a different session than the failed
+original. `landed` is the fact the page must render per message: `turn`,
+`mid-turn`, `lost` (the ack refused it, and the harness did not flag the
+tool result as an error — the session page used to print "delivered" for
+it), `unseen`. A subagent follow-up is not in the thread. The message text
+is the receiver's copy when paired, which the index stores whole; the
+sender's is cut at index time.
+
 ## Freshness (landed)
 
 The server refreshes the index itself (`serve --refresh <min>`, default 5;

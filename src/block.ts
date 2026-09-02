@@ -276,16 +276,19 @@ function sentBadges(sent: Transaction['sent']) {
   // A follow-up to one of the session's own spawns is not a message to a
   // peer: it wears `agent`, neutral, with the spawn's description in the
   // title — never `@af80d234…` beside `@lore` as if it were a third session.
-  const byTo = new Map<string, { addr: string; agent: boolean; lines: string[] }>()
+  const byTo = new Map<string, { addr: string; agent: boolean; lost: number; lines: string[] }>()
   for (const s of sent) {
     const label = s.agent ? 'agent' : (s.name ?? shortTo(s.to))
-    const g = byTo.get(label) ?? { addr: s.agent ? `${s.to ?? '?'} · ${s.agent}` : (s.to ?? '?'), agent: s.agent != null, lines: [] }
-    g.lines.push(s.summary ?? '')
+    const g = byTo.get(label) ?? { addr: s.agent ? `${s.to ?? '?'} · ${s.agent}` : (s.to ?? '?'), agent: s.agent != null, lost: 0, lines: [] }
+    g.lines.push(`${s.delivered === false ? 'LOST · ' : ''}${s.summary ?? ''}`)
+    if (s.delivered === false) g.lost++
     byTo.set(label, g)
   }
+  // A send the ack refused is not a send: it wears the status colour and
+  // says so, since the row would otherwise advertise a message nobody got.
   return html`${[...byTo].map(
     ([label, g]) =>
-      html`<span class="kind sent ${g.agent ? 'agent' : ''}" title="${[g.addr, ...g.lines.filter(Boolean)].join('\n')}">→ ${g.agent ? '' : '@'}${label}${g.lines.length > 1 ? html` <b>×${g.lines.length}</b>` : ''}</span>`,
+      html`<span class="kind sent ${g.agent ? 'agent' : ''} ${g.lost ? 'lost' : ''}" title="${[g.addr, ...g.lines.filter(Boolean)].join('\n')}">→ ${g.agent ? '' : '@'}${label}${g.lines.length > 1 ? html` <b>×${g.lines.length}</b>` : ''}${g.lost ? html` <b class="err">${g.lost} lost</b>` : ''}</span>`,
   )}`
 }
 
@@ -403,7 +406,13 @@ function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, 
       <td class="mono tool"><i class="sw ${family(ix.tool)}"></i>${ix.tool}</td>
       <td class="mono small in">${out ? sentCell(ix) : inputHead(ix.tool, ix.input)}</td>
       <td class="num muted">${ms(ix.ms)}</td>
-      <td class="small res">${ix.error ? html`<span class="kind err">error</span> ` : ''}${out && !ix.error ? html`<span class="muted">delivered</span>` : cut(ix.result, 200)}</td>
+      <td class="small res">${ix.error ? html`<span class="kind err">error</span> ` : ''}${
+        out && !ix.error
+          ? ix.delivered === false
+            ? html`<span class="kind err">lost</span> <span class="muted">${cut(ix.result.replace(/^\{"success":false,"message":"/, ''), 160)}</span>`
+            : html`<span class="muted">delivered</span>`
+          : cut(ix.result, 200)
+      }</td>
       <td class="num muted small fee">${fee ? html`${fee.model ? html`<span title="${fee.model}">${modelLabel(fee.model)}</span> · ` : ''}${tok(fee.output)}${fee.thinking ? html` <span title="thinking">(${tok(fee.thinking)}t)</span>` : ''} · ${usd(fee.listUsd)}` : ''}</td>
     </tr>`)
   }
