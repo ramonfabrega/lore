@@ -213,7 +213,11 @@ CREATE INDEX IF NOT EXISTS idx_jobs_session ON jobs(session_id);
 `
 
 export function openDb(path: string): Database {
-  mkdirSync(dirname(path), { recursive: true })
+  const dir = dirname(path)
+  // ':memory:' has no directory, and a relative path's is already there.
+  // recursive:true makes mkdir('.') a silent no-op on POSIX, but Bun on
+  // Windows still throws EEXIST for it.
+  if (path !== ':memory:' && dir !== '.') mkdirSync(dir, { recursive: true })
   const db = new Database(path)
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA synchronous = NORMAL')

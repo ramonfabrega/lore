@@ -37,7 +37,13 @@ const REMOTE_REFS = ['origin/HEAD', 'origin/main', 'origin/master']
 // Excludes match on the whole path or a `/`-bounded suffix — "tools/cli"
 // hits ~/code/tools/cli but not ~/code/tools/cli-repro.
 function isExcluded(dir: string, exclude: string[]): boolean {
-  return exclude.some((e) => dir === e || dir.endsWith(`/${e}`))
+  // Config is written with '/' whatever the host, so compare in those terms:
+  // on Windows `dir` arrives separated by '\' and a suffix would never match.
+  const path = dir.replaceAll('\\', '/')
+  return exclude.some((e) => {
+    const suffix = e.replaceAll('\\', '/')
+    return path === suffix || path.endsWith(`/${suffix}`)
+  })
 }
 
 // A linked worktree carries a `.git` FILE whose gitdir points into the main

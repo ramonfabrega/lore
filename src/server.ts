@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { z } from 'zod'
 import { LORE_HOME } from './config'
 
@@ -63,10 +63,12 @@ ${args.map((a) => `    <string>${escapeXml(a)}</string>`).join('\n')}
   <true/>
   <key>ThrottleInterval</key>
   <integer>10</integer>
+  <!-- posix.join, not join: a plist is a macOS artifact and must read as one
+       whatever host renders it — a backslash path here would be nonsense. -->
   <key>StandardOutPath</key>
-  <string>${escapeXml(join(opts.home ? join(opts.home, '.lore') : LORE_HOME, 'serve.log'))}</string>
+  <string>${escapeXml(posix.join(opts.home ? posix.join(opts.home, '.lore') : LORE_HOME, 'serve.log'))}</string>
   <key>StandardErrorPath</key>
-  <string>${escapeXml(join(opts.home ? join(opts.home, '.lore') : LORE_HOME, 'serve.err'))}</string>
+  <string>${escapeXml(posix.join(opts.home ? posix.join(opts.home, '.lore') : LORE_HOME, 'serve.err'))}</string>
 </dict>
 </plist>
 `

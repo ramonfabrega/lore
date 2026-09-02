@@ -18,6 +18,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
 
+      # `lore wiki init` commits, and a bare runner has no git identity where
+      # any real machine does. Without this the wiki tests fail on the commit,
+      # not on anything they mean to assert.
+      - name: git identity
+        run: |
+          git config --global user.email lore-ci@example.invalid
+          git config --global user.name "lore CI"
+
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit
       - run: bun test

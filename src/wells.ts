@@ -59,53 +59,62 @@ export function slugWellDir(path: string): string {
 // A memory-only well (a live repo with memory but zero transcripts) has no
 // cwd record to resolve, and the dir name is lossy — '-' stands for '/', '.',
 // '_', and literal '-' alike (my-app, some_dir, .claude). Reconstruct by
-// walking the filesystem: at each boundary try every joiner, and only an
-// existing directory disambiguates. A deleted source resolves null, same as
-// before — "gone by id ≠ gone by content" stays measurable.
-// '/' is a SENTINEL for "component boundary", never concatenated: join()
-// supplies the platform's real separator, so the same walk reconstructs
-// 'C:\\Users\\x' on Windows and '/Users/x' on POSIX.
-const JOINERS = ['/', '-', '.', '_'] as const
-const DESLUG_BUDGET = 50_000
+// matching the slug against what is actually on disk: at each level read the
+// directory, and descend into the entries whose own mangled name prefixes
+// what is left. A deleted source resolves null, same as before — "gone by id
+// ≠ gone by content" stays measurable.
+//
+// This used to enumerate joiners ('/', '-', '.', '_') at every boundary
+// instead. Only the '/' branch pruned (it checked the directory existed); the
+// other three just accumulated string, so one wrong turn cost 3^remaining
+// with nothing verified until the very end. It exhausted its 50k budget — and
+// so answered null — on paths barely deeper than a home directory: a macOS
+// temp dir (/private/var/folders/<hash>/T/...) was already past it.
+//
 // A POSIX well mangles its leading '/' to '-'; a Windows well starts at a
-// drive letter, so 'C:\\Users\\x' mangles to 'C--Users-x'. Both shapes are
-// recognized on EITHER platform — a root that doesn't exist here just walks
-// to null, the same answer a deleted source gives.
+// drive letter, so 'C:\Users\x' mangles to 'C--Users-x'. Both shapes are
+// recognized on EITHER host — a root that doesn't exist here walks to null,
+// the same answer a deleted source gives.
 const WIN_WELL = /^([A-Za-z])--/
+// A runaway guard, not a search bound: it counts directories actually read,
+// and a real tree never approaches it.
+const DESLUG_BUDGET = 20_000
 
 export function deslugWellDir(name: string): string | null {
   const win = WIN_WELL.exec(name)
   if (!win && !name.startsWith('-')) return null
-  const root = win ? `${win[1]}:\\` : '/'
-  const segs = name.slice(win ? 3 : 1).split('-')
-  let budget = DESLUG_BUDGET
-  const isDir = (p: string): boolean => {
-    try {
-      return statSync(p).isDirectory()
-    } catch {
-      return false
+  return walkSlug(win ? `${win[1]}:\\` : '/', name.slice(win ? 3 : 1), { left: DESLUG_BUDGET })
+}
+
+function walkSlug(base: string, rest: string, budget: { left: number }): string | null {
+  if (rest === '' || budget.left-- <= 0) return null
+  let entries
+  try {
+    entries = readdirSync(base, { withFileTypes: true })
+  } catch {
+    return null // unreadable (permissions) or gone
+  }
+  for (const e of entries) {
+    // isDirectory() is false for a symlink pointing at one, and the walk has
+    // to follow those: /var -> /private/var on macOS is one.
+    if (!e.isDirectory() && !(e.isSymbolicLink() && isDir(join(base, e.name)))) continue
+    const slug = slugWellDir(e.name)
+    if (slug === rest) return join(base, e.name)
+    // The separator between this component and the next mangled to '-' too.
+    if (rest.startsWith(`${slug}-`)) {
+      const found = walkSlug(join(base, e.name), rest.slice(slug.length + 1), budget)
+      if (found) return found
     }
   }
-  // base: confirmed-existing parent; comp: the in-progress path component.
-  const walk = (base: string, comp: string, i: number): string | null => {
-    if (budget-- <= 0) return null
-    if (i === segs.length) {
-      const full = join(base, comp)
-      return comp !== '' && isDir(full) ? full : null
-    }
-    for (const j of JOINERS) {
-      if (j === '/') {
-        if (comp === '' || !isDir(join(base, comp))) continue
-        const r = walk(join(base, comp), segs[i] ?? '', i + 1)
-        if (r) return r
-      } else {
-        const r = walk(base, `${comp}${j}${segs[i] ?? ''}`, i + 1)
-        if (r) return r
-      }
-    }
-    return null
+  return null
+}
+
+function isDir(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
   }
-  return walk(root, segs[0] ?? '', 1)
 }
 
 // Absolute in EITHER shape, whatever host we're on: a '/'-rooted POSIX path,
