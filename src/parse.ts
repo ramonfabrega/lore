@@ -72,7 +72,16 @@ export type Parsed = {
   promptId?: string
   // The background job's own id (record-level `session_id`, distinct from
   // `sessionId`): one job spans every /clear'd transcript it produced.
+  // Not stable across the job's life: a daemon RESPAWN mints a new root
+  // (lore's own job has had two today — 76ca2416 until 06:57, 78c6d5cc from
+  // 07:20 — under one daemon id and one socket lineage), so it keys an
+  // incarnation, not the job.
   jobSessionId?: string
+  // The claude.ai session behind a Remote Control job (`bridge-session`
+  // records, `bridgeSessionId: cse_X` — the id commit trailers carry). This
+  // one survives /clear AND respawn, which makes it the join that names a
+  // session's agent across the whole job (jobs.bridge_key).
+  bridgeSessionId?: string
 }
 
 // Tool inputs/results are indexed truncated: enough to find "that session where
@@ -125,6 +134,7 @@ export function parseLine(line: string): Parsed | null {
     entries: [],
     ...(typeof r.promptId === 'string' ? { promptId: r.promptId } : {}),
     ...(typeof r.session_id === 'string' && r.session_id !== r.sessionId ? { jobSessionId: r.session_id } : {}),
+    ...(r.type === 'bridge-session' && typeof r.bridgeSessionId === 'string' ? { bridgeSessionId: r.bridgeSessionId } : {}),
   }
 
   switch (p.type) {
@@ -151,6 +161,26 @@ export function parseLine(line: string): Parsed | null {
           }
         }
       }
+      break
+    }
+    // A message that arrives while the session is mid-turn is NOT a user
+    // record. The harness queues it (`queue-operation` enqueue) and, when the
+    // running turn next reads its queue, delivers it as an `attachment` of
+    // type `queued_command` hung off the tool result it was read after
+    // (`parentUuid`) — a peer's message, the user's own words, or a task
+    // notification, each carrying the same authorship fields a user record
+    // would. Measured on the lore↔ccc thread of 2026-09-02: 14 of lore's 22
+    // messages reached ccc this way, and 10 of the 17 things the user typed
+    // into ccc's session. Until v16 lore read only `user` and `assistant`, so
+    // none of it was in any lane — the user's mid-turn "i think we want to
+    // give ghostty a solid shot" was invisible to every miner.
+    // The record's `type` stays `attachment` on the row: that is what says
+    // "read inside the turn" rather than "opened it".
+    case 'attachment': {
+      const a = r.attachment
+      if (a?.type !== 'queued_command' || typeof a.prompt !== 'string' || !a.prompt.trim()) break
+      const who = Authorship.safeParse(a).data ?? {}
+      p.entries.push(userTextEntry(a.prompt, who))
       break
     }
     case 'assistant': {

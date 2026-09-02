@@ -247,7 +247,7 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
   // muted.
   const chip = x.kind === 'relay' ? `@${x.tag ?? 'peer'}` : x.kind === 'meta' ? (x.tag ?? 'meta') : x.kind === 'command' ? 'command' : null
   const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${hms(x.ts)}</span>
-    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${sentBadges(x.sent)}</span>
+    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${receivedBadges(x.received)}${sentBadges(x.sent)}</span>
     ${o.mixed ? html`<span class="m">${modelChip(x.model)}</span>` : ''}
     <span class="num">${x.steps || ''}</span>
     <span class="num">${x.instructions.length || ''}</span>
@@ -255,7 +255,7 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
     <span class="num">${x.output ? tok(x.output) : ''}</span>
     <span class="num">${x.listUsd ? html`${ibar(x.listUsd, o.maxUsd)}${usd(x.listUsd)}` : ''}</span>
     <span class="num">${x.ms ? html`${ibar(x.ms, o.maxMs)}${ms(x.ms)}` : ''}</span>`
-  const body = x.instructions.length || x.reply || x.notes.length
+  const body = x.instructions.length || x.reply || x.notes.length || x.received.length
   if (!body) return html`<div class="row txn ${x.kind}" id="${id}">${cells}</div>`
   return html`<details class="txn ${x.kind} ${x.message ? 'hasmsg' : ''}" id="${id}" ${o.open ? 'open' : ''}>
     <summary class="row">${cells}</summary>
@@ -273,16 +273,38 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
 // are worth reading, so they ride the title here and the body below.
 function sentBadges(sent: Transaction['sent']) {
   if (sent.length === 0) return html``
-  const byTo = new Map<string, { addr: string; lines: string[] }>()
+  // A follow-up to one of the session's own spawns is not a message to a
+  // peer: it wears `agent`, neutral, with the spawn's description in the
+  // title — never `@af80d234…` beside `@lore` as if it were a third session.
+  const byTo = new Map<string, { addr: string; agent: boolean; lines: string[] }>()
   for (const s of sent) {
-    const label = s.name ?? shortTo(s.to)
-    const g = byTo.get(label) ?? { addr: s.to ?? '?', lines: [] }
+    const label = s.agent ? 'agent' : (s.name ?? shortTo(s.to))
+    const g = byTo.get(label) ?? { addr: s.agent ? `${s.to ?? '?'} · ${s.agent}` : (s.to ?? '?'), agent: s.agent != null, lines: [] }
     g.lines.push(s.summary ?? '')
     byTo.set(label, g)
   }
   return html`${[...byTo].map(
     ([label, g]) =>
-      html`<span class="kind sent" title="${[g.addr, ...g.lines.filter(Boolean)].join('\n')}">→ @${label}${g.lines.length > 1 ? html` <b>×${g.lines.length}</b>` : ''}</span>`,
+      html`<span class="kind sent ${g.agent ? 'agent' : ''}" title="${[g.addr, ...g.lines.filter(Boolean)].join('\n')}">→ ${g.agent ? '' : '@'}${label}${g.lines.length > 1 ? html` <b>×${g.lines.length}</b>` : ''}</span>`,
+  )}`
+}
+
+// The inbound half that did not open the turn: one badge per sender, with a
+// count — `← @lore ×6`, `← you ×3`. The same signal-not-list rule as the
+// outbound badge. A harness notification read mid-turn is in the table
+// below but earns no badge; the row would say `task ×12` on every long turn.
+function receivedBadges(received: Transaction['received']) {
+  const byFrom = new Map<string, { you: boolean; lines: string[] }>()
+  for (const r of received) {
+    if (r.kind === 'meta') continue
+    const label = r.kind === 'prompt' ? 'you' : `@${r.tag ?? 'peer'}`
+    const g = byFrom.get(label) ?? { you: r.kind === 'prompt', lines: [] }
+    g.lines.push(cut(r.text, 120))
+    byFrom.set(label, g)
+  }
+  if (byFrom.size === 0) return html``
+  return html`${[...byFrom].map(
+    ([label, g]) => html`<span class="kind recv ${g.you ? 'you' : ''}" title="${g.lines.join('\n')}">← ${label}${g.lines.length > 1 ? html` <b>×${g.lines.length}</b>` : ''}</span>`,
   )}`
 }
 
@@ -291,8 +313,24 @@ function sentBadges(sent: Transaction['sent']) {
 // and the row badge never disagree — they did, `@32093` against `@lore`.
 function sentCell(ix: Instruction) {
   const { summary } = sentHead(ix.input)
+  if (ix.toAgent) return html`<b title="${ix.to ?? ''}">→ agent</b> <span class="muted">${cut(ix.toAgent, 60)}</span> <span class="msgline">${cut(summary ?? ix.input, 200)}</span>`
   const label = ix.toName ?? shortTo(ix.to ?? null)
   return html`<b title="${ix.to ?? ''}">→ @${label}</b> <span class="msgline">${cut(summary ?? ix.input, 200)}</span>`
+}
+
+// A message read mid-turn, in the instruction stream where the turn read it
+// (trace.ts `received`): the peer's words, the user's, or a harness
+// notification, at the tool result it was delivered after. The row is the
+// preview; a message longer than it unfolds in full beneath.
+const RECV_PREVIEW = 240
+function receivedRow(r: Transaction['received'][number]) {
+  const who = r.kind === 'relay' ? html`<b>← @${r.tag ?? 'peer'}</b>` : r.kind === 'prompt' ? html`<b>← you</b>` : html`<span class="muted">← ${r.tag ?? 'harness'}</span>`
+  const long = r.text.length > RECV_PREVIEW
+  return html`<tr class="recv ${r.kind}">
+    <td class="mono muted t">${hms(r.ts)}</td>
+    <td class="mono tool"><i class="sw agent"></i>${r.kind === 'relay' ? 'message' : r.kind === 'prompt' ? 'you' : 'harness'}</td>
+    <td class="in" colspan="4">${who} <span class="msgline">${cut(r.text, RECV_PREVIEW)}</span>${long ? html`<details><summary class="muted small">full message</summary><p class="msgfull">${r.text}</p></details>` : ''}</td>
+  </tr>`
 }
 
 // A recipient the address book could not name: a raw unix socket, or a task
@@ -319,9 +357,13 @@ function txBody(x: Transaction, openPhases: boolean) {
   const many = x.notes.length > 1
 
   return html`
-    ${phases.map((p) => {
+    ${phases.map((p, k) => {
       const ix = x.instructions.slice(p.from, p.to)
-      const table = ix.length ? ixTable(x, p.from, p.to, stepFee) : html``
+      // A message read after the last instruction sits at cursor `len`; it
+      // belongs to the last phase.
+      const last = k === phases.length - 1
+      const recv = x.received.filter((r) => r.at >= p.from && (r.at < p.to || (last && r.at === p.to)))
+      const table = ix.length || recv.length ? ixTable(x, p.from, p.to, stepFee, last) : html``
       if (!p.note) return table
       const errs = ix.filter((i) => i.error).length
       const t0 = ix[0]?.ts
@@ -333,7 +375,7 @@ function txBody(x: Transaction, openPhases: boolean) {
       // golden records EVERY outgoing message landed inside a closed one —
       // instruction 8 of 8 here, 5 / 21 / 29 of 31 there. So a phase carrying
       // a message opens with the turn, and only the rest stay folded.
-      const sends = ix.some((i) => i.tool === 'SendMessage')
+      const sends = ix.some((i) => i.tool === 'SendMessage') || recv.some((r) => r.kind !== 'meta')
       return many
         ? html`<details class="phase ${sends ? 'sends' : ''}" ${openPhases || sends ? 'open' : ''}><summary><span class="note">${p.note.text}</span> ${meta}${
             sends ? html` <span class="kind sent">→ message</span>` : ''
@@ -343,12 +385,14 @@ function txBody(x: Transaction, openPhases: boolean) {
     ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}`
 }
 
-function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>) {
+function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>, tail = false) {
   const rows: H[] = []
   let lastReq: string | null | undefined
   const thoughts = x.thoughts.filter((t) => t.at >= from && t.at < to)
+  const received = x.received.filter((r) => r.at >= from && (r.at < to || (tail && r.at === to)))
   for (let i = from; i < to; i++) {
     const ix = x.instructions[i]!
+    for (const rv of received) if (rv.at === i) rows.push(receivedRow(rv))
     for (const th of thoughts) if (th.at === i) rows.push(thoughtRow(th.text))
     const newStep = ix.requestId !== lastReq
     lastReq = ix.requestId
@@ -363,6 +407,7 @@ function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, 
       <td class="num muted small fee">${fee ? html`${fee.model ? html`<span title="${fee.model}">${modelLabel(fee.model)}</span> · ` : ''}${tok(fee.output)}${fee.thinking ? html` <span title="thinking">(${tok(fee.thinking)}t)</span>` : ''} · ${usd(fee.listUsd)}` : ''}</td>
     </tr>`)
   }
+  if (tail) for (const rv of received) if (rv.at === to) rows.push(receivedRow(rv))
   return html`<table class="ix">
     <thead><tr><th>at</th><th>tool</th><th>input</th><th class="num">ms</th><th>result</th><th class="num">step out · $</th></tr></thead>
     <tbody>${rows}</tbody>

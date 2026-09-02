@@ -176,16 +176,43 @@ true, it is a design change, not a bug fix.
   ledger). Sizing a mining bucket off the old `prompt` lane over-counted, and
   a miner reading it attributed a peer's words to the user — a provenance
   bug, not just a sizing one.
-- A background **job id is the id of the session it started with**, and every
-  `/clear` after that mints a NEW session id pointing back at that root
-  (`sessions.job_session_id`). So a job is a chain of sessions, its root
-  usually a stub of a few lines, and the fan-out lives under whichever session
-  was current when it ran. `lore agents` prints the job as `id` and the live
-  session as `sessionId` — **only the latter resolves spawns**, and the former
-  resolves as a real (empty) session, so the wrong copy is a plausible `0`
-  rather than an error. Generalized (ccc, 09-02): **when a listing exposes two
-  ids, say which one survives the thing you are about to do with it** —
-  `spawns --session` does it by naming the job-mate that holds the rows.
+- A background job has THREE ids, and only one of them is the job. The
+  **daemon job id** (`~/.claude/jobs/<id>`, what `claude agents` prints) and
+  the **bridge id** (`bridgeSessionId: cse_X` in state.json, `bridge-session`
+  records in every transcript, `Claude-Session: …/session_X` in commit
+  trailers) survive everything. The **root session id** (record-level
+  `session_id`, `sessions.job_session_id`) is the session the CURRENT PROCESS
+  started with: every `/clear` mints a new session id pointing back at it, but
+  a daemon **respawn mints a new root** — lore's own job had 76ca2416 until
+  06:57 and 78c6d5cc from 07:20 on 2026-09-02, with the unix socket changing
+  underneath (32093 → 61989; a peer's send to the old socket failed ENOENT
+  and was re-sent by name). So a job is a chain of incarnations, each a chain
+  of sessions; the root keys an incarnation, the bridge id keys the job, and
+  state.json's `sessionId` is the FIRST root ever, which after a respawn
+  matches nothing (the session page lost `@lore` for every lore session that
+  day until the join moved to `bridge_key`, v16). The fan-out lives under
+  whichever session was current when it ran. `lore agents` prints the job as
+  `id` and the live session as `sessionId` — **only the latter resolves
+  spawns**, and the former resolves as a real (empty) session, so the wrong
+  copy is a plausible `0` rather than an error. Generalized (ccc, 09-02):
+  **when a listing exposes two ids, say which one survives the thing you are
+  about to do with it** — `spawns --session` does it by naming the job-mate
+  that holds the rows.
+- **A message that arrives mid-turn is not a user record.** When a session is
+  idle, a peer's message or the user's words become a `user` record and open
+  a turn. When it is busy, the harness enqueues it (`queue-operation`) and
+  delivers it at the next tool result as an `attachment` of type
+  `queued_command` (`parentUuid` = that result; the same `origin`/`isMeta`
+  authorship fields), and the turn keeps running. A parser that reads only
+  `user` and `assistant` records never sees it: on the lore↔ccc thread of
+  2026-09-02, **14 of lore's 22 messages reached ccc this way, and 10 of the
+  17 things the user typed into ccc's session** — including the decision to
+  give libghostty a serious shot. Since v16 they index into their lanes with
+  `type = 'attachment'`, and `trace` places them INSIDE the turn (`received[]`,
+  at their instruction position) rather than opening one. A user's mid-turn
+  message is still the user's voice; count it and read it as such. The
+  `queue-operation` records are the queue's bookkeeping (enqueue / dequeue =
+  became a turn / remove = pulled into the running turn) and are not indexed.
 - Wiki durability is CLI-owned: **every wiki op ends with
   `lore wiki commit`** (hooks don't travel across drivers).
 

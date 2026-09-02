@@ -218,6 +218,16 @@ a .mchip, .row a .mchip { color: inherit; }
 .ix tr.sent td { background: color-mix(in oklab, var(--series-2) 5%, transparent); }
 .ix tr.sent .in b { color: var(--series-2); font-weight: 600; }
 .ix tr.sent .in .msgline { color: var(--ink); font-family: var(--sans); font-size: var(--fs-115); }
+/* a message READ mid-turn: the peer hue when a peer sent it, the user's own words in plain ink, a harness notification muted */
+.kind.recv { color: var(--series-2); background: none; border: 1px solid color-mix(in oklab, var(--series-2) 45%, transparent); margin-left: 6px; }
+.kind.recv b { font-weight: 600; } .kind.recv.you { color: var(--ink-2); border-color: var(--line-2); }
+.kind.sent.agent { color: var(--ink-2); border-color: var(--line-2); }
+.ix tr.recv td { background: color-mix(in oklab, var(--series-2) 5%, transparent); }
+.ix tr.recv.prompt td { background: var(--surface-2); } .ix tr.recv.meta td { background: none; }
+.ix tr.recv .in b { color: var(--series-2); font-weight: 600; } .ix tr.recv.prompt .in b { color: var(--ink); }
+.ix tr.recv .in .msgline { color: var(--ink); font-family: var(--sans); font-size: var(--fs-115); } .ix tr.recv.meta .in .msgline { color: var(--ink-3); }
+.ix tr.recv details { display: inline; margin-left: 6px; } .ix tr.recv summary { display: inline; cursor: pointer; }
+.ix tr.recv .msgfull { white-space: pre-wrap; font: var(--fs-115)/1.45 var(--sans); color: var(--ink); margin: 6px 0 2px; max-width: 90ch; }
 .tl .band.relay { fill: color-mix(in oklab, var(--series-2) 9%, var(--surface-2)); }
 .spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
 .spine .txn .ptext::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .spine .txn[open] .ptext::before { transform: rotate(90deg); } .spine .row.txn .ptext::before { content: none; }

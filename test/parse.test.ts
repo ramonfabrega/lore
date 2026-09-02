@@ -145,3 +145,56 @@ describe('parseLine laning', () => {
     expect(parseLine('not json{')).toBeNull()
   })
 })
+
+// A message that arrives while the session is mid-turn is never a user
+// record: the harness queues it and delivers it as an `attachment` of type
+// `queued_command` hung off the tool result it was read after. Shapes
+// verbatim from ccc's 2026-09-02 session, where 14 of lore's 22 messages
+// and 10 of the user's 17 arrived this way — and none of it was indexed.
+describe('parseLine: messages read mid-turn (attachment / queued_command)', () => {
+  const queued = (a: object) =>
+    env({
+      type: 'attachment',
+      parentUuid: '8d17b080-edbb-4fe2-904d-1cf0aa467703',
+      isSidechain: false,
+      attachment: { type: 'queued_command', source_uuid: '83591e5a', commandMode: 'prompt', timestamp: '2026-09-02T07:11:43.722Z', ...a },
+    })
+
+  test('the user typing while the agent works → prompt lane, on an attachment row', () => {
+    const p = parseLine(queued({ prompt: 'i think we want to give ghostty/libghostty a solid shot..', origin: { kind: 'human' } }))!
+    expect(p.type).toBe('attachment')
+    expect(p.entries).toEqual([{ lane: 'prompt', text: 'i think we want to give ghostty/libghostty a solid shot..' }])
+    // No promptId of its own — the indexer carries the running turn's forward.
+    expect(p.promptId).toBeUndefined()
+  })
+
+  test('a peer message read mid-turn → relay lane, attributed, with its envelope intact', () => {
+    const text = '<cross-session-message from="uds:/tmp/cc-socks/61989.sock" from-name="lore" from-mode="prompting">\nLedger banked. Three corrections back.'
+    const p = parseLine(
+      queued({
+        prompt: text,
+        isMeta: true,
+        origin: { kind: 'peer', from: 'uds:/tmp/cc-socks/61989.sock', verifiedPeerPid: 61989, name: 'lore', fromMode: 'prompting', body: 'Ledger banked. Three corrections back.' },
+      }),
+    )!
+    expect(p.entries).toEqual([{ lane: 'relay', text, peer: 'lore' }])
+  })
+
+  test('a task notification read mid-turn → meta lane', () => {
+    const p = parseLine(queued({ commandMode: 'task-notification', prompt: '<task-notification>\n<task-id>a101bb5563f1a0309</task-id>\n<status>completed</status>\n</task-notification>' }))!
+    expect(p.entries[0]!.lane).toBe('meta')
+  })
+
+  test('every other attachment kind indexes nothing', () => {
+    for (const type of ['total_tokens_reminder', 'task_reminder', 'batching_reminder_sent', 'peer_mention', 'edited_text_file']) {
+      const p = parseLine(env({ type: 'attachment', attachment: { type, text: 'x', prompt: 'y' } }))!
+      expect(p.entries).toEqual([])
+    }
+  })
+
+  test('a bridge-session record names the claude.ai session behind the job', () => {
+    const p = parseLine(env({ type: 'bridge-session', bridgeSessionId: 'cse_01RGFNuvyhAq1Mzs6ZcVX7r2', lastSequenceNum: 0 }))!
+    expect(p.bridgeSessionId).toBe('cse_01RGFNuvyhAq1Mzs6ZcVX7r2')
+    expect(p.entries).toEqual([])
+  })
+})

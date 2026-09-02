@@ -73,6 +73,8 @@ export type Instruction = {
   // the same call, two names, because only one of them had the address book.
   to?: string | null
   toName?: string | null
+  // …or to one of the session's own subagents: the spawn's description.
+  toAgent?: string | null
   ts: string | null
   ms: number | null
   error: boolean
@@ -88,6 +90,13 @@ export type Instruction = {
 export type Note = { at: number; ts: string | null; text: string }
 // A thought is a thinking block, same cursor.
 export type Thought = { at: number; ts: string | null; text: string }
+// A message READ inside the turn, same cursor: what arrived while the
+// session was working and was delivered at the next tool result (parse.ts,
+// `queued_command`). `kind` is who it came from — `relay` a peer (`tag` names
+// it), `prompt` the user, `meta` the harness (`tag` the injection kind, e.g.
+// `task`). It did not open the turn, so it is not a transaction; it is a
+// position in one, exactly as an outbound `SendMessage` is.
+export type Received = { at: number; ts: string | null; kind: 'prompt' | 'relay' | 'meta'; tag: string | null; text: string }
 export type Step = {
   requestId: string
   ts: string | null
@@ -175,6 +184,8 @@ export type Transaction = {
   // that buries the single thing worth reading at the bottom of a fold, so
   // the recipient and the sender's own one-line summary ride up here.
   sent: Sent[]
+  // The inbound half that did NOT open the turn: messages read mid-turn.
+  received: Received[]
   steps: number
   instructions: Instruction[]
   notes: Note[]
@@ -236,14 +247,17 @@ export function getTrace(
   const session = Meta.parse(
     db
       .prepare(
-        // The jobs row is keyed either way round: `session_id` is whichever
-        // session was current when state.json was last written (it advances
-        // on every /clear), `job_id` the root's short id. Matching both finds
-        // the name from any session in the chain.
+        // The jobs row is found by the bridge id first — the one key that
+        // survives both /clear and a daemon respawn (a respawn mints a new
+        // root, so `session_id` in state.json is the FIRST incarnation's root
+        // and matched nothing for lore's sessions after this morning's
+        // respawn). The root and the short id remain as fallbacks for
+        // transcripts without bridge records.
         `SELECT w.dir AS well, s.session_id AS sessionId, s.job_session_id AS jobSessionId, s.first_ts AS first,
                 COALESCE(s.last_activity_ts, s.last_ts) AS last, s.lines, j.name AS name
          FROM sessions s JOIN wells w ON w.id = s.well_id
-         LEFT JOIN jobs j ON j.session_id = s.job_session_id OR j.job_id = substr(s.job_session_id, 1, 8)
+         LEFT JOIN jobs j ON (s.bridge_key IS NOT NULL AND j.bridge_key = s.bridge_key)
+                          OR j.session_id = s.job_session_id OR j.job_id = substr(s.job_session_id, 1, 8)
          WHERE s.session_id = ?`,
       )
       .get(sessionId),
@@ -290,7 +304,8 @@ export function getTrace(
   // The address book, from the harness's own words: every inbound relay
   // states `from="uds:…" from-name="lore"`, so a later SendMessage to that
   // socket can be shown as the peer it reaches. Deterministic — a socket is
-  // named only because a peer named it, in this same session.
+  // named only because a peer named it, in this same session. Relays read
+  // mid-turn carry the same envelope and feed the book too.
   const peerByAddr = new Map<string, string>()
   for (const r of rows) {
     if (r.lane !== 'relay') continue
@@ -298,6 +313,15 @@ export function getTrace(
     const name = r.peer ?? h.from
     if (h.addr && name) peerByAddr.set(h.addr, name)
   }
+  // The other kind of address: the session's own spawns, by task id. A
+  // SendMessage to `af80d234d489e766f` is a follow-up to a subagent, not a
+  // relay to a peer, and the spawns table knows what that agent was.
+  const agentByTask = new Map(
+    z
+      .array(z.object({ agentId: z.string(), description: z.string().nullable(), agentType: z.string().nullable() }))
+      .parse(db.prepare('SELECT agent_id AS agentId, description, agent_type AS agentType FROM spawns WHERE session_id = ?').all(sessionId))
+      .map((a) => [a.agentId, a.description ?? a.agentType ?? a.agentId] as const),
+  )
 
   // Group by prompt id in order of first appearance. Rows before any prompt
   // id (pre-2026-06 transcripts, or a harness preamble) fall into one
@@ -344,7 +368,22 @@ export function getTrace(
     const texts: (Note & { raw: string })[] = []
     const thoughts: Thought[] = []
     const sent: Sent[] = []
+    const received: Received[] = []
     for (const r of b.rows) {
+      // Read inside the turn (parse.ts `attachment`): placed at the
+      // instruction cursor, like a note, with its envelope taken off.
+      if (r.type === 'attachment' && (r.lane === 'prompt' || r.lane === 'relay' || r.lane === 'meta')) {
+        const rh = r.lane === 'relay' ? relayHead(r.text) : null
+        const mh = r.lane === 'meta' ? metaHead(r.text) : null
+        received.push({
+          at: instructions.length,
+          ts: r.ts,
+          kind: r.lane,
+          tag: rh ? (r.peer ?? rh.from) : (mh?.tag ?? null),
+          text: cutProse(rh ? rh.text : mh ? mh.text : r.text, proseHead),
+        })
+        continue
+      }
       if (r.type !== 'assistant') continue
       if (r.lane === 'text') {
         texts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, head), raw: r.text })
@@ -358,16 +397,17 @@ export function getTrace(
       const res = r.toolUseId ? results.get(r.toolUseId) : undefined
       const tool = r.toolName ?? '?'
       const inputFull = r.text.startsWith(tool) ? r.text.slice(tool.length).trim() : r.text
-      if (tool === 'SendMessage') {
-        const head = sentHead(inputFull)
-        sent.push({ ...head, name: head.to ? peerByAddr.get(head.to) ?? null : null })
+      const out = tool === 'SendMessage' ? sentHead(inputFull) : null
+      if (out) {
+        out.name = out.to ? peerByAddr.get(out.to) ?? null : null
+        out.agent = out.to ? agentByTask.get(out.to) ?? null : null
+        sent.push(out)
       }
       const error = res ? res.isError === 1 : false
       instructions.push({
         tool,
         input: cut(inputFull, head),
-        ...(tool === 'SendMessage' ? { to: sentHead(inputFull).to } : {}),
-        ...(tool === 'SendMessage' && sentHead(inputFull).to ? { toName: peerByAddr.get(sentHead(inputFull).to as string) ?? null } : {}),
+        ...(out ? { to: out.to, toName: out.name, toAgent: out.agent } : {}),
         ts: r.ts,
         ms: res?.ts && r.ts ? Date.parse(res.ts) - Date.parse(r.ts) : null,
         error,
@@ -418,6 +458,7 @@ export function getTrace(
       // wrong — `cut(messageText, head)` IS the preview, so it never differed.
       message: promptText.endsWith('…') || messageText.includes('\n') ? messageText : null,
       sent,
+      received,
       steps: steps.length,
       instructions,
       notes,

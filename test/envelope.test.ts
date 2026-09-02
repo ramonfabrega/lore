@@ -117,7 +117,7 @@ describe('sentHead — the outbound half', () => {
   })
 
   test('names the recipient and the sender\'s own one-line summary', () => {
-    expect(sentHead(FULL)).toEqual({ to: 'ccc', name: null, summary: 'Ack ccc v0 ledger, banked + verified' })
+    expect(sentHead(FULL)).toEqual({ to: 'ccc', name: null, agent: null, summary: 'Ack ccc v0 ledger, banked + verified' })
   })
 
   // The one that matters: an instruction's input reaches the page already cut
@@ -125,23 +125,23 @@ describe('sentHead — the outbound half', () => {
   // NOT parse as JSON. A first pass at this read the fields off the parsed
   // object and was dead code on every real message.
   test('reads a message truncated before its closing brace', () => {
-    expect(sentHead(FULL.slice(0, 70))).toEqual({ to: 'ccc', name: null, summary: 'Ack ccc v0 ledger, banked + verified' })
+    expect(sentHead(FULL.slice(0, 70))).toEqual({ to: 'ccc', name: null, agent: null, summary: 'Ack ccc v0 ledger, banked + verified' })
     // Cut inside the summary itself: the recipient still survives.
     expect(sentHead(FULL.slice(0, 40)).to).toBe('ccc')
   })
 
   test('falls back to the message when there is no summary', () => {
-    expect(sentHead('{"to":"lore","message":"corpus is green"}')).toEqual({ to: 'lore', name: null, summary: 'corpus is green' })
+    expect(sentHead('{"to":"lore","message":"corpus is green"}')).toEqual({ to: 'lore', name: null, agent: null, summary: 'corpus is green' })
   })
 
   test('escaped quotes in a summary survive the fallback', () => {
     const t = '{"to":"ccc","summary":"the \\"localtime\\" split","message":"…'
-    expect(sentHead(t)).toEqual({ to: 'ccc', name: null, summary: 'the "localtime" split' })
+    expect(sentHead(t)).toEqual({ to: 'ccc', name: null, agent: null, summary: 'the "localtime" split' })
   })
 
   test('a call that is not a relay yields nothing to show', () => {
-    expect(sentHead('{"pattern":"foo"}')).toEqual({ to: null, name: null, summary: null })
-    expect(sentHead('not json at all')).toEqual({ to: null, name: null, summary: null })
+    expect(sentHead('{"pattern":"foo"}')).toEqual({ to: null, name: null, agent: null, summary: null })
+    expect(sentHead('not json at all')).toEqual({ to: null, name: null, agent: null, summary: null })
   })
 })
 

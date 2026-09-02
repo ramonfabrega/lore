@@ -70,10 +70,19 @@ export async function indexJobs(db: Database, opts: { claudeDir: string }): Prom
 
 const Resolved = z.object({ session_id: z.string() })
 
-// A bridge id (any spelling) → the transcript uuid, when a job recorded it.
+// A bridge id (any spelling) → a transcript uuid. The transcripts' own
+// `bridge-session` records (sessions.bridge_key, v16) come first and give
+// the NEWEST session of that job — state.json's `sessionId` is the first
+// incarnation's root and, on a job that has respawned, names a stub from
+// weeks ago. The jobs row is the fallback for a job indexed before its
+// transcripts were.
 export function resolveBridge(db: Database, id: string): string | null {
   const key = bridgeKey(id)
   if (!key) return null
+  const own = Resolved.nullish().parse(
+    db.prepare('SELECT session_id FROM sessions WHERE bridge_key = ? ORDER BY first_ts DESC LIMIT 1').get(key),
+  )
+  if (own) return own.session_id
   const row = Resolved.nullish().parse(
     db.prepare('SELECT session_id FROM jobs WHERE bridge_key = ? AND session_id IS NOT NULL ORDER BY updated_at DESC LIMIT 1').get(key),
   )

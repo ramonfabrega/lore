@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
 import { z } from 'zod'
+import { bridgeKey as bridgeKey_ } from './jobs'
 import type { Lane, Request } from './parse'
 import { parseLine } from './parse'
 import { listWells } from './wells'
@@ -40,11 +41,11 @@ export async function buildIndex(
   )
   const findSession = db.prepare('SELECT id, size, mtime_ms FROM sessions WHERE session_id = ?')
   const upsertSession = db.prepare(
-    `INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts, job_session_id)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts, job_session_id, bridge_key)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(session_id) DO UPDATE SET well_id=excluded.well_id, size=excluded.size,
        mtime_ms=excluded.mtime_ms, lines=excluded.lines, first_ts=excluded.first_ts, last_ts=excluded.last_ts,
-       last_activity_ts=excluded.last_activity_ts, job_session_id=excluded.job_session_id`,
+       last_activity_ts=excluded.last_activity_ts, job_session_id=excluded.job_session_id, bridge_key=excluded.bridge_key`,
   )
   const deleteMsgs = db.prepare('DELETE FROM messages WHERE session_id = ?')
   const deleteFts = db.prepare(
@@ -102,6 +103,8 @@ export async function buildIndex(
         // prompt; assistant records belong to the last prompt seen.
         let promptId: string | null = null
         let jobSessionId: string | null = null
+        // The bridge id outlives the root id (parse.ts): first one seen.
+        let bridgeKey: string | null = null
         // Assistant records are ONE CONTENT BLOCK PER LINE, consecutive lines
         // sharing the request's message.id (measured 2026-09-01: 677 lines,
         // 677 blocks, zero duplicated). So every line indexes — the blocks are
@@ -115,6 +118,7 @@ export async function buildIndex(
           count++
           if (p.promptId) promptId = p.promptId
           jobSessionId ??= p.jobSessionId ?? null
+          bridgeKey ??= p.bridgeSessionId ? bridgeKey_(p.bridgeSessionId) : null
           if (p.timestamp) {
             firstTs ??= p.timestamp
             lastTs = p.timestamp
@@ -158,7 +162,7 @@ export async function buildIndex(
         for (const r of requests.values()) {
           insertRequest.run(s.sessionId, r.id, r.ts, r.model, r.effort, r.input, r.cacheWrite, r.cacheRead, r.output, r.thinking, r.stopReason)
         }
-        upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs, lastActivityTs, jobSessionId)
+        upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs, lastActivityTs, jobSessionId, bridgeKey)
       })
       indexSession()
       sessionsIndexed++

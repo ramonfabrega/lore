@@ -137,3 +137,55 @@ describe('buildIndex: the relay lane', () => {
     expect(stray.n).toBe(0)
   })
 })
+
+// What arrives mid-turn is an `attachment`, not a user record (parse.ts).
+// It has no promptId of its own, so the row inherits the running turn's —
+// which is what places it INSIDE that turn rather than opening one.
+function queuedLine(ts: string, a: object): string {
+  return JSON.stringify({
+    type: 'attachment',
+    timestamp: ts,
+    parentUuid: 'tool-result-uuid',
+    attachment: { type: 'queued_command', commandMode: 'prompt', source_uuid: 'q', timestamp: ts, ...a },
+  })
+}
+function bridgeLine(ts: string): string {
+  return JSON.stringify({ type: 'bridge-session', timestamp: ts, bridgeSessionId: 'cse_01RGFNuvyhAq1Mzs6ZcVX7r2', lastSequenceNum: 0 })
+}
+
+describe('buildIndex: what arrives mid-turn, and the bridge id', () => {
+  test('a queued message lands in its lane with type attachment and the running turn\'s prompt id; it is activity', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seedWell([
+      JSON.stringify({ type: 'user', timestamp: '2026-09-02T08:13:33Z', promptId: 'p1', message: { role: 'user', content: 'merge it into master and start v1' } }),
+      bridgeLine('2026-09-02T08:13:34Z'),
+      queuedLine('2026-09-02T08:23:52Z', { prompt: 'i think we want to give ghostty a solid shot', origin: { kind: 'human' } }),
+      queuedLine('2026-09-02T08:30:52Z', {
+        prompt: '<cross-session-message from="uds:/tmp/cc-socks/61989.sock" from-name="lore">Banked at wiki 1a15506.',
+        isMeta: true,
+        origin: { kind: 'peer', name: 'lore', from: 'uds:/tmp/cc-socks/61989.sock' },
+      }),
+      queuedLine('2026-09-02T08:32:51Z', { commandMode: 'task-notification', prompt: '<task-notification><task-id>a7</task-id><status>completed</status></task-notification>' }),
+      heartbeatLine('2026-09-02T09:00:00Z'),
+    ])
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    const rows = z
+      .array(z.object({ lane: z.string(), type: z.string(), prompt_id: z.string().nullable(), peer: z.string().nullable() }))
+      .parse(db.prepare('SELECT lane, type, prompt_id, peer FROM messages ORDER BY id').all())
+    expect(rows).toEqual([
+      { lane: 'prompt', type: 'user', prompt_id: 'p1', peer: null },
+      { lane: 'prompt', type: 'attachment', prompt_id: 'p1', peer: null },
+      { lane: 'relay', type: 'attachment', prompt_id: 'p1', peer: 'lore' },
+      { lane: 'meta', type: 'attachment', prompt_id: 'p1', peer: null },
+      { lane: 'event', type: 'system', prompt_id: 'p1', peer: null },
+    ])
+    const s = z
+      .object({ last_activity_ts: z.string().nullable(), bridge_key: z.string().nullable() })
+      .parse(db.prepare('SELECT last_activity_ts, bridge_key FROM sessions').get())
+    // The relay read mid-turn was the last WORK; the notification and the
+    // heartbeat after it were not.
+    expect(s.last_activity_ts).toBe('2026-09-02T08:30:52Z')
+    // Bare suffix, the spelling jobs.bridge_key already uses.
+    expect(s.bridge_key).toBe('01RGFNuvyhAq1Mzs6ZcVX7r2')
+  })
+})

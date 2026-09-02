@@ -55,6 +55,25 @@ function result(ts: string, promptId: string, toolUseId: string, text: string, i
   })
 }
 
+// What arrives while the turn runs: an `attachment` hung off the last tool
+// result, never a user record, and with no promptId of its own.
+function queued(ts: string, a: object) {
+  return JSON.stringify({
+    type: 'attachment', timestamp: ts, session_id: JOB, sessionId: 'sess-1', parentUuid: 'x',
+    attachment: { type: 'queued_command', commandMode: 'prompt', source_uuid: 'q', timestamp: ts, ...a },
+  })
+}
+function queuedRelay(ts: string, from: string, body: string) {
+  return queued(ts, {
+    prompt: `<cross-session-message from="uds:/tmp/cc-socks/61989.sock" from-name="${from}" from-mode="prompting">\n${body}\n</cross-session-message>`,
+    isMeta: true,
+    origin: { kind: 'peer', name: from, from: 'uds:/tmp/cc-socks/61989.sock', body },
+  })
+}
+function bridge(ts: string) {
+  return JSON.stringify({ type: 'bridge-session', timestamp: ts, sessionId: 'sess-1', bridgeSessionId: 'cse_01RGFNuvyhAq1Mzs6ZcVX7r2' })
+}
+
 function seed(lines: string[]) {
   const dir = mkdtempSync(join(tmpdir(), 'lore-trace-'))
   const well = join(dir, '-u-code-fun-app')
@@ -187,6 +206,53 @@ describe('getTrace', () => {
       ['msg_2', 'tool_use', 80],
       ['msg_3', 'end_turn', 120],
     ])
+  })
+
+  // The lore↔ccc thread of 2026-09-02, in miniature: ccc's turn ran 44
+  // minutes and lore answered six times INTO it. None of those six opened a
+  // turn — they were read at the next tool result — and until v16 none of
+  // them, nor the user's own mid-turn words, existed on the page at all.
+  test('a message read mid-turn sits inside the turn at its position; it opens nothing', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seed([
+      prompt('2026-09-02T08:13:33.000Z', 'p1', 'merge it into master and start v1'),
+      bridge('2026-09-02T08:13:34.000Z'),
+      assistant('2026-09-02T08:13:40.000Z', 'm1', [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'swift build' } }], 20),
+      result('2026-09-02T08:14:00.000Z', 'p1', 'tu_1', 'ok'),
+      queuedRelay('2026-09-02T08:14:20.000Z', 'lore', 'Verified 0e7d316 and then stress-tested the rest.'),
+      queued('2026-09-02T08:23:52.000Z', { prompt: 'i think we want to give ghostty a solid shot', origin: { kind: 'human' } }),
+      assistant('2026-09-02T08:24:00.000Z', 'm2', [{ type: 'tool_use', id: 'tu_2', name: 'Edit', input: { file_path: '/u/Pane.swift' } }], 30),
+      result('2026-09-02T08:24:01.000Z', 'p1', 'tu_2', 'ok'),
+      assistant('2026-09-02T08:24:05.000Z', 'm3', [{ type: 'tool_use', id: 'tu_3', name: 'SendMessage', input: { to: 'af80d234d489e766f', summary: 'Fix bold glyph drop', message: 'Follow-up on your renderer.' } }], 30),
+      result('2026-09-02T08:24:06.000Z', 'p1', 'tu_3', '{"success":true}'),
+      queued('2026-09-02T08:26:36.000Z', { commandMode: 'task-notification', prompt: '<task-notification>\n<task-id>af80d234d489e766f</task-id>\n<status>completed</status>\n<summary>Agent "Metal renderer" finished</summary>\n</task-notification>' }),
+      assistant('2026-09-02T08:27:00.000Z', 'm4', [{ type: 'text', text: 'v1 pane is live.' }], 40, 'end_turn'),
+    ])
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    // The session's own spawn, as the observatory would have indexed it.
+    db.prepare("INSERT INTO spawns(well_dir, session_id, agent_id, agent_type, description, size, mtime_ms) VALUES('w', 'sess-1', 'af80d234d489e766f', 'lean', 'Metal cell-grid renderer + glyph atlas', 0, 0)").run()
+    // A job that has respawned: state.json still names the FIRST root, which
+    // matches nothing here; the bridge id is the join that holds.
+    db.prepare("INSERT INTO jobs(job_id, session_id, bridge_key, name) VALUES('b3919c35', 'first-root-of-july', '01RGFNuvyhAq1Mzs6ZcVX7r2', 'ccc')").run()
+
+    const t = getTrace(db, 'sess-1', { limit: 10 })
+    expect(t.session.name).toBe('ccc')
+    // One turn. The six things that arrived did not open any.
+    expect(t.transactions.map((x) => x.kind)).toEqual(['prompt'])
+    expect(t.totals.transactions).toBe(1)
+    const x = t.transactions[0]!
+    expect(x.instructions.map((i) => i.tool)).toEqual(['Bash', 'Edit', 'SendMessage'])
+    // Placed at the instruction cursor, envelope off, sender attributed:
+    // after Bash (at 1), after Bash still (at 1), after the SendMessage (at 3).
+    expect(x.received).toEqual([
+      { at: 1, ts: '2026-09-02T08:14:20.000Z', kind: 'relay', tag: 'lore', text: 'Verified 0e7d316 and then stress-tested the rest.' },
+      { at: 1, ts: '2026-09-02T08:23:52.000Z', kind: 'prompt', tag: null, text: 'i think we want to give ghostty a solid shot' },
+      { at: 3, ts: '2026-09-02T08:26:36.000Z', kind: 'meta', tag: 'task', text: 'Agent "Metal renderer" finished' },
+    ])
+    // The follow-up went to the session's own spawn, not to a peer.
+    expect(x.sent).toEqual([{ to: 'af80d234d489e766f', name: null, agent: 'Metal cell-grid renderer + glyph atlas', summary: 'Fix bold glyph drop' }])
+    expect(x.instructions[2]!.toAgent).toBe('Metal cell-grid renderer + glyph atlas')
+    expect(x.reply).toBe('v1 pane is live.')
   })
 
   test('v13 columns land on messages', async () => {

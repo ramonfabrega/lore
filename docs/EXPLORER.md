@@ -119,7 +119,12 @@ files carries one, so a live agent's is read from its own transcript.
 
 `/job/<job_session_id>`: every transcript one background job produced
 across its `/clear`s, with fees — the conversation as the user lived it,
-which is never one transcript.
+which is never one transcript. Since v16 the page widens the root it was
+opened with to every session sharing that root's **bridge id**: a daemon
+respawn mints a new root (CLAUDE.md, the three ids), so a job keyed on the
+root alone showed one incarnation. The agent's name on a session header
+joins on the same key — the root in state.json is the first incarnation's
+and, after a respawn, matches nothing.
 
 ## Freshness (landed)
 
@@ -255,6 +260,25 @@ one row. Three reads, top to bottom, all from `getTrace` — no client code,
      the turn, `@lore — <summary>` instead of `{"to":"lore",…`. A summary
      list appended to the body duplicated that and lied about ordering: a
      turn that answered six times did not answer six times at the end.
+
+   **The inbound half that did not open the turn.** A message that arrives
+   while the session is working never becomes a user record: the harness
+   queues it and delivers it at the next tool result as an `attachment` of
+   type `queued_command` (parse.ts). On ccc's golden record 14 of lore's 22
+   messages arrived that way, inside turns of 55, 44 and 24 minutes, and so
+   did 10 of the 17 things the user typed — and the page showed none of
+   them, because the index read only `user` and `assistant` records. Since
+   v16 they index into their lanes with `type = 'attachment'`, and the
+   trace carries them as `received[]` at the instruction cursor, the exact
+   mirror of `sent[]`: the folded row gets a badge per sender with a count
+   (`← @lore ×6`, `← you ×2`; a harness notification read mid-turn earns
+   none), and the instruction table shows each one where the turn read it —
+   the peer's words in the peer hue, the user's in plain ink, a notification
+   muted — with a fold to the full message when the preview cuts it. The
+   turn count does not move: these opened nothing. Sends to one of the
+   session's own spawns (a 17-hex task id) resolve through the spawns table
+   and wear `→ agent` with the spawn's description, not `@af80d234…` beside
+   `@lore` as if it were a third session.
 
    A recipient is named where the harness named it. Every inbound envelope
    states `from="uds:/tmp/cc-socks/32093.sock" from-name="lore"`, so a

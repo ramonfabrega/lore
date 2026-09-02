@@ -232,10 +232,17 @@ export function createApp(
       .parse(
         db
           .prepare(
+            // A job is every incarnation of it: a respawn mints a new root
+            // (`job_session_id`), so the chain keyed on the root the page was
+            // opened with is widened to every session sharing that root's
+            // bridge id. The url stays the root the header linked.
             `SELECT s.session_id AS sessionId, w.dir AS well, s.first_ts AS first, COALESCE(s.last_activity_ts, s.last_ts) AS last, s.lines
-             FROM sessions s JOIN wells w ON w.id = s.well_id WHERE s.job_session_id = ? ORDER BY s.first_ts`,
+             FROM sessions s JOIN wells w ON w.id = s.well_id
+             WHERE s.job_session_id = ?
+                OR (s.bridge_key IS NOT NULL AND s.bridge_key IN (SELECT bridge_key FROM sessions WHERE job_session_id = ? AND bridge_key IS NOT NULL))
+             ORDER BY s.first_ts`,
           )
-          .all(id),
+          .all(id, id),
       )
     if (rows.length === 0) return c.notFound()
     const fee = new Map(listUsage(db, { by: 'session', sessions: rows.map((r) => r.sessionId), limit: 10000 }).rows.map((r) => [r.key, r]))

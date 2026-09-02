@@ -69,7 +69,21 @@ import { z } from 'zod'
 // in the `prompt` lane — 54% of that lane's volume was not the user. Peer
 // traffic now indexes as `relay`, attributed by `peer`, so the fleet's
 // routing is a corpus you can query rather than noise in the user's voice.
-const SCHEMA_VERSION = 15
+// v16: the turn is not the only way a message arrives. A message that lands
+// while the session is mid-turn is written as an `attachment` of type
+// `queued_command` (parse.ts), never as a user record; lore read only user +
+// assistant records and so had no row for 14 of the 22 messages lore sent
+// ccc on 2026-09-02, nor for 10 of the 17 things the user typed into that
+// session. They now index into their lanes (prompt / relay / meta) with
+// `type = 'attachment'` — the row itself says it was read INSIDE a turn, so
+// `trace` places it at its position among the instructions instead of
+// opening a turn with it. Also sessions.bridge_key: the claude.ai session
+// id from the transcript's own `bridge-session` records. `job_session_id`
+// (the root) changes on a daemon respawn, and the jobs join on it lost the
+// agent's name for every lore session since this morning's respawn; the
+// bridge id survives /clear and respawn alike, and jobs.bridge_key already
+// held the other half.
+const SCHEMA_VERSION = 16
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -89,8 +103,10 @@ CREATE TABLE IF NOT EXISTS sessions(
   first_ts TEXT,
   last_ts TEXT,
   last_activity_ts TEXT,
-  job_session_id TEXT
+  job_session_id TEXT,
+  bridge_key TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_bridge ON sessions(bridge_key) WHERE bridge_key IS NOT NULL;
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY,
   session_id TEXT NOT NULL,

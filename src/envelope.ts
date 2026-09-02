@@ -110,14 +110,18 @@ function tagBody(name: string, s: string): string | null {
 // the harness's own `from`/`from-name` pairing on this session's inbound
 // envelopes: a socket is named because a peer said so, never because a path
 // looked familiar.
-export type Sent = { to: string | null; name: string | null; summary: string | null }
+// `agent` is set when the address is one of this session's OWN spawns (the
+// 17-hex task id `SendMessage` takes for a running subagent): the spawn's
+// description, from the spawns table. A follow-up to a subagent is not a
+// message to a peer, and it showed beside `→ @lore` as if it were one.
+export type Sent = { to: string | null; name: string | null; agent: string | null; summary: string | null }
 export function sentHead(input: string): Sent {
   try {
     const o = JSON.parse(input) as Record<string, unknown>
     const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : null)
-    return { to: str('to'), name: null, summary: str('summary') ?? str('message') }
+    return { to: str('to'), name: null, agent: null, summary: str('summary') ?? str('message') }
   } catch {
-    return { to: field('to', input), name: null, summary: field('summary', input) ?? field('message', input) }
+    return { to: field('to', input), name: null, agent: null, summary: field('summary', input) ?? field('message', input) }
   }
 }
 function field(name: string, s: string): string | null {
