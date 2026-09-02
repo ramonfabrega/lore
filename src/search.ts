@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { relayHead } from './envelope'
 import { ftsMatch } from './fts'
 import type { Lane } from './parse'
 
@@ -92,6 +93,8 @@ export type SessionHit = {
   first: string | null
   last: string | null
   firstPrompt: string | null
+  // The peer that opened this session, when a relay did (sessions.ts).
+  openedBy: string | null
   hits: number
   bestRank: number
   snippets: { lane: string; ts: string | null; promptId: string | null; snippet: string }[]
@@ -156,6 +159,8 @@ export function searchSessions(
     well: z.string(),
     first: z.string().nullable(),
     last: z.string().nullable(),
+    openerLane: z.string().nullable(),
+    openerPeer: z.string().nullable(),
     firstPrompt: z.string().nullable(),
   })
   const meta = new Map(
@@ -166,9 +171,11 @@ export function searchSessions(
           .prepare(
             `SELECT s.session_id AS sessionId, w.dir AS well, s.first_ts AS first,
                     COALESCE(s.last_activity_ts, s.last_ts) AS last,
-                    (SELECT f.text FROM messages m JOIN messages_fts f ON f.rowid = m.id
-                     WHERE m.session_id = s.session_id AND m.lane = 'prompt' ORDER BY m.ts LIMIT 1) AS firstPrompt
+                    o.lane AS openerLane, o.peer AS openerPeer, f.text AS firstPrompt
              FROM sessions s JOIN wells w ON w.id = s.well_id
+             LEFT JOIN messages o ON o.id = (SELECT m.id FROM messages m
+                     WHERE m.session_id = s.session_id AND m.lane IN ('prompt', 'relay') ORDER BY m.ts LIMIT 1)
+             LEFT JOIN messages_fts f ON f.rowid = o.id
              WHERE s.session_id IN (${ids.map(() => '?').join(',')})`,
           )
           .all(...ids),
@@ -178,12 +185,16 @@ export function searchSessions(
   const sessions: SessionHit[] = ids.map((id) => {
     const g = groups.get(id)!
     const m = meta.get(id)
-    const flat = m?.firstPrompt?.replace(/\s+/g, ' ').trim() ?? null
+    // Same head as every other listing (sessions.ts): a session a peer
+    // opened is headed by the relayed message, not by a dash.
+    const relay = m?.openerLane === 'relay' ? relayHead(m.firstPrompt ?? '') : null
+    const flat = (relay ? relay.text : m?.firstPrompt)?.replace(/\s+/g, ' ').trim() ?? null
     return {
       sessionId: id,
       well: m?.well ?? '?',
       first: m?.first?.slice(0, 10) ?? null,
       last: m?.last?.slice(0, 10) ?? null,
+      openedBy: relay ? (m?.openerPeer ?? relay.from) : null,
       firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
       hits: g.hits,
       bestRank: g.bestRank,

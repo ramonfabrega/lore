@@ -64,22 +64,21 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
   const s = trace.session
   const t = trace.totals
   const txs = trace.transactions
-  const prompts = txs.filter((x) => x.kind === 'prompt')
+  // A turn is a transaction somebody OPENED — the user typing, the user's
+  // slash command, or a peer session relaying in. Harness preamble (meta)
+  // opened nothing, so it is neither counted nor numbered, and the tile and
+  // the spine's numbers agree: a session with eight relays in it says so.
+  const turns = txs.filter((x) => x.kind !== 'meta')
   // A one-prompt session IS its transaction: open it. A conversation
   // stays folded so the spine reads first.
-  const openAll = prompts.length <= 2
+  const openAll = turns.length <= 2
   const maxUsd = Math.max(...txs.map((x) => x.listUsd ?? 0), 0)
   const maxMs = Math.max(...txs.map((x) => x.ms ?? 0), 0)
   const fee = feeByClass(txs)
-  // Transactions the user started get the numbers; harness preamble (meta)
-  // rows stay unnumbered so #1 is the first prompt on every surface.
   // A session that ran one model says so once, in the header. A session that
   // SWITCHED gets a column: which prompt ran on what is the whole question.
   const mixed = trace.models.length > 1
-  const num = new Map<Transaction, number>()
-  txs.forEach((x) => {
-    if (x.kind !== 'meta') num.set(x, num.size + 1)
-  })
+  const num = new Map<Transaction, number>(turns.map((x, i) => [x, i + 1]))
   return html`
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
@@ -88,7 +87,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}
       ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}</p>
     <div class="tiles">
-      ${tile('transactions', String(prompts.length))}
+      ${tile('transactions', String(t.transactions))}
       ${tile('steps', String(t.steps))}
       ${tile('instructions', String(t.instructions))}
       ${tile('errors', String(t.errors), t.errors > 0 ? 'warn' : '')}
@@ -104,7 +103,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     <div class="panel"><div class="scroll">
     <section class="spine ${mixed ? 'mixed' : ''}">
       <div class="row head"><span class="n">#</span><span class="at">at</span><span class="p">prompt</span>${mixed ? html`<span class="m">model</span>` : ''}<span class="num">steps</span><span class="num">instr</span><span class="num">err</span><span class="num">out</span><span class="num">list $</span><span class="num">wall</span></div>
-      ${txs.map((x, i) => txRow(x, i, { n: num.get(x) ?? null, open: (openAll || o.open === true) && x.kind === 'prompt', openPhases: o.open === true, maxUsd, maxMs, mixed }))}
+      ${txs.map((x, i) => txRow(x, i, { n: num.get(x) ?? null, open: (openAll || o.open === true) && x.kind !== 'meta', openPhases: o.open === true, maxUsd, maxMs, mixed }))}
     </section>
     </div></div>`
 }
@@ -239,8 +238,13 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
 
 function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; openPhases: boolean; maxUsd: number; maxMs: number; mixed?: boolean }) {
   const id = x.promptId ? `tx-${x.promptId}` : `tx-${i}`
+  // The chip carries the envelope so the text doesn't (trace.ts): a relay
+  // wears its sender, `@lore`, and reads in full ink — another agent's turn
+  // is work, not preamble. Harness injections wear what they are and stay
+  // muted.
+  const chip = x.kind === 'relay' ? `@${x.tag ?? 'peer'}` : x.kind === 'meta' ? (x.tag ?? 'meta') : x.kind === 'command' ? 'command' : null
   const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${hms(x.ts)}</span>
-    <span class="p">${x.kind !== 'prompt' ? html`<span class="kind ${x.kind}">${x.kind}</span> ` : ''}<span class="${x.kind === 'prompt' ? 'ptext' : 'ptext muted'}">${x.prompt || raw('&nbsp;')}</span></span>
+    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span></span>
     ${o.mixed ? html`<span class="m">${modelChip(x.model)}</span>` : ''}
     <span class="num">${x.steps || ''}</span>
     <span class="num">${x.instructions.length || ''}</span>

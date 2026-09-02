@@ -11,7 +11,7 @@ function seedDb(): Database {
       size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT,
       last_activity_ts TEXT);
     CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, uuid TEXT, ts TEXT,
-      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT);
+      lane TEXT NOT NULL, type TEXT NOT NULL, git_branch TEXT, cwd TEXT, peer TEXT);
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
     CREATE TABLE requests(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, message_id TEXT NOT NULL, ts TEXT, model TEXT,
       effort TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
@@ -34,19 +34,22 @@ function seedDb(): Database {
       (1, 's-new', 10, 0, 50, '2026-07-12T10:00:00Z', '2026-07-12T11:00:00Z', '2026-07-12T11:00:00Z'),
       (2, 's-demo', 10, 0, 5, '2026-07-11T10:00:00Z', '2026-07-11T10:30:00Z', NULL);
   `)
-  const insertMsg = db.prepare('INSERT INTO messages(id, session_id, ts, lane, type, cwd) VALUES (?, ?, ?, ?, ?, ?)')
+  const insertMsg = db.prepare('INSERT INTO messages(id, session_id, ts, lane, type, cwd, peer) VALUES (?, ?, ?, ?, ?, ?, ?)')
   const insertText = db.prepare('INSERT INTO messages_fts(rowid, text) VALUES (?, ?)')
-  const rows: [number, string, string, string, string, string | null][] = [
-    [1, 's-old', '2026-07-09T10:00:00Z', 'prompt', 'user', '/u/code/fun/scan'],
-    [2, 's-old', '2026-07-09T10:05:00Z', 'text', 'assistant', '/u/code/fun/scan/.claude/worktrees/scanner-spike'],
-    [3, 's-old', '2026-07-09T11:00:00Z', 'prompt', 'user', '/u/code/fun/scan/.claude/worktrees/scanner-spike'],
-    [4, 's-new', '2026-07-12T10:00:00Z', 'prompt', 'user', null],
+  const rows: [number, string, string, string, string, string | null, string | null][] = [
+    [1, 's-old', '2026-07-09T10:00:00Z', 'prompt', 'user', '/u/code/fun/scan', null],
+    [2, 's-old', '2026-07-09T10:05:00Z', 'text', 'assistant', '/u/code/fun/scan/.claude/worktrees/scanner-spike', null],
+    [3, 's-old', '2026-07-09T11:00:00Z', 'prompt', 'user', '/u/code/fun/scan/.claude/worktrees/scanner-spike', null],
+    [4, 's-new', '2026-07-12T10:00:00Z', 'prompt', 'user', null, null],
+    // s-demo was opened by a PEER, not by the user: no prompt-lane row at all.
+    [5, 's-demo', '2026-07-11T10:00:00Z', 'relay', 'user', null, 'lore'],
   ]
   const texts: Record<number, string> = {
     1: 'i want to make a  scan\nutil tool',
     2: 'sure, here is a plan',
     3: 'now add dupes',
     4: `${'x'.repeat(200)} tail`,
+    5: 'Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/cc-socks/9.sock" from-name="lore" from-mode="prompting">\nKickoff brief for ccc v0.\n</cross-session-message>\n\nThis came from another Claude session.',
   }
   for (const r of rows) {
     insertMsg.run(...r)
@@ -110,8 +113,15 @@ describe('listSessions', () => {
     const long = rows.find((r) => r.sessionId === 's-new')!
     expect(long.firstPrompt!.length).toBe(141)
     expect(long.firstPrompt!.endsWith('…')).toBe(true)
-    expect(rows.find((r) => r.sessionId === 's-demo')!.firstPrompt).toBeNull()
-    expect(rows.find((r) => r.sessionId === 's-demo')!.prompts).toBe(0)
+  })
+
+  // An agent standing by that a peer sets to work has no prompt-lane row, and
+  // headed the arc with a dash until the relay lane got a head of its own.
+  test('a session opened by a peer heads its arc with the relayed message, named', () => {
+    const demo = listSessions(seedDb(), { limit: 100 }).find((r) => r.sessionId === 's-demo')!
+    expect(demo.prompts).toBe(0)
+    expect(demo.openedBy).toBe('lore')
+    expect(demo.firstPrompt).toBe('Kickoff brief for ccc v0.')
   })
 
   test('limit takes the NEWEST n, then renders oldest-first', () => {

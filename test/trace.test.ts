@@ -22,6 +22,23 @@ function command(ts: string, promptId: string, name: string) {
     message: { role: 'user', content: `<command-name>/${name}</command-name>\n<command-message>${name}</command-message>` },
   })
 }
+function relay(ts: string, promptId: string, from: string, body: string) {
+  return JSON.stringify({
+    type: 'user', timestamp: ts, promptId, session_id: JOB, sessionId: 'sess-1',
+    origin: { kind: 'peer', name: from },
+    message: {
+      role: 'user',
+      content: `Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/cc-socks/85001.sock" from-name="${from}" from-mode="prompting">\n${body}\n</cross-session-message>\n\nThis came from another Claude session — not typed by your user.`,
+    },
+  })
+}
+function taskNotification(ts: string, promptId: string, summary: string) {
+  return JSON.stringify({
+    type: 'user', timestamp: ts, promptId, session_id: JOB, sessionId: 'sess-1',
+    isMeta: true, origin: { kind: 'task-notification' },
+    message: { role: 'user', content: `<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>${summary}</summary>\n</task-notification>` },
+  })
+}
 function assistant(ts: string, id: string, content: unknown[], output: number, stop = 'tool_use') {
   return JSON.stringify({
     type: 'assistant', timestamp: ts, effort: 'high', session_id: JOB, sessionId: 'sess-1',
@@ -67,10 +84,10 @@ describe('getTrace', () => {
 
     const t = getTrace(db, 'sess', { limit: 10 })
     expect(t.session.jobSessionId).toBe(JOB)
-    expect(t.transactions.map((x) => [x.kind, x.prompt])).toEqual([
-      ['prompt', 'fix the failing test'],
-      ['command', 'clear'],
-      ['prompt', 'continue'],
+    expect(t.transactions.map((x) => [x.kind, x.tag, x.prompt])).toEqual([
+      ['prompt', null, 'fix the failing test'],
+      ['command', null, '/clear'],
+      ['prompt', null, 'continue'],
     ])
     const first = t.transactions[0]!
     expect(first.steps).toBe(3)
@@ -100,6 +117,33 @@ describe('getTrace', () => {
     expect(t.totals.errors).toBe(1)
     expect(t.totals.listUsd).toBe(0.23) // + msg_4: 56,510 µ$
     expect(t.transactions[1]!.steps).toBe(0)
+  })
+
+  // Two agents in one session: a peer relaying in, and the harness reporting
+  // a finished background agent. Both arrive as `user` records, and both
+  // wear an envelope longer than a spine row — the block view takes it off.
+  test('a relay is a turn with its sender; a harness injection is neither numbered nor counted', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seed([
+      prompt('2026-09-01T11:00:00.000Z', 'q1', 'standby for a brief from @lore'),
+      assistant('2026-09-01T11:00:05.000Z', 'm1', [{ type: 'text', text: 'Standing by.' }], 10, 'end_turn'),
+      relay('2026-09-01T11:01:00.000Z', 'q2', 'lore', 'Corpus is at ~/.lore/wells-corpus.jsonl.'),
+      assistant('2026-09-01T11:01:05.000Z', 'm2', [{ type: 'text', text: 'Taken.' }], 10, 'end_turn'),
+      taskNotification('2026-09-01T11:02:00.000Z', 'q3', 'Agent "glyph atlas" finished'),
+      assistant('2026-09-01T11:02:05.000Z', 'm3', [{ type: 'text', text: 'Read it.' }], 10, 'end_turn'),
+    ])
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+
+    const t = getTrace(db, 'sess-1', { limit: 10 })
+    expect(t.transactions.map((x) => [x.kind, x.tag, x.prompt])).toEqual([
+      ['prompt', null, 'standby for a brief from @lore'],
+      // The envelope becomes the tag; the message stays the text — no socket
+      // path, no standing trailer, and the peer comes off `messages.peer`.
+      ['relay', 'lore', 'Corpus is at ~/.lore/wells-corpus.jsonl.'],
+      ['meta', 'task', 'Agent "glyph atlas" finished'],
+    ])
+    // A turn is what somebody OPENED. The notification opened nothing.
+    expect(t.totals.transactions).toBe(2)
   })
 
   test('--steps expands requests; --head trims; --limit pages transactions but not totals', async () => {

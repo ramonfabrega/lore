@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { relayHead } from './envelope'
 
 const Row = z.object({
   well: z.string(),
@@ -11,6 +12,9 @@ const Row = z.object({
   prompts: z.number(),
   workDir: z.string().nullable(),
   workDirs: z.number(),
+  openerId: z.number().nullable(),
+  openerLane: z.string().nullable(),
+  openerPeer: z.string().nullable(),
   firstPrompt: z.string().nullable(),
 })
 const ModelRow = z.object({ sessionId: z.string(), model: z.string(), requests: z.number() })
@@ -20,7 +24,13 @@ const ModelRow = z.object({ sessionId: z.string(), model: z.string(), requests: 
 // session, most requests first (model.ts): a listing that names a
 // conversation names what ran it, so neither a person nor a miner has to
 // open a session to learn whether it was opus or a sonnet fan-out.
-export type SessionRow = z.infer<typeof Row> & { lastAt: string | null; models: { model: string; requests: number }[] }
+export type SessionRow = Omit<z.infer<typeof Row>, 'openerId' | 'openerLane' | 'openerPeer'> & {
+  lastAt: string | null
+  // The peer that OPENED this session, when a relay did — `firstPrompt` is
+  // then that message, not the user's. Null for a session the user opened.
+  openedBy: string | null
+  models: { model: string; requests: number }[]
+}
 
 // The arc spine of a well: its sessions in order, each headed by the prompt
 // that opened it. Ingest reads this before touching any transcript.
@@ -73,8 +83,8 @@ export function listSessions(
            (SELECT m.cwd FROM messages m WHERE m.session_id = p.sessionId AND m.cwd IS NOT NULL
             GROUP BY m.cwd ORDER BY COUNT(*) DESC LIMIT 1) AS workDir,
            (SELECT COUNT(DISTINCT m.cwd) FROM messages m WHERE m.session_id = p.sessionId AND m.cwd IS NOT NULL) AS workDirs,
-           (SELECT f.text FROM messages m JOIN messages_fts f ON f.rowid = m.id
-            WHERE m.session_id = p.sessionId AND m.lane = 'prompt' ORDER BY m.ts LIMIT 1) AS firstPrompt
+           (SELECT m.id FROM messages m
+            WHERE m.session_id = p.sessionId AND m.lane IN ('prompt', 'relay') ORDER BY m.ts LIMIT 1) AS openerId
     FROM (
       SELECT w.dir AS well, s.session_id AS sessionId, s.first_ts AS first,
              COALESCE(s.last_activity_ts, s.last_ts) AS last,
@@ -84,18 +94,35 @@ export function listSessions(
       FROM sessions s JOIN wells w ON w.id = s.well_id
       ${whereClause}
       ORDER BY ${opts.byActivity ? 'COALESCE(s.last_activity_ts, s.last_ts)' : 's.first_ts'} DESC LIMIT ?
-    ) p ORDER BY ${opts.byActivity ? 'p.last, p.first' : 'p.first'}`
+    ) p`
+  // The opener's text and provenance come off ONE extra join on the id the
+  // subquery already found, not a second scan per session. The join is what
+  // makes the outer ORDER BY load-bearing: a subquery's order does not
+  // survive being joined, so it is stated HERE, once, not inside.
+  const order = opts.byActivity ? 'q.last, q.first' : 'q.first'
+  const outer = `SELECT q.*, o.lane AS openerLane, o.peer AS openerPeer, f.text AS firstPrompt
+    FROM (${sql}) q
+    LEFT JOIN messages o ON o.id = q.openerId
+    LEFT JOIN messages_fts f ON f.rowid = q.openerId
+    ORDER BY ${order}`
   params.push(opts.limit)
-  const picked = z.array(Row).parse(db.prepare(sql).all(...params))
+  const picked = z.array(Row).parse(db.prepare(outer).all(...params))
   const models = modelsFor(db, picked.map((r) => r.sessionId))
-  return picked.map((r) => {
-    const flat = r.firstPrompt?.replace(/\s+/g, ' ').trim() ?? null
+  return picked.map(({ openerId: _id, openerLane, openerPeer, ...r }) => {
+    // A session can be OPENED by a peer — an agent standing by that a relay
+    // set to work has no prompt-lane row at all, and headed the arc with a
+    // dash until v16. Its head is the relayed message with the envelope off
+    // (envelope.ts), and `openedBy` names who sent it.
+    const relay = openerLane === 'relay' ? relayHead(r.firstPrompt ?? '') : null
+    const openedBy = relay ? (openerPeer ?? relay.from) : null
+    const flat = (relay ? relay.text : r.firstPrompt)?.replace(/\s+/g, ' ').trim() ?? null
     return {
       ...r,
       first: r.first?.slice(0, 10) ?? null,
       last: r.last?.slice(0, 10) ?? null,
       lastAt: r.last ?? null,
       idleUntil: r.idleUntil?.slice(0, 10) ?? null,
+      openedBy,
       firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
       models: models.get(r.sessionId) ?? [],
     }

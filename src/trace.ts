@@ -1,5 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { metaHead, relayHead } from './envelope'
+import { cut } from './fmt'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
 import { rateFor } from './usage'
@@ -20,6 +22,7 @@ const Row = z.object({
   toolUseId: z.string().nullable(),
   isError: z.number(),
   requestId: z.string().nullable(),
+  peer: z.string().nullable(),
   text: z.string(),
 })
 const Req = z.object({
@@ -142,6 +145,13 @@ export type Transaction = {
   promptId: string | null
   kind: 'prompt' | 'command' | 'meta' | 'relay'
   ts: string | null
+  // `prompt` is the MESSAGE, with the harness's envelope taken off
+  // (envelope.ts): a relay's body without the socket path that framed it, a
+  // notification's summary without its ids. `tag` names the envelope that
+  // was removed — the peer for a relay (rendered `@name`), the injection's
+  // kind for meta (`task`, `stdout`, `image`) — and is null for a prompt the
+  // user typed, which wears no envelope. The raw record stays in the index.
+  tag: string | null
   prompt: string
   steps: number
   instructions: Instruction[]
@@ -166,6 +176,8 @@ export type Transaction = {
 export type Trace = {
   session: z.infer<typeof Meta>
   totals: {
+    // Turns — what somebody opened: a prompt, a slash command, a relay from
+    // another session. Harness injections (`kind: meta`) are excluded.
     transactions: number
     steps: number
     instructions: number
@@ -208,7 +220,7 @@ export function getTrace(
     db
       .prepare(
         `SELECT m.id, m.ts, m.lane, m.type, m.prompt_id AS promptId, m.tool_name AS toolName,
-                m.tool_use_id AS toolUseId, m.is_error AS isError, m.request_id AS requestId, f.text
+                m.tool_use_id AS toolUseId, m.is_error AS isError, m.request_id AS requestId, m.peer, f.text
          FROM messages m JOIN messages_fts f ON f.rowid = m.id
          WHERE m.session_id = ? AND m.lane IN ('prompt', 'meta', 'text', 'thinking', 'tool', 'relay')
          ORDER BY m.id`,
@@ -259,14 +271,23 @@ export function getTrace(
 
   const transactions: Transaction[] = buckets.map((b) => {
     const opener = b.rows.find((r) => r.lane === 'prompt' || r.lane === 'meta' || r.lane === 'relay')
-    const command = opener?.lane === 'meta' ? commandName(opener.text) : null
     // A meta opener with no command wrapper (caveats, context dumps) is
     // harness preamble, not a transaction the user started. A relay opener is
     // a transaction another SESSION started — the same shape, a different
     // author, and worth seeing as such when reading a block.
-    const kind: Transaction['kind'] =
-      opener?.lane === 'relay' ? 'relay' : opener?.lane === 'meta' ? (command ? 'command' : 'meta') : 'prompt'
-    const promptText = opener ? cut(command ?? opener.text, head) : ''
+    //
+    // A slash command arrives as TWO meta records — the caveat and the
+    // wrapper — and the caveat sorts first, so the label comes from the first
+    // meta row in the bucket that yields one, not from whichever row opened
+    // it. Reading only the opener filed every `/clear` as anonymous preamble.
+    const heads = opener?.lane === 'meta' ? b.rows.filter((r) => r.lane === 'meta').map((r) => metaHead(r.text)) : []
+    const meta = heads.find((h) => h.tag === 'command') ?? heads.find((h) => h.tag) ?? heads[0] ?? null
+    const relay = opener?.lane === 'relay' ? relayHead(opener.text) : null
+    const kind: Transaction['kind'] = relay ? 'relay' : opener?.lane === 'meta' ? (meta?.tag === 'command' ? 'command' : 'meta') : 'prompt'
+    // The chip: who sent a relay, what kind of injection a meta row is. A
+    // command says `command` already, and a typed prompt wears nothing.
+    const tag = relay ? (opener?.peer ?? relay.from) : kind === 'meta' ? (meta?.tag ?? null) : null
+    const promptText = cut(relay ? relay.text : meta ? meta.text : opener?.text ?? '', head)
 
     // Instructions: tool_use rows (assistant, tool lane) paired to their result
     // row by tool_use_id. Latency is the timestamp pair.
@@ -335,6 +356,7 @@ export function getTrace(
       promptId: b.promptId,
       kind,
       ts: first,
+      tag,
       prompt: promptText,
       steps: steps.length,
       instructions,
@@ -353,7 +375,9 @@ export function getTrace(
   // Totals sum the unrounded fees; rows round on the way out.
   const totals = transactions.reduce(
     (t, x) => ({
-      transactions: t.transactions + 1,
+      // Turns, not buckets: a harness injection opened nothing, so it is not
+      // one — the header tile and the spine's numbers count the same set.
+      transactions: t.transactions + (x.kind === 'meta' ? 0 : 1),
       steps: t.steps + x.steps,
       instructions: t.instructions + x.instructions.length,
       errors: t.errors + x.errors,
@@ -405,15 +429,6 @@ function sumFee(steps: Step[]) {
     listUsd = listUsd == null || s.listUsd == null ? null : listUsd + s.listUsd
   }
   return { ...t, listUsd }
-}
-
-function commandName(text: string): string | null {
-  return /<command-name>\/?([\w:-]+)<\/command-name>/.exec(text)?.[1] ?? null
-}
-
-function cut(s: string, n: number): string {
-  const one = s.replace(/\s+/g, ' ').trim()
-  return one.length > n ? `${one.slice(0, n - 1)}…` : one
 }
 
 function round2(n: number): number {

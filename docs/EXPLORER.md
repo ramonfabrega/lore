@@ -211,12 +211,40 @@ one row. Three reads, top to bottom, all from `getTrace` — no client code,
    aqua, the palette's all-pairs-safe first three) are redundant. The lane
    label is the legend.
 3. **The spine.** Transactions as grid rows: number (harness preamble is
-   unnumbered — #1 is the first prompt on every surface), time, prompt
-   (two-line clamp when folded), steps / instructions / errors / output,
-   and list $ and wall with **inline bars** against the session's max so
-   the heavy transaction reads before its digits do. A one- or
-   two-prompt session opens by default (the block *is* the transaction);
-   a conversation stays folded.
+   unnumbered — #1 is the first *turn* on every surface, and the header
+   tile counts the same set), time, the message (two-line clamp when
+   folded), steps / instructions / errors / output, and list $ and wall
+   with **inline bars** against the session's max so the heavy transaction
+   reads before its digits do. A one- or two-turn session opens by default
+   (the block *is* the transaction); a conversation stays folded.
+
+   A **turn** is a transaction somebody opened: the user typing, the
+   user's slash command, or a **peer session relaying in**. The envelope
+   the harness wrapped it in never reaches the row — it becomes the chip
+   and the message stays the text (`envelope.ts`). A relay wears its
+   sender, `@lore`, a hued chip and a left rule, and reads in full ink:
+   another agent's turn is work, not preamble. Harness injections wear
+   what they are — `task`, `stdout`, `image`, `skill`, `reminder`,
+   `context`, `caveat` — stay muted, and are neither numbered nor counted.
+
+   This is not cosmetic. A relay spends ~96 characters naming a unix
+   socket (`Another Claude session sent a message:
+   <cross-session-message from="uds:/tmp/cc-socks/85001.sock"
+   from-name="ccc" from-mode="prompting">`) before its first word, so a
+   two-line clamp showed the envelope and none of the message; a task
+   notification spent three lines on ids before naming the agent that
+   finished. The raw record is untouched in the index — the text is
+   evidence, and FTS still searches the envelope with it; the unwrapping
+   is a display edge, driven off the harness's own structural tags and
+   the `peer` column, never off prose shape.
+
+   The same head runs through every listing that names a session —
+   recent on `/`, a well's arc, a search hit. A session an agent stood
+   by for has no prompt-lane row at all, and headed its arc with a dash
+   until the relay lane got a head of its own: the opener is now the
+   first `prompt` **or** `relay` row, whichever came first, and
+   `openedBy` names the peer when a relay won. The column is `opening`,
+   not `opening prompt`, because it is no longer always one.
 
 Inside a transaction: **phases**. The assistant's text emitted *between*
 instructions ("Now the tests: one for the coin's two arms…") is its own

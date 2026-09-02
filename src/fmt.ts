@@ -20,8 +20,16 @@ export function ms(n: number | null): string {
   return `${(n / 3_600_000).toFixed(1)}h`
 }
 
+// Terminal color codes reach the transcript intact (`/model` echoes a bolded
+// model name through local-command-stdout, git paints its own output). They
+// render as nothing, or as garbage — strip them wherever text is shown.
+const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g
+export function plain(s: string): string {
+  return s.replace(ANSI, '')
+}
+
 export function cut(s: string, n: number): string {
-  const one = s.replace(/\s+/g, ' ').trim()
+  const one = plain(s).replace(/\s+/g, ' ').trim()
   return one.length > n ? `${one.slice(0, n - 1)}…` : one
 }
 

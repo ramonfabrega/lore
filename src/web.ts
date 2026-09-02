@@ -171,7 +171,7 @@ export function createApp(
                   <span class="muted mono">${s.first ?? ''} → ${s.last ?? ''}</span>
                   <span class="muted">${s.hits} hit${s.hits === 1 ? '' : 's'}</span>
                 </div>
-                <div class="prompt">${s.firstPrompt ?? ''}</div>
+                <div class="prompt">${s.firstPrompt ? opener(s) : ''}</div>
                 ${s.snippets.map(
                   (sn) => html`<div class="snippet"><span class="kind">${sn.lane}</span> <a href="/session/${s.sessionId}${sn.promptId ? `#tx-${sn.promptId}` : ''}">${raw(markSnippet(sn.snippet))}</a></div>`,
                 )}
@@ -330,13 +330,13 @@ export function createApp(
       <div class="area-recent panel">
         <header><h2>recent</h2><span>newest by last activity</span><span class="sp small"><a href="/search">search →</a></span></header>
         <div class="scroll list recent">
-          <div class="row head"><span>at</span><span>well</span><span>model</span><span>opening prompt</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
+          <div class="row head"><span>at</span><span>well</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
           ${recent.map(
             (s) => html`<div class="row">
               <span class="mono"><a href="/session/${s.sessionId}" title="${s.lastAt ?? ''}">${whenLabel(s.lastAt, today)}</a></span>
               <span class="mono"><a href="/well/${encodeURIComponent(s.well)}" title="${s.well}">${shortWell(s.well)}</a></span>
               <span>${modelChips(s.models)}</span>
-              <span title="${s.firstPrompt ?? ''}">${s.firstPrompt ?? html`<span class="muted">—</span>`}</span>
+              <span title="${s.firstPrompt ?? ''}">${opener(s)}</span>
               <span class="num hide">${s.prompts || ''}</span>
               <span class="num hide">${s.usage?.requests ?? ''}</span>
               <span class="num hide">${s.usage ? tok(s.usage.output) : ''}</span>
@@ -514,13 +514,13 @@ export function createApp(
         </div>
       </div>
       <div class="panel"><div class="scroll list sessions">
-        <div class="row head"><span>first</span><span>last</span><span>model</span><span>opening prompt</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num">list $</span><span class="num">spawns</span></div>
+        <div class="row head"><span>first</span><span>last</span><span>model</span><span>opening</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num">list $</span><span class="num">spawns</span></div>
         ${rows.map(
           (s) => html`<div class="row">
             <span class="mono"><a href="/session/${s.sessionId}">${s.first ?? ''}</a></span>
             <span class="mono muted" title="${s.idleUntil ? `open until ${s.idleUntil} with no work` : ''}">${s.last ?? ''}${s.idleUntil ? ' ⋯' : ''}</span>
             <span>${modelChips(s.models)}</span>
-            <span title="${s.firstPrompt ?? ''}">${s.firstPrompt ?? html`<span class="muted">—</span>`}</span>
+            <span title="${s.firstPrompt ?? ''}">${opener(s)}</span>
             <span class="num">${s.prompts || ''}</span>
             <span class="num">${s.usage?.requests ?? ''}</span>
             <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
@@ -578,6 +578,15 @@ function wikiPageFor(dir: string, wikiDir: string): string | null {
   const repo = dir.slice(i + '-code-'.length).split('--claude-worktrees-')[0]!.replace(/^(fun|work|personal|games)-/, '')
   const p = join(wikiDir, 'projects', `${basename(repo)}.md`)
   return existsSync(p) ? `projects/${basename(repo)}.md` : null
+}
+
+// The opening line of a session, wherever one is listed. A session a PEER
+// opened has no prompt of its own — it headed the arc with a dash until the
+// relay lane got a head — so it heads with the relayed message, chipped with
+// who sent it.
+function opener(s: { firstPrompt: string | null; openedBy: string | null }) {
+  if (s.firstPrompt == null) return html`<span class="muted">—</span>`
+  return html`${s.openedBy ? html`<span class="kind relay">@${s.openedBy}</span> ` : ''}${s.firstPrompt}`
 }
 
 // Well dirs are slugged absolute paths; the tail past `code` is the name a

@@ -193,8 +193,18 @@ a .mchip, .row a .mchip { color: inherit; }
 .spine.mixed .row { grid-template-columns: calc(30px * var(--z)) calc(64px * var(--z)) minmax(0, 1fr) calc(80px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(36px * var(--z)) calc(56px * var(--z)) calc(112px * var(--z)) calc(100px * var(--z)); }
 .spine .row.head { position: sticky; top: 0; color: var(--ink-3); font: 500 var(--fs-115) var(--mono); background: var(--surface); z-index: 1; }
 .spine .row .num { text-align: right; font-family: var(--mono); font-size: var(--fs-12); } .spine .row .n { text-align: right; }
+/* The chip sits ON the first line of the message, not above it: the clamped
+   text is a -webkit-box (block), so the prompt cell has to be the flex row. */
+.spine .row .p { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.spine .row .p .ptext { flex: 1; min-width: 0; }
 .spine details.txn > summary { transition: background-color var(--t-hover) var(--ease-out); } .spine details.txn > summary:hover { background: var(--surface-2); }
 .spine .row.meta, .spine .txn.meta .row, .spine .txn.command .row { color: var(--ink-3); }
+/* A relay is another agent's turn, not preamble: full ink, and the chip wears
+   the sender's name in the second series hue so the @peer reads at a glance. */
+.kind.relay { color: var(--series-2); background: color-mix(in oklab, var(--series-2) 12%, var(--surface-2)); font-weight: 500; }
+.spine .txn.relay .row .ptext { color: var(--ink); }
+.spine .txn.relay > summary { box-shadow: inset 2px 0 0 var(--series-2); }
+.tl .band.relay { fill: color-mix(in oklab, var(--series-2) 9%, var(--surface-2)); }
 .spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
 .spine .txn .ptext::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .spine .txn[open] .ptext::before { transform: rotate(90deg); } .spine .row.txn .ptext::before { content: none; }
 .spine details.txn:not([open]) .ptext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
