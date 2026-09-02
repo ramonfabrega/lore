@@ -64,6 +64,15 @@ The full census, with numbers: [`docs/notes/2026-07-17-jsonl-spelunk.md`](docs/n
 Requires [Bun](https://bun.sh) and `rsync` (the archive step shells out to it;
 macOS's openrsync and GNU rsync both work).
 
+Built and daily-driven on macOS; Linux works with one exception — `lore server`
+is a launchd user agent, so run `lore serve` in the foreground (or your own
+systemd unit) there. Native Windows is not supported today: no `rsync`, the
+`#!/bin/sh` shim `scripts/install.ts` writes isn't executable, and well-path
+resolution assumes POSIX paths (`C--Users-...` wells resolve to no real path,
+so listings show the mangled dir name). WSL works like Linux — note it sees the
+WSL `~/.claude`, not a native-Windows install's, unless you point
+`LORE_CLAUDE_DIR` at `/mnt/c/Users/<you>/.claude`.
+
 ```sh
 git clone https://github.com/ramonfabrega/lore && cd lore
 bun install
@@ -226,7 +235,7 @@ the tool itself never needs an API key.
   `lore docs` — the git object stores of repos under your code root.
 - **Writes**: `~/.lore` (the archive and the rebuildable `lore.db`), your
   wiki repo if you configure one, and — only for `lore server up` — one plist
-  under `~/Library/LaunchAgents/`. Nothing else.
+  under `~/Library/LaunchAgents/` (macOS only). Nothing else.
 - **Network**: none, except `git fetch` when you explicitly pass `--fetch` to
   `lore docs index`, and the port `lore serve` listens on (default 4949; see
   `--host`). Nothing is uploaded anywhere. No model calls, no API key.
