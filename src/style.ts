@@ -209,7 +209,15 @@ a .mchip, .row a .mchip { color: inherit; }
    separates what a peer said from what we answered. */
 .kind.sent { color: var(--series-2); background: none; border: 1px solid color-mix(in oklab, var(--series-2) 45%, transparent); margin-left: 6px; }
 .kind.sent b { font-weight: 600; }
-tr.agent td .in b { color: var(--series-2); font-weight: 500; }
+/* This session's own name, beside its id: the page names the agent whose
+   page it is, or every @peer on it reads as the subject. */
+.kind.self { font-size: var(--fs-115); vertical-align: middle; margin-left: 8px; background: var(--surface-3); color: var(--ink-2); }
+/* An outgoing message is not a tool argument. It keeps the table's shape —
+   it IS a tool call — but wears the peer hue and full ink so it can be found
+   by scanning a hundred rows of Bash. */
+.ix tr.sent td { background: color-mix(in oklab, var(--series-2) 5%, transparent); }
+.ix tr.sent .in b { color: var(--series-2); font-weight: 600; }
+.ix tr.sent .in .msgline { color: var(--ink); font-family: var(--sans); font-size: var(--fs-115); }
 .tl .band.relay { fill: color-mix(in oklab, var(--series-2) 9%, var(--surface-2)); }
 .spine details.txn > summary { cursor: pointer; list-style: none; } .spine details.txn > summary::-webkit-details-marker { display: none; }
 .spine .txn .ptext::before { content: '▸'; display: inline-block; width: 1ch; margin-right: .5ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); } .spine .txn[open] .ptext::before { transform: rotate(90deg); } .spine .row.txn .ptext::before { content: none; }
@@ -224,7 +232,9 @@ details > summary { cursor: pointer; list-style: none; } summary::-webkit-detail
    keeps its line breaks and gets a measure rather than the full panel width. */
 p.msg { margin: 2px 0 10px; max-width: 92ch; white-space: pre-wrap; color: var(--ink); border-left: 2px solid var(--line-2); padding-left: 10px; }
 .spine .txn.relay p.msg { border-left-color: color-mix(in oklab, var(--series-2) 55%, transparent); }
-.reply { color: var(--ink-2); margin: 6px 0 2px; } .ann { margin: 2px 0 4px; }
+/* The reply is the closing message of a turn, so it reads like the opening
+   one: paragraphs kept, a measure rather than the panel's full width. */
+.reply { color: var(--ink-2); margin: 6px 0 2px; max-width: 92ch; white-space: pre-wrap; } .ann { margin: 2px 0 4px; }
 table.ix { margin: 4px 0; } table.ix th { position: static; } table.ix td { border-bottom: 0; } table.ix tr.step td { border-top: 1px solid var(--line); }
 table.ix td.t, table.ix td.fee, table.ix td.tool { white-space: nowrap; } table.ix td.in { width: 34%; overflow-wrap: anywhere; } table.ix td.res { width: 40%; overflow-wrap: anywhere; }
 tr.err td { color: var(--err); } tr.thought td { padding: 2px 8px; } tr.thought p { margin: 4px 0; }

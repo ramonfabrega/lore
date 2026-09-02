@@ -287,6 +287,23 @@ Re-bucketing conserves: across the whole corpus both versions report 106,196
 requests and $25,094.04 — 71 UTC buckets became 70 local ones, and 2026-09-01
 went from $1,070.64 to $1,364.67 as the evening hours came home.
 
+The page says whose page it is. It chipped every peer it spoke to and never
+itself, so on ccc's session the word "ccc" appeared nowhere and `@lore` read
+as the subject. The session's own name comes from its job's state.json
+(`jobs.name`, the string `lore agents` prints), joined on either key — that
+row's `session_id` advances on every `/clear` while `job_id` stays the root's
+short id — and sits beside the session id as `@ccc`. Null when the job is
+gone; the header just omits it.
+
+An outgoing message keeps the table's shape, because it IS a tool call, but
+wears the peer hue and full ink so it can be found while scanning a hundred
+rows of Bash — that was the real complaint, not the nesting. Its recipient is
+resolved through the same address book the row badge uses (they disagreed:
+`@32093` against `@lore`, the same call with only one of them holding the
+book), and its result reads `delivered` rather than the ack's
+`{"success":true,"message":"…","msg_id":"…"}`, which repeats the input and
+adds a uuid.
+
 Two caps, because there are two kinds of text here. A tool argument is a
 label and 400 characters of it is generous; a **message** is prose somebody
 wrote to be read, and clipping it at 400 meant the page could show that a
@@ -296,7 +313,11 @@ for 20,000: the golden record's kickoff brief is 4,178 characters and was
 already whole in the index — only the render clipped it. The row keeps its
 two-line preview open or closed, and the body carries the message in full,
 through `cutProse`, which keeps paragraphs where `cut` flattens them: a
-structured brief is a wall of four hundred words on one line otherwise.
+structured brief is a wall of four hundred words on one line otherwise. The
+closing **reply** gets the same treatment for the same reason; the assistant's
+**notes** do not, because a note is a HEADING for the phase it opens and
+belongs on one line. Raising both together turned a reply into 20,000
+characters flattened onto a single line — worse than the clipping it fixed.
 
 Not everything uncaps. An instruction's input and result are capped at 2,000
 characters at INDEX time (`TOOL_TEXT_CAP`), so an outbound relay's body is

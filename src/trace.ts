@@ -40,6 +40,12 @@ const Req = z.object({
 const Meta = z.object({
   well: z.string(),
   sessionId: z.string(),
+  // The agent's OWN name, from its job's state.json (`jobs.name`, the same
+  // string `lore agents` prints). A page that chips every peer it spoke to
+  // and never says whose page it is reads as if `@lore` were the subject;
+  // on ccc's session the word "ccc" appeared nowhere. Null when the job is
+  // gone or the session was never a job — the header simply omits it.
+  name: z.string().nullable(),
   jobSessionId: z.string().nullable(),
   first: z.string().nullable(),
   last: z.string().nullable(),
@@ -61,6 +67,12 @@ export type SpawnGroup = z.infer<typeof SpawnGroup>
 export type Instruction = {
   tool: string
   input: string
+  // SendMessage only: the address it was sent to, and that address resolved
+  // to a peer name when this session's own inbound envelopes identify it.
+  // Without this the table said `@32093` where the row badge said `@lore` —
+  // the same call, two names, because only one of them had the address book.
+  to?: string | null
+  toName?: string | null
   ts: string | null
   ms: number | null
   error: boolean
@@ -224,9 +236,15 @@ export function getTrace(
   const session = Meta.parse(
     db
       .prepare(
+        // The jobs row is keyed either way round: `session_id` is whichever
+        // session was current when state.json was last written (it advances
+        // on every /clear), `job_id` the root's short id. Matching both finds
+        // the name from any session in the chain.
         `SELECT w.dir AS well, s.session_id AS sessionId, s.job_session_id AS jobSessionId, s.first_ts AS first,
-                COALESCE(s.last_activity_ts, s.last_ts) AS last, s.lines
-         FROM sessions s JOIN wells w ON w.id = s.well_id WHERE s.session_id = ?`,
+                COALESCE(s.last_activity_ts, s.last_ts) AS last, s.lines, j.name AS name
+         FROM sessions s JOIN wells w ON w.id = s.well_id
+         LEFT JOIN jobs j ON j.session_id = s.job_session_id OR j.job_id = substr(s.job_session_id, 1, 8)
+         WHERE s.session_id = ?`,
       )
       .get(sessionId),
   )
@@ -323,13 +341,13 @@ export function getTrace(
     for (const r of b.rows) if (r.type === 'user' && r.lane === 'tool' && r.toolUseId) results.set(r.toolUseId, r)
     const instructions: Instruction[] = []
     const full: { tool: string; inputFull: string; resultFull: string; error: boolean }[] = []
-    const texts: Note[] = []
+    const texts: (Note & { raw: string })[] = []
     const thoughts: Thought[] = []
     const sent: Sent[] = []
     for (const r of b.rows) {
       if (r.type !== 'assistant') continue
       if (r.lane === 'text') {
-        texts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, proseHead) })
+        texts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, head), raw: r.text })
         continue
       }
       if (r.lane === 'thinking') {
@@ -348,6 +366,8 @@ export function getTrace(
       instructions.push({
         tool,
         input: cut(inputFull, head),
+        ...(tool === 'SendMessage' ? { to: sentHead(inputFull).to } : {}),
+        ...(tool === 'SendMessage' && sentHead(inputFull).to ? { toName: peerByAddr.get(sentHead(inputFull).to as string) ?? null } : {}),
         ts: r.ts,
         ms: res?.ts && r.ts ? Date.parse(res.ts) - Date.parse(r.ts) : null,
         error,
@@ -360,8 +380,9 @@ export function getTrace(
     // The closing text is the last text row when nothing was instructed
     // after it; a transaction cut off mid-flight has none.
     const lastText = texts[texts.length - 1]
-    const reply = lastText && lastText.at === instructions.length ? lastText.text : ''
-    const notes = texts.filter((n) => n !== lastText || !reply)
+    const reply = lastText && lastText.at === instructions.length ? cutProse(lastText.raw, proseHead) : ''
+    // `raw` is scaffolding for the reply's prose cut — it never leaves here.
+    const notes: Note[] = texts.filter((n) => n !== lastText || !reply).map(({ raw: _raw, ...n }) => n)
 
     const stepIds = [...new Set(b.rows.map((r) => r.requestId).filter((x): x is string => x != null))]
     const steps: Step[] = stepIds.map((id) => {

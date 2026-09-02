@@ -83,7 +83,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
   return html`
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
-    <h1 class="mono">${s.sessionId}</h1>
+    <h1 class="mono">${s.sessionId}${s.name ? html` <span class="kind self" title="this session's agent">@${s.name}</span>` : ''}</h1>
     <p class="muted">${day(s.first)} ${hms(s.first)} → ${day(s.last) === day(s.first) ? '' : `${day(s.last)} `}${hms(s.last)} ${zone()}
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobSessionId ? html` · job <a class="mono" href="/job/${s.jobSessionId}">${s.jobSessionId.slice(0, 8)}</a>` : ''}
       ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}</p>
@@ -286,6 +286,15 @@ function sentBadges(sent: Transaction['sent']) {
   )}`
 }
 
+// An outgoing message, in the instruction stream where it happened. The
+// recipient is named from the session's own address book (trace.ts) so this
+// and the row badge never disagree — they did, `@32093` against `@lore`.
+function sentCell(ix: Instruction) {
+  const { summary } = sentHead(ix.input)
+  const label = ix.toName ?? shortTo(ix.to ?? null)
+  return html`<b title="${ix.to ?? ''}">→ @${label}</b> <span class="msgline">${cut(summary ?? ix.input, 200)}</span>`
+}
+
 // A recipient the address book could not name: a raw unix socket, or a task
 // id when the call went to a background agent rather than a peer. Show the
 // part that identifies it, not the path around it — the full address rides
@@ -336,12 +345,13 @@ function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, 
     const newStep = ix.requestId !== lastReq
     lastReq = ix.requestId
     const fee = newStep && ix.requestId ? stepFee.get(ix.requestId) : undefined
-    rows.push(html`<tr class="${family(ix.tool)} ${ix.error ? 'err' : ''} ${newStep ? 'step' : ''}">
+    const out = ix.tool === 'SendMessage'
+    rows.push(html`<tr class="${family(ix.tool)} ${ix.error ? 'err' : ''} ${newStep ? 'step' : ''} ${out ? 'sent' : ''}">
       <td class="mono muted t">${hms(ix.ts)}</td>
       <td class="mono tool"><i class="sw ${family(ix.tool)}"></i>${ix.tool}</td>
-      <td class="mono small in">${inputHead(ix.tool, ix.input)}</td>
+      <td class="mono small in">${out ? sentCell(ix) : inputHead(ix.tool, ix.input)}</td>
       <td class="num muted">${ms(ix.ms)}</td>
-      <td class="small res">${ix.error ? html`<span class="kind err">error</span> ` : ''}${cut(ix.result, 200)}</td>
+      <td class="small res">${ix.error ? html`<span class="kind err">error</span> ` : ''}${out && !ix.error ? html`<span class="muted">delivered</span>` : cut(ix.result, 200)}</td>
       <td class="num muted small fee">${fee ? html`${fee.model ? html`<span title="${fee.model}">${modelLabel(fee.model)}</span> · ` : ''}${tok(fee.output)}${fee.thinking ? html` <span title="thinking">(${tok(fee.thinking)}t)</span>` : ''} · ${usd(fee.listUsd)}` : ''}</td>
     </tr>`)
   }
@@ -359,10 +369,6 @@ function inputHead(tool: string, input: string): H | string {
   // summary. This runs BEFORE the JSON parse below — the input arrives cut to
   // `head` characters, so any message long enough to be worth reading fails to
   // parse, and a branch placed after the parse would never fire.
-  if (tool === 'SendMessage') {
-    const { to, summary } = sentHead(input)
-    if (to || summary) return html`${to ? html`<b title="${to}">@${shortTo(to)}</b> ` : ''}${cut(summary ?? '', 200)}`
-  }
   let j: unknown
   try {
     j = JSON.parse(input)
