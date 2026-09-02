@@ -78,12 +78,26 @@ never linked as `lore` (a live link silently runs stale/uncommitted state).
 
 ## Quickstart
 
+Two stops. The first is the dashboard over everything Claude Code has written on
+your machine; the second is optional and only matters once you want a session
+to *keep* what it learns.
+
 ```sh
-lore archive    # job zero: additive mirror of ~/.claude -> ~/.lore/archive
-lore index      # build/refresh the FTS5 index (~4s full, sub-second incremental)
+# 1. the archive, the index, the explorer — five minutes, nothing leaves the machine
+lore archive        # job zero: additive mirror of ~/.claude -> ~/.lore/archive
+lore index          # build the FTS5 index (~4s full, sub-second incremental)
+lore serve          # prints its URL (port 4949; --host 127.0.0.1 to keep it local; `lore server up` = always-on, macOS)
 lore search "that thing we fixed in march"
-lore serve         # the explorer: http://localhost:4949/
+lore usage --by week
+
+# 2. later, when the dashboard has earned it: sessions that compound
+lore skills add     # every verb as a skill — your Claude Code sessions discover the CLI
+lore wiki init      # once: an empty wiki repo at LORE_WIKI_DIR from the built-in template
+claude              # first prompt: "what's in my wells, and which should we ingest first?"
 ```
+
+Stop 1 needs no wiki and no configuration. Stop 2 is described in
+[Using it from a Claude Code session](#using-it-from-a-claude-code-session).
 
 ## The explorer
 
@@ -154,6 +168,8 @@ claude                          # anywhere — the skills travel with you
 
 Then, in the session:
 
+- *"what's in my wells, and which should we ingest first?"* → `lore wells`,
+  `lore sessions --well <x>`, a proposal sized by lines and dates; you pick.
 - *"what did we decide about X"* → it runs `lore search`, opens the hit with
   `lore session <id>` or `lore trace <id>`, answers with citations.
 - *"what did last week cost, and which sessions"* → `lore usage --by session`.
