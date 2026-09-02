@@ -30,6 +30,13 @@ jobs:
       - run: bunx tsc --noEmit
       - run: bun test
 
+      # The tests drive the request handler directly and never open a port.
+      # This boots the explorer for real and fetches it — the dashboard is the
+      # thing people actually use, so "it serves on Windows" should be a
+      # measurement, not a claim.
+      - name: the explorer serves
+        run: bun scripts/smoke-serve.ts
+
       # The installer is the one thing unit tests can't reach: it writes a
       # platform-specific shim (#!/bin/sh vs .cmd) and produces the artifact
       # every session actually runs. Build it, then execute what it installed.

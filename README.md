@@ -67,10 +67,14 @@ Requires [Bun](https://bun.sh). Nothing else — no rsync, no toolchain.
 
 macOS, Linux, and Windows are all tested on every push
 ([CI](.github/workflows/test.yml) runs the suite on all three, then installs
-the bin and executes it). One verb is macOS-only: `lore server`, which manages
-a launchd user agent — elsewhere it refuses with a pointer to `lore serve`, the
-same explorer in the foreground, which you can wrap in a systemd user unit or a
-Scheduled Task.
+the bin and executes it, and boots the explorer and fetches its pages).
+
+Every verb works on all three, **including the explorer** — `lore serve` is the
+dashboard, and CI proves it answers on each platform. The one exception is
+`lore server`, which is not the dashboard but the *supervisor* that keeps it
+running in the background: it manages a launchd user agent, so it is macOS-only
+and refuses elsewhere with a pointer to `lore serve`. To get always-on off
+macOS, wrap `lore serve` in a systemd user unit or a Scheduled Task.
 
 Under WSL, note that lore reads the WSL `~/.claude`, not a native-Windows
 install's — point `LORE_CLAUDE_DIR` at `/mnt/c/Users/<you>/.claude` to read
