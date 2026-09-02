@@ -136,10 +136,42 @@ from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 | `lore server up\|down\|restart\|status\|logs` | The explorer always-on as a launchd user agent (macOS); `status` says "restart owed" after a reinstall. |
 | `lore docs index / search / list` | The canon corpus: git-committed .md across your repos, read from **git objects, never working trees**. |
 | `lore stats` | Corpus totals, lanes, date range — with `warnings[]` when a corpus reads empty. |
+| `lore wiki init [dir]` | Create a wiki from the built-in template (schema, index, log) with its first commit. Once. |
 | `lore wiki commit` | Commit pending wiki changes (the judgment layer's durability op). |
 | `lore skills add` | Generate + install per-command skills (via incur) so Claude Code sessions discover the CLI. |
 
 Every command supports `--help`.
+
+## Using it from a Claude Code session
+
+The CLI is the eyes; a Claude Code session is the brain. The intended loop:
+
+```sh
+lore skills add                 # per-command skills → your session discovers every verb
+lore wiki init                  # once: a wiki repo at LORE_WIKI_DIR from the built-in template
+claude                          # anywhere — the skills travel with you
+```
+
+Then, in the session:
+
+- *"what did we decide about X"* → it runs `lore search`, opens the hit with
+  `lore session <id>` or `lore trace <id>`, answers with citations.
+- *"what did last week cost, and which sessions"* → `lore usage --by session`.
+- *"ingest my `~/code/foo` well into the wiki"* → it lists the sessions
+  (`lore sessions --well foo --since <date>`), fans out one miner subagent per
+  ~5–7 sessions plus a canon auditor over the repo (definitions in
+  [`.claude/agents/`](.claude/agents/) — clone this repo or copy the two
+  files into your own `.claude/agents/`), writes the project page, updates
+  the index and log, and ends with `lore wiki commit`. The wiki's own
+  `CLAUDE.md` — the maintainer schema `lore wiki init` lays down — is what
+  tells the session how; read it once, edit it as your practice settles.
+- *"is our CLAUDE.md stale"* → `lore docs search` against the indexed canon,
+  compared with what the wiki says now.
+
+The wiki is a plain git repo of markdown: `index.md` the map, `log.md` the
+chronology, `projects/<name>.md` one page per project, `patterns/` for what
+recurs across projects. It is meant to be private — it will hold whatever
+your transcripts hold.
 
 ## Built for agents
 

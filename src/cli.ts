@@ -17,7 +17,7 @@ import { getTrace } from './trace'
 import { GROUPINGS, listUsage } from './usage'
 import { composeHandler, createApp } from './web'
 import { listWells } from './wells'
-import { wikiCommit } from './wiki'
+import { wikiCommit, wikiInit } from './wiki'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta'] as const
@@ -496,6 +496,15 @@ wiki.command('commit', {
   }),
   alias: { message: 'm' },
   run: async ({ options }) => wikiCommit(WIKI_DIR, options.message),
+})
+
+wiki.command('init', {
+  description:
+    'Create a wiki from the built-in template (the maintainer schema as CLAUDE.md, an empty index and log, projects/ and patterns/) and make its first commit. Default location is LORE_WIKI_DIR; refuses a non-empty directory. Run once, then drive ingests from a Claude Code session — the schema tells the session how.',
+  args: z.object({
+    dir: z.string().optional().describe('Where to create the wiki (default: LORE_WIKI_DIR)'),
+  }),
+  run: async ({ args }) => wikiInit(args.dir ?? WIKI_DIR),
 })
 
 cli.command(wiki)

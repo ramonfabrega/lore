@@ -6,7 +6,8 @@ archives and indexes them, maintains an LLM-written wiki, and promotes matured
 knowledge into canon (git-committed CLAUDE.mds and docs).
 
 **Status, ingest history, and open threads live in the wiki** (a separate
-private git repo, `LORE_WIKI_DIR`): `projects/lore.md` is this project's state page,
+private git repo at `LORE_WIKI_DIR`; `lore wiki init` lays one down from
+`docs/wiki-template/`): `projects/lore.md` is this project's state page,
 `log.md` the chronology, `index.md` the map. This file carries only what every
 session needs: thesis, architecture, constraints, conventions. Decision
 narrative: `docs/DESIGN.md`.

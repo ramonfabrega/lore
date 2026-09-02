@@ -4,19 +4,19 @@ import { allowsFallthrough, composeHandler } from '../src/web'
 
 describe('launchd plist', () => {
   test('renders the serve command with env, KeepAlive, and logs under ~/.lore; reads its config back', () => {
-    const xml = renderPlist({ port: 4949, host: '100.81.87.24' }, { bin: '/u/.bun/bin/lore', home: '/u' })
+    const xml = renderPlist({ port: 4949, host: '100.100.100.100' }, { bin: '/u/.bun/bin/lore', home: '/u' })
     expect(xml).toContain('<string>com.ramonfabrega.lore</string>')
-    expect(xml).toContain('<string>/u/.bun/bin/lore</string>\n    <string>serve</string>\n    <string>--port</string>\n    <string>4949</string>\n    <string>--host</string>\n    <string>100.81.87.24</string>')
+    expect(xml).toContain('<string>/u/.bun/bin/lore</string>\n    <string>serve</string>\n    <string>--port</string>\n    <string>4949</string>\n    <string>--host</string>\n    <string>100.100.100.100</string>')
     expect(xml).toContain('<key>KeepAlive</key>\n  <true/>')
     expect(xml).toContain('<string>/u/.bun/bin:/u/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>')
     expect(xml).toContain('<string>/u/.lore/serve.log</string>')
-    expect(readPlistConfig(xml)).toEqual({ port: 4949, host: '100.81.87.24' })
+    expect(readPlistConfig(xml)).toEqual({ port: 4949, host: '100.100.100.100' })
     expect(readPlistConfig('<plist></plist>')).toBeNull()
   })
 
   test('urlFor maps the wildcard bind to localhost', () => {
     expect(urlFor({ port: 4949, host: '0.0.0.0' })).toBe('http://localhost:4949/')
-    expect(urlFor({ port: 4949, host: '100.81.87.24' })).toBe('http://100.81.87.24:4949/')
+    expect(urlFor({ port: 4949, host: '100.100.100.100' })).toBe('http://100.100.100.100:4949/')
   })
 })
 
