@@ -14,10 +14,15 @@ import { resolveSessionId } from './session'
 import { listSessions, modelsFor } from './sessions'
 import { annotationLine, sessionBody, tile } from './block'
 import { cut, tok, usd } from './fmt'
+import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
 import { CSS } from './style'
 import { bars, feeBar, feeLegend, ibar, modelChip, modelChips, spark, stackedBars } from './viz'
 import { getTrace } from './trace'
 import { listUsage, type UsageRow } from './usage'
+
+// The mark, inlined as a data URI: the frozen bin is one file, so the icon
+// rides the bundle rather than owing a route or a disk read per page.
+const FAVICON = 'data:image/svg+xml,' + encodeURIComponent(LORE_SVG)
 
 // The explorer's web surface (docs/EXPLORER.md): thin pages over the same
 // verbs the CLI runs — `usage`, `sessions`, `trace` — server-rendered, no
@@ -711,6 +716,7 @@ function page(
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${title}</title>
+<link rel="icon" href="${FAVICON}" />
 <style>${raw(CSS)}</style>
 </head>
 <body>${nav}<main class="layout-${layout}">${main}</main></body>
