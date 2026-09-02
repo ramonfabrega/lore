@@ -62,12 +62,22 @@ export function slugWellDir(path: string): string {
 // walking the filesystem: at each boundary try every joiner, and only an
 // existing directory disambiguates. A deleted source resolves null, same as
 // before — "gone by id ≠ gone by content" stays measurable.
+// '/' is a SENTINEL for "component boundary", never concatenated: join()
+// supplies the platform's real separator, so the same walk reconstructs
+// 'C:\\Users\\x' on Windows and '/Users/x' on POSIX.
 const JOINERS = ['/', '-', '.', '_'] as const
 const DESLUG_BUDGET = 50_000
+// A POSIX well mangles its leading '/' to '-'; a Windows well starts at a
+// drive letter, so 'C:\\Users\\x' mangles to 'C--Users-x'. Both shapes are
+// recognized on EITHER platform — a root that doesn't exist here just walks
+// to null, the same answer a deleted source gives.
+const WIN_WELL = /^([A-Za-z])--/
 
 export function deslugWellDir(name: string): string | null {
-  if (!name.startsWith('-')) return null
-  const segs = name.slice(1).split('-')
+  const win = WIN_WELL.exec(name)
+  if (!win && !name.startsWith('-')) return null
+  const root = win ? `${win[1]}:\\` : '/'
+  const segs = name.slice(win ? 3 : 1).split('-')
   let budget = DESLUG_BUDGET
   const isDir = (p: string): boolean => {
     try {
@@ -95,7 +105,15 @@ export function deslugWellDir(name: string): string | null {
     }
     return null
   }
-  return walk('/', segs[0] ?? '', 1)
+  return walk(root, segs[0] ?? '', 1)
+}
+
+// Absolute in EITHER shape, whatever host we're on: a '/'-rooted POSIX path,
+// a UNC share, or a drive letter. Deliberately not node:path's isAbsolute,
+// which answers only for the running platform — an archive copied from a
+// Windows box must still resolve its cwds when read on macOS.
+export function isAbsolute(path: string): boolean {
+  return /^([/\\]|[A-Za-z]:[/\\])/.test(path)
 }
 
 // Peek the head of the newest session files for a record carrying `cwd` — the
@@ -107,7 +125,7 @@ async function resolveRealPath(sessions: SessionFile[]): Promise<string | null> 
       if (!line.includes('"cwd"')) continue
       try {
         const cwd = JSON.parse(line).cwd
-        if (typeof cwd === 'string' && cwd.startsWith('/')) return cwd
+        if (typeof cwd === 'string' && isAbsolute(cwd)) return cwd
       } catch {
         // partial last line of the head slice — ignore
       }

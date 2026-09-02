@@ -1,11 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { deslugWellDir, listWells } from '../src/wells'
+import { deslugWellDir, isAbsolute, listWells } from '../src/wells'
 
+// realpathSync canonicalizes the root before we mangle it. Two hosts hand
+// out temp paths the deslug walk could never reconstruct otherwise: Windows
+// CI runners use 8.3 short names (C:\\Users\\RUNNER~1\\...) and macOS symlinks
+// /var -> /private/var. '~' is not a joiner and never will be — every
+// non-alphanumeric mangles to '-', so widening JOINERS to chase one is a
+// combinatorial tax on every lookup. Canonical fixtures instead.
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'lore-wells-test-'))
+  return realpathSync(mkdtempSync(join(tmpdir(), 'lore-wells-test-')))
 }
 
 // Claude Code's project-dir mangling: every non-alphanumeric becomes '-'.
@@ -35,6 +41,37 @@ describe('deslugWellDir', () => {
 
   test('non-mangled names resolve null', () => {
     expect(deslugWellDir('not-a-well-name')).toBeNull()
+  })
+
+  // A Windows well starts at a drive letter: 'C:\\Users\\x' -> 'C--Users-x'.
+  // The reconstruct case only has teeth on a Windows runner (that is what the
+  // CI matrix is for); everywhere else it asserts the same null a deleted
+  // source gives, never a false positive from a bogus root.
+  test('a drive-letter well reconstructs on Windows, resolves null elsewhere', () => {
+    const root = tempDir()
+    const real = join(root, 'code', 'my-app')
+    mkdirSync(real, { recursive: true })
+    const slug = mangle(real)
+    if (process.platform === 'win32') {
+      expect(slug).toMatch(/^[A-Za-z]--/)
+      expect(deslugWellDir(slug)).toBe(real)
+    } else {
+      expect(deslugWellDir('C--Users-nobody-code-my-app')).toBeNull()
+    }
+  })
+
+  test('a drive-letter root that does not exist resolves null, not a partial path', () => {
+    expect(deslugWellDir('Q--definitely-not-here-at-all')).toBeNull()
+  })
+})
+
+describe('isAbsolute', () => {
+  // Host-independent by design: an archive copied off a Windows box must
+  // still resolve its recorded cwds when read on macOS, and vice versa.
+  test('accepts both shapes regardless of platform', () => {
+    for (const p of ['/Users/x/code', 'C:\\Users\\x\\code', 'c:/Users/x', '\\\\server\\share'])
+      expect(isAbsolute(p)).toBe(true)
+    for (const p of ['code/lore', './rel', '', 'C:', 'CC:\\x']) expect(isAbsolute(p)).toBe(false)
   })
 })
 
