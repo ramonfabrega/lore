@@ -1,5 +1,7 @@
 # lore
 
+[![test](https://github.com/ramonfabrega/lore/actions/workflows/test.yml/badge.svg)](https://github.com/ramonfabrega/lore/actions/workflows/test.yml)
+
 Search, index, and compound everything Claude Code has ever written on your
 machine.
 
@@ -61,22 +63,23 @@ The full census, with numbers: [`docs/notes/2026-07-17-jsonl-spelunk.md`](docs/n
 
 ## Install
 
-Requires [Bun](https://bun.sh) and `rsync` (the archive step shells out to it;
-macOS's openrsync and GNU rsync both work).
+Requires [Bun](https://bun.sh). Nothing else — no rsync, no toolchain.
 
-Built and daily-driven on macOS; Linux works with one exception — `lore server`
-is a launchd user agent, so run `lore serve` in the foreground (or your own
-systemd unit) there. Native Windows is not supported today: no `rsync`, the
-`#!/bin/sh` shim `scripts/install.ts` writes isn't executable, and well-path
-resolution assumes POSIX paths (`C--Users-...` wells resolve to no real path,
-so listings show the mangled dir name). WSL works like Linux — note it sees the
-WSL `~/.claude`, not a native-Windows install's, unless you point
-`LORE_CLAUDE_DIR` at `/mnt/c/Users/<you>/.claude`.
+macOS, Linux, and Windows are all tested on every push
+([CI](.github/workflows/test.yml) runs the suite on all three, then installs
+the bin and executes it). One verb is macOS-only: `lore server`, which manages
+a launchd user agent — elsewhere it refuses with a pointer to `lore serve`, the
+same explorer in the foreground, which you can wrap in a systemd user unit or a
+Scheduled Task.
+
+Under WSL, note that lore reads the WSL `~/.claude`, not a native-Windows
+install's — point `LORE_CLAUDE_DIR` at `/mnt/c/Users/<you>/.claude` to read
+those wells instead.
 
 ```sh
 git clone https://github.com/ramonfabrega/lore && cd lore
 bun install
-scripts/install.ts     # builds the frozen `lore` bin -> ~/.bun/bin/lore (gates on tests)
+bun scripts/install.ts # builds the frozen `lore` bin -> ~/.bun/bin/lore (gates on tests)
 ```
 
 `scripts/install.ts` refuses a dirty tree: the installed bin is a reproducible
@@ -239,9 +242,10 @@ the tool itself never needs an API key.
 - **Network**: none, except `git fetch` when you explicitly pass `--fetch` to
   `lore docs index`, and the port `lore serve` listens on (default 4949; see
   `--host`). Nothing is uploaded anywhere. No model calls, no API key.
-- **Shells out to**: `rsync` (archive), `git` (docs, wiki), `claude` (the
-  agents roster — skipped when it's not on `PATH`), `tailscale` (host
-  resolution — optional).
+- **Shells out to**: `git` (docs, wiki), `claude` (the agents roster — skipped
+  when it's not on `PATH`), `tailscale` (host resolution — optional), and
+  `launchctl` for `lore server` on macOS. The archive is an in-process mirror:
+  no rsync.
 
 The index is a derived artifact: it rebuilds from the archive, version-bumps
 instead of migrating, and refuses to touch a database written by a *newer* lore
