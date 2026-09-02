@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
-import { metaHead, relayHead } from './envelope'
+import { metaHead, relayHead, type Sent, sentHead } from './envelope'
 import { cut } from './fmt'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
@@ -153,6 +153,12 @@ export type Transaction = {
   // user typed, which wears no envelope. The raw record stays in the index.
   tag: string | null
   prompt: string
+  // The outbound half of a relay: what this session sent BACK, read off the
+  // SendMessage calls in the turn. A peer's message opens a transaction and
+  // the reply is the last thing in it — genuinely one turn, not two — but
+  // that buries the single thing worth reading at the bottom of a fold, so
+  // the recipient and the sender's own one-line summary ride up here.
+  sent: Sent[]
   steps: number
   instructions: Instruction[]
   notes: Note[]
@@ -297,6 +303,7 @@ export function getTrace(
     const full: { tool: string; inputFull: string; resultFull: string; error: boolean }[] = []
     const texts: Note[] = []
     const thoughts: Thought[] = []
+    const sent: Sent[] = []
     for (const r of b.rows) {
       if (r.type !== 'assistant') continue
       if (r.lane === 'text') {
@@ -311,6 +318,7 @@ export function getTrace(
       const res = r.toolUseId ? results.get(r.toolUseId) : undefined
       const tool = r.toolName ?? '?'
       const inputFull = r.text.startsWith(tool) ? r.text.slice(tool.length).trim() : r.text
+      if (tool === 'SendMessage') sent.push(sentHead(inputFull))
       const error = res ? res.isError === 1 : false
       instructions.push({
         tool,
@@ -359,6 +367,7 @@ export function getTrace(
       ts: first,
       tag,
       prompt: promptText,
+      sent,
       steps: steps.length,
       instructions,
       notes,

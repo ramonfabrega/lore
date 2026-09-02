@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { metaHead, relayHead } from '../src/envelope'
+import { metaHead, relayHead, sentHead } from '../src/envelope'
 import { cut, plain } from '../src/fmt'
 
 const ESC = ''
@@ -105,6 +105,42 @@ describe('metaHead', () => {
 
   test('an unrecognised injection is itself, with no tag', () => {
     expect(metaHead('Continue from where you left off.')).toEqual({ tag: null, text: 'Continue from where you left off.' })
+  })
+})
+
+describe('sentHead — the outbound half', () => {
+  const FULL = JSON.stringify({
+    to: 'ccc',
+    summary: 'Ack ccc v0 ledger, banked + verified',
+    message: 'v0 ledger banked in the wiki (0bfdc95) — every relayed number verified here.',
+  })
+
+  test('names the recipient and the sender\'s own one-line summary', () => {
+    expect(sentHead(FULL)).toEqual({ to: 'ccc', summary: 'Ack ccc v0 ledger, banked + verified' })
+  })
+
+  // The one that matters: an instruction's input reaches the page already cut
+  // to `head` characters, so any relay long enough to be worth reading does
+  // NOT parse as JSON. A first pass at this read the fields off the parsed
+  // object and was dead code on every real message.
+  test('reads a message truncated before its closing brace', () => {
+    expect(sentHead(FULL.slice(0, 70))).toEqual({ to: 'ccc', summary: 'Ack ccc v0 ledger, banked + verified' })
+    // Cut inside the summary itself: the recipient still survives.
+    expect(sentHead(FULL.slice(0, 40)).to).toBe('ccc')
+  })
+
+  test('falls back to the message when there is no summary', () => {
+    expect(sentHead('{"to":"lore","message":"corpus is green"}')).toEqual({ to: 'lore', summary: 'corpus is green' })
+  })
+
+  test('escaped quotes in a summary survive the fallback', () => {
+    const t = '{"to":"ccc","summary":"the \\"localtime\\" split","message":"…'
+    expect(sentHead(t)).toEqual({ to: 'ccc', summary: 'the "localtime" split' })
+  })
+
+  test('a call that is not a relay yields nothing to show', () => {
+    expect(sentHead('{"pattern":"foo"}')).toEqual({ to: null, summary: null })
+    expect(sentHead('not json at all')).toEqual({ to: null, summary: null })
   })
 })
 

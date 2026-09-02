@@ -238,6 +238,17 @@ one row. Three reads, top to bottom, all from `getTrace` — no client code,
    is a display edge, driven off the harness's own structural tags and
    the `peer` column, never off prose shape.
 
+   The reply is IN the turn, not after it. A peer's message opens a
+   transaction, the session works — 38 instructions in the golden record —
+   and the last instruction is the `SendMessage` back. That genuinely is one
+   turn, so it is not hoisted out; what was wrong is that the single thing
+   worth reading sat at the bottom of a fold as raw JSON. The outbound half
+   now rides on the transaction (`sent[]`, read off the SendMessage calls):
+   an outlined `→ @ccc` chip on the row, so an answered relay says so without
+   being opened, and the sender's own one-line `summary` closing the body
+   beside the assistant's reply. Filled chip in, outlined chip out, one hue —
+   the conversation reads across the page.
+
    The same head runs through every listing that names a session —
    recent on `/`, a well's arc, a search hit. A session an agent stood
    by for has no prompt-lane row at all, and headed its arc with a dash

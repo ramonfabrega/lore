@@ -1,5 +1,6 @@
 import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
+import { sentHead } from './envelope'
 import { cut, day, hm, hms, ms, tok, usd, zone } from './fmt'
 import { modelDrift, modelLabel } from './model'
 import type { Annotations, Instruction, SpawnGroup, Trace, Transaction } from './trace'
@@ -246,7 +247,9 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
   // muted.
   const chip = x.kind === 'relay' ? `@${x.tag ?? 'peer'}` : x.kind === 'meta' ? (x.tag ?? 'meta') : x.kind === 'command' ? 'command' : null
   const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${hms(x.ts)}</span>
-    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span></span>
+    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${x.sent.map(
+      (s) => html`<span class="kind sent" title="${s.summary ?? ''}">→ @${s.to ?? '?'}</span>`,
+    )}</span>
     ${o.mixed ? html`<span class="m">${modelChip(x.model)}</span>` : ''}
     <span class="num">${x.steps || ''}</span>
     <span class="num">${x.instructions.length || ''}</span>
@@ -291,7 +294,10 @@ function txBody(x: Transaction, openPhases: boolean) {
         ? html`<details class="phase" ${openPhases ? 'open' : ''}><summary><span class="note">${p.note.text}</span> ${meta}</summary>${table}</details>`
         : html`<p class="note">${p.note.text} ${meta}</p>${table}`
     })}
-    ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}`
+    ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}
+    ${x.sent.map(
+      (s) => html`<p class="sent"><span class="kind sent">→ @${s.to ?? '?'}</span> ${s.summary ?? ''}</p>`,
+    )}`
 }
 
 function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>) {
@@ -323,6 +329,14 @@ function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, 
 // Grep's pattern, an Agent's description — else the JSON head. The input
 // is already cut, so a long one may not parse; the raw head is the fallback.
 function inputHead(tool: string, input: string): H | string {
+  // A relay out is addressed: who it went to, then the sender's own one-line
+  // summary. This runs BEFORE the JSON parse below — the input arrives cut to
+  // `head` characters, so any message long enough to be worth reading fails to
+  // parse, and a branch placed after the parse would never fire.
+  if (tool === 'SendMessage') {
+    const { to, summary } = sentHead(input)
+    if (to || summary) return html`${to ? html`<b>@${to}</b> ` : ''}${cut(summary ?? '', 200)}`
+  }
   let j: unknown
   try {
     j = JSON.parse(input)

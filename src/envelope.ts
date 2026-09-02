@@ -98,3 +98,22 @@ function tagBody(name: string, s: string): string | null {
   const m = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)(?:</${name}>|$)`).exec(s)
   return m ? (m[1] ?? '').trim() : null
 }
+
+// The OUTBOUND half of a relay: what this session sent back. `SendMessage`
+// carries {to, summary, message} and the summary is a one-line human gloss
+// the sender already wrote — the best possible label for a turn, and free.
+// The input may be cut before its closing brace, so a regex fallback reads
+// the two fields that matter; both sit at the head of the object.
+export type Sent = { to: string | null; summary: string | null }
+export function sentHead(input: string): Sent {
+  try {
+    const o = JSON.parse(input) as Record<string, unknown>
+    const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : null)
+    return { to: str('to'), summary: str('summary') ?? str('message') }
+  } catch {
+    return { to: field('to', input), summary: field('summary', input) ?? field('message', input) }
+  }
+}
+function field(name: string, s: string): string | null {
+  return new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(s)?.[1]?.replace(/\\(.)/g, '$1') ?? null
+}
