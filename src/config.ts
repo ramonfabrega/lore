@@ -25,7 +25,7 @@ export const DOCS_EXCLUDE = env.LORE_DOCS_EXCLUDE.split(',').map((s) => s.trim()
 // auto-signal gets one wrong.
 export const DOCS_ASSISTED = env.LORE_DOCS_ASSISTED.split(',').map((s) => s.trim()).filter(Boolean)
 
-// Build provenance: scripts/install inlines LORE_BUILD_INFO into the frozen
+// Build provenance: scripts/install.ts inlines LORE_BUILD_INFO into the frozen
 // bundle; a dev run reads 'dev'. main.ts prints the richer dev form on stderr;
 // this is the machine-readable one the server reports so `lore server status`
 // can say "running b58, installed b59 — restart owed".

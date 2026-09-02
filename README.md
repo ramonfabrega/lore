@@ -67,10 +67,10 @@ macOS's openrsync and GNU rsync both work).
 ```sh
 git clone https://github.com/ramonfabrega/lore && cd lore
 bun install
-scripts/install     # builds the frozen `lore` bin -> ~/.bun/bin/lore (gates on tests)
+scripts/install.ts     # builds the frozen `lore` bin -> ~/.bun/bin/lore (gates on tests)
 ```
 
-`scripts/install` refuses a dirty tree: the installed bin is a reproducible
+`scripts/install.ts` refuses a dirty tree: the installed bin is a reproducible
 artifact from a landed commit, and every invocation self-identifies on stderr
 (`lore v0.1.0 b55 @ <sha>`) so transcripts record which build did the work.
 During development, run `bun src/main.ts` from the checkout instead — deliberately

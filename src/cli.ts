@@ -383,7 +383,7 @@ cli.command('serve', {
 
 const serverCli = Cli.create('server', {
   description:
-    'The always-on explorer as a launchd user agent (KeepAlive; logs under ~/.lore): up writes ~/Library/LaunchAgents/com.ramonfabrega.lore.plist and bootstraps it, down boots it out, restart kickstarts it, status compares the RUNNING build (the server\'s /_lore) with the installed bin — a frozen bundle does not follow scripts/install, so status says "restart owed" — and logs tails stdout/stderr.',
+    'The always-on explorer as a launchd user agent (KeepAlive; logs under ~/.lore): up writes ~/Library/LaunchAgents/com.ramonfabrega.lore.plist and bootstraps it, down boots it out, restart kickstarts it, status compares the RUNNING build (the server\'s /_lore) with the installed bin — a frozen bundle does not follow scripts/install.ts, so status says "restart owed" — and logs tails stdout/stderr.',
 })
 serverCli.command('up', {
   description: 'Write the plist and bootstrap the agent (re-bootstraps if already loaded, so a changed port/host takes)',
@@ -394,7 +394,7 @@ serverCli.command('up', {
   run: async ({ options }) => serverUp({ port: options.port, host: await resolveHost(options.host) }),
 })
 serverCli.command('down', { description: 'Boot the agent out (the plist stays; `up` reloads it)', run: () => serverDown() })
-serverCli.command('restart', { description: 'Kickstart the agent — after scripts/install, or when status says restart owed', run: () => serverRestart() })
+serverCli.command('restart', { description: 'Kickstart the agent — after scripts/install.ts, or when status says restart owed', run: () => serverRestart() })
 serverCli.command('status', {
   description: 'launchd state, the URL, the running build vs the installed bin, and warnings (not loaded, not answering, restart owed)',
   run: () => serverStatus({ installedBuild: BUILD_INFO }),

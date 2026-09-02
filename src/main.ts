@@ -4,7 +4,7 @@
 import cli from './cli'
 
 // Self-identifying provenance on stderr (stdout stays parseable): installed
-// artifacts get LORE_BUILD_INFO inlined by scripts/install; dev runs derive it
+// artifacts get LORE_BUILD_INFO inlined by scripts/install.ts; dev runs derive it
 // from the checkout so transcripts always show WHICH lore did the work.
 declare const LORE_BUILD_INFO: string
 const provenance =

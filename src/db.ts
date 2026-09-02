@@ -230,7 +230,7 @@ export function openDb(path: string): Database {
     throw new Error(
       `lore.db is schema v${version} but this build only knows v${SCHEMA_VERSION} — ` +
         `you are running a stale lore (old checkout or outdated installed bin). ` +
-        `Use the current build, or reinstall it via scripts/install.`,
+        `Use the current build, or reinstall it via scripts/install.ts.`,
     )
   }
   if (version !== SCHEMA_VERSION) {

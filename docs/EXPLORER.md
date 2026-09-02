@@ -78,7 +78,7 @@ is `Bun.serve` — the bind address is ours to get right).
 services. Bind address resolved once at `up`: the Tailscale IP, so
 `http://<host>:4949/` works over the tailnet without binding the LAN.
 `status` compares the running build (`/_lore`) with the installed bin —
-the prod bin is a frozen bundle, so after `scripts/install` the server
+the prod bin is a frozen bundle, so after `scripts/install.ts` the server
 still runs the old one until `restart`. KeepAlive respawns a port race
 forever, so `status` and `logs` are the diagnosis, not the pid.
 

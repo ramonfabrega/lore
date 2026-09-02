@@ -14,7 +14,7 @@ import { LORE_HOME } from './config'
 // Two honesty rules carried from the fleet: (1) KeepAlive respawns a job into
 // the same port race forever, so `status` reads the log's last lines, not
 // just the pid; (2) the prod bin is a frozen bundle, so a running server
-// keeps the old build in memory after `scripts/install` — `status` compares
+// keeps the old build in memory after `scripts/install.ts` — `status` compares
 // the build the server reports (`/_lore`) with the installed bin and says
 // "restart owed" instead of pretending.
 
@@ -43,7 +43,7 @@ export function renderPlist(cfg: ServerConfig, opts: { bin?: string; home?: stri
   <!-- Written by \`lore server up\`; edit the command, not this file.
        The explorer (docs/EXPLORER.md) on ${cfg.host}:${cfg.port}. \`lore server status\`
        compares the running build with the installed bin — restart after
-       scripts/install, the bundle in memory does not follow the file. -->
+       scripts/install.ts, the bundle in memory does not follow the file. -->
   <key>ProgramArguments</key>
   <array>
 ${args.map((a) => `    <string>${escapeXml(a)}</string>`).join('\n')}

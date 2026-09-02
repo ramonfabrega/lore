@@ -273,7 +273,7 @@ whether.
 
 ### 2026-07-17 — Prod bin vs dev lane (the landing ritual)
 
-Installed `lore` = frozen artifact from `scripts/install`: clean-tree-only,
+Installed `lore` = frozen artifact from `scripts/install.ts`: clean-tree-only,
 test-gated, provenance inlined via `--define LORE_BUILD_INFO` — the fleet's release
 scheme (version + commit-count build + sha) in minimal form. Default bundle
 (`--target=bun` single-file JS + PATH shim, ~KBs); `--compile` variant kept for
@@ -455,7 +455,7 @@ under `~/.lore/`), with two honesty rules lifted from those plists' own comments
 KeepAlive respawns a port race forever (so `status` reads the log and the liveness
 route, not the pid), and the prod bin is a frozen bundle (so `status` compares the
 running build from `/_lore` with the installed one and says "restart owed" — a
-`scripts/install` does not reach the process in memory). Bind resolves once at `up` to
+`scripts/install.ts` does not reach the process in memory). Bind resolves once at `up` to
 the Tailscale address (`<host>:<port>` over the tailnet without the LAN); `0.0.0.0`
 only when there is none. Rejected: `tailscale serve` (HTTPS on a `.ts.net` name — the
 step beyond, for a read-only explorer not yet earned); a pinned `claude --bg --exec`
