@@ -313,11 +313,17 @@ export async function verifyNothingRealLeaks(c: DemoCorpus, home: string): Promi
         if (real.startsWith('-') && real.length > 12 && html.includes(real)) problems.push(`real well name in output: ${real}`)
       }
     }
-    // And the roster must be the invented one. Absent names mean the stub was
-    // not consulted, which means the panel is showing whatever is really running.
-    for (const a of AGENTS) {
-      if (!pages[0]?.includes(a.name)) problems.push(`agent "${a.name}" missing — the PATH stub was not used, so the roster is REAL`)
-    }
+    // The roster is checked through the JSON lane, not by looking for names in
+    // the markup. Substring-matching the page can pass for the WRONG REASON: an
+    // agent named "app" is satisfied by the well column, so a live roster could
+    // slip through on a lucky collision. This compares the exact set, which also
+    // catches the inverse — a real agent present alongside the invented ones.
+    const roster = (await (await fetch(`${base}/agents?json=1`)).json()) as { agents?: { name: string | null }[]; error?: unknown }
+    if (roster.error) problems.push(`agents lane errored: ${String(roster.error)}`)
+    const got = new Set((roster.agents ?? []).map((a) => a.name ?? ''))
+    const want = new Set(AGENTS.map((a) => a.name))
+    for (const name of want) if (!got.has(name)) problems.push(`agent "${name}" missing — the PATH stub was not used, so the roster is REAL`)
+    for (const name of got) if (!want.has(name)) problems.push(`unexpected agent "${name}" — a REAL agent reached the roster`)
     return problems
   } finally {
     proc.kill()
