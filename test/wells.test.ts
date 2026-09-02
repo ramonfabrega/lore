@@ -4,14 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deslugWellDir, isAbsolute, listWells } from '../src/wells'
 
-// realpathSync canonicalizes the root before we mangle it. Two hosts hand
-// out temp paths the deslug walk could never reconstruct otherwise: Windows
-// CI runners use 8.3 short names (C:\\Users\\RUNNER~1\\...) and macOS symlinks
-// /var -> /private/var. '~' is not a joiner and never will be — every
-// non-alphanumeric mangles to '-', so widening JOINERS to chase one is a
-// combinatorial tax on every lookup. Canonical fixtures instead.
+// Canonicalize the root before mangling it, or the fixture describes a path
+// that isn't what readdir reports. Two hosts need it: macOS symlinks
+// /var -> /private/var, and Windows CI runners hand out 8.3 short names
+// (C:\Users\RUNNER~1\... for \runneradmin\).
+//
+// It must be realpathSync.NATIVE — plain realpathSync resolves the symlink
+// but leaves the 8.3 alias intact, and the walk matches against the long
+// name readdir actually returns.
 function tempDir(): string {
-  return realpathSync(mkdtempSync(join(tmpdir(), 'lore-wells-test-')))
+  return realpathSync.native(mkdtempSync(join(tmpdir(), 'lore-wells-test-')))
 }
 
 // Claude Code's project-dir mangling: every non-alphanumeric becomes '-'.
