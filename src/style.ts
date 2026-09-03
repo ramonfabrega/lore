@@ -172,14 +172,19 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list .row:not(.head):hover { background: var(--surface-2); }
 .list .row .num { text-align: right; font-family: var(--mono); font-size: var(--fs-12); }
 .list .row.done, .list .row.muted { color: var(--ink-3); }
-/* An "at" column is sized for the widest form its list can actually show.
+/* A time column is sized for the widest form its list can actually show.
    "recent" is newest-by-activity, so it reaches "10m ago" and never a year —
-   the roster, which lists jobs deleted last August, is sized for "19 aug 25".
-   A stamp truncated to "1m a…" is worse than one that costs six pixels. */
+   the jobs list, which holds agents deleted last August, is sized for
+   "19 aug 25". A stamp truncated to "1m a…" is worse than one that costs six
+   pixels, and a column is sized for its HEADER too: "started" is wider than
+   the "17:45" under it.
+   The list-$ column on the jobs list was 72px against a "$3935.84" plus a
+   40px inline bar — a job's lifetime spend is four digits, and it had been
+   reading "$115…" since the bar arrived. */
 .list.recent .row { grid-template-columns: calc(56px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(30px * var(--z)) calc(40px * var(--z)) calc(44px * var(--z)) calc(104px * var(--z)); }
 .list.active .row { grid-template-columns: minmax(0, 1fr) calc(40px * var(--z)) calc(52px * var(--z)) calc(112px * var(--z)); }
 .list.agents .row { grid-template-columns: calc(12px * var(--z)) minmax(calc(70px * var(--z)), 1fr) calc(76px * var(--z)) minmax(0, 2fr) calc(96px * var(--z)) calc(60px * var(--z)); }
-.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(72px * var(--z)) calc(178px * var(--z)); }
+.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
 /* a model read from the index, not the transcript: only as fresh as the last index run */
 .list.roster .row .stale .mchip { color: var(--ink-3); } .list.roster .row .stale .sw { opacity: .55; }
 .list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(122px * var(--z)); }
@@ -187,11 +192,11 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list.days .row { grid-template-columns: calc(74px * var(--z)) calc(52px * var(--z)) calc(34px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
 .list.sessions .row { grid-template-columns: calc(84px * var(--z)) calc(92px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(28px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(44px * var(--z)); }
 /* the agents page: every job, live first — state · name · model · where · doing · live · sess · req · $ · last · peers · attach */
-.list.jobsall .row { grid-template-columns: calc(78px * var(--z)) calc(150px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(36px * var(--z)) calc(52px * var(--z)) calc(72px * var(--z)) calc(72px * var(--z)) calc(120px * var(--z)) calc(178px * var(--z)); }
+.list.jobsall .row { grid-template-columns: calc(78px * var(--z)) calc(150px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(36px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(72px * var(--z)) calc(120px * var(--z)) calc(178px * var(--z)); }
 .list.jobsall .row.gone { color: var(--ink-3); }
 .list.jobsall .row .stale .mchip { color: var(--ink-3); } .list.jobsall .row .stale .sw { opacity: .55; }
 /* a job's sessions, by local day: at · well · model · opening · turns · req · out · $ */
-.list.jobsess .row { grid-template-columns: calc(48px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(40px * var(--z)) calc(44px * var(--z)) calc(48px * var(--z)) calc(104px * var(--z)); }
+.list.jobsess .row { grid-template-columns: calc(62px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(40px * var(--z)) calc(44px * var(--z)) calc(48px * var(--z)) calc(104px * var(--z)); }
 .list .row.day { background: var(--surface-2); color: var(--ink-2); font: 500 var(--fs-115) var(--mono); display: flex; gap: 12px; }
 .list .row.day .sp { margin-left: auto; color: var(--ink-3); }
 .kind.respawn { color: var(--warn); background: none; border: 1px solid color-mix(in oklab, var(--warn) 55%, transparent); margin-right: 6px; }

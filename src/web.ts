@@ -283,7 +283,7 @@ export function createApp(
         </div>
       </div>
       <div class="panel"><div class="scroll list jobsess">
-        <div class="row head"><span>at</span><span>well</span><span>model</span><span>opening</span><span class="num">turns</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
+        <div class="row head"><span title="when the session began — these rows are grouped under the day they started">started</span><span>well</span><span>model</span><span>opening</span><span class="num">turns</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
         ${[...days].map(
           ([d, ss]) => html`<div class="row day"><span>${dayName(d)}${d === today ? ' · today' : ''}</span><span>${ss.length} session${ss.length === 1 ? '' : 's'}</span><span class="sp">${usd(ss.reduce((n, s) => n + (s.usage?.listUsd ?? 0), 0))}</span></div>
           ${ss.map(
@@ -371,7 +371,7 @@ export function createApp(
       <div class="area-recent panel">
         <header><h2>recent</h2><span>newest by last activity</span><span class="sp small"><a href="/search">search →</a></span></header>
         <div class="scroll list recent">
-          <div class="row head"><span>at</span><span>who · where</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
+          <div class="row head"><span title="the newest activity in the job — what this list is sorted by">last</span><span>who · where</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
           ${recent.map(
             (s) => html`<div class="row">
               <span class="mono"><a href="/session/${s.sessionId}">${timeEl(s.lastAt)}</a></span>
