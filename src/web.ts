@@ -295,7 +295,7 @@ export function createApp(
               <span class="num">${s.prompts || ''}</span>
               <span class="num">${s.usage?.requests ?? ''}</span>
               <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
-              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd)}${usd(s.usage.listUsd)}` : ''}</span>
+              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd, { of: 'priciest session in this job' })}${usd(s.usage.listUsd)}` : ''}</span>
             </div>`,
           )}`,
         )}
@@ -383,7 +383,7 @@ export function createApp(
               <span class="num hide">${s.prompts || ''}</span>
               <span class="num hide">${s.usage?.requests ?? ''}</span>
               <span class="num hide">${s.usage ? tok(s.usage.output) : ''}</span>
-              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxRecent)}${usd(s.usage.listUsd)}` : ''}</span>
+              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxRecent, { of: 'priciest session listed' })}${usd(s.usage.listUsd)}` : ''}</span>
             </div>`,
           )}
         </div>
@@ -402,7 +402,7 @@ export function createApp(
               })()}</span>
               <span>${modelChip(a.model, { title: modelTitle(a) })}</span>
               <span class="muted">${a.detail ?? ''}</span>
-              <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
+              <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive, { of: 'largest live context here', fmt: tok })}${tok(a.liveTokens)}` : ''}</span>
               <span class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</span>
             </div>`,
           )}
@@ -417,7 +417,7 @@ export function createApp(
               <span class="mono"><a href="/well/${encodeURIComponent(r.key)}" title="${r.key}">${shortWell(r.key)}</a></span>
               <span class="num">${r.sessions}</span>
               <span class="num">${r.requests.toLocaleString()}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxActive)}${usd(r.listUsd)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxActive, { of: 'busiest well listed' })}${usd(r.listUsd)}</span>
             </div>`,
           )}
         </div>
@@ -490,7 +490,7 @@ export function createApp(
               <span class="num">${tok(r.output)}</span>
               <span class="num">${tok(r.thinking)}</span>
               <span>${feeOf(r)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxModel)}${usd(r.listUsd)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxModel, { of: 'priciest model in this window' })}${usd(r.listUsd)}</span>
             </div>`,
           )}
         </div>
@@ -505,7 +505,7 @@ export function createApp(
               <span class="num">${r.requests.toLocaleString()}</span>
               <span class="num">${r.sessions}</span>
               <span class="num">${tok(r.output)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxWell)}${usd(r.listUsd)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxWell, { of: 'priciest well in this window' })}${usd(r.listUsd)}</span>
             </div>`,
           )}
         </div>
@@ -521,7 +521,7 @@ export function createApp(
               <span class="num">${r.sessions}</span>
               <span class="num">${tok(r.output)}</span>
               <span class="num">${tok(r.thinking)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxBucket)}${usd(r.listUsd)}</span>
+              <span class="num">${ibar(r.listUsd ?? 0, maxBucket, { of: `priciest ${w.by} in this window` })}${usd(r.listUsd)}</span>
             </div>`,
           )}
         </div>
@@ -572,7 +572,7 @@ export function createApp(
             <span class="num">${s.usage?.requests ?? ''}</span>
             <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
             <span class="num">${s.usage ? tok(s.usage.cacheRead) : ''}</span>
-            <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd)}${usd(s.usage.listUsd)}` : ''}</span>
+            <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd, { of: 'priciest session in this well' })}${usd(s.usage.listUsd)}` : ''}</span>
             <span class="num">${s.usage?.spawns || ''}</span>
           </div>`,
         )}
@@ -850,10 +850,10 @@ function agentRow(r: AgentJob, maxLive: number, maxUsd: number) {
       a ? html`${shortPath(a.cwd)}${a.branch ? ` @ ${a.branch}` : ''}` : j ? html`${shortWell(j.wells[0] ?? '')}${j.wells.length > 1 ? html` <span class="kind">+${j.wells.length - 1}</span>` : ''}` : ''
     }</span>
     <span title="${a?.detail ?? j?.latest?.firstPrompt ?? ''}">${a?.detail ?? (j?.latest ? opener(j.latest) : '')}</span>
-    <span class="num">${a?.liveTokens != null ? html`${ibar(a.liveTokens, maxLive)}${tok(a.liveTokens)}` : ''}</span>
+    <span class="num">${a?.liveTokens != null ? html`${ibar(a.liveTokens, maxLive, { of: 'largest live context here', fmt: tok })}${tok(a.liveTokens)}` : ''}</span>
     <span class="num" title="${j ? `${j.incarnations} incarnation${j.incarnations === 1 ? '' : 's'}` : ''}">${j?.sessions ?? ''}</span>
     <span class="num">${j ? j.requests.toLocaleString() : (a?.indexed?.requests ?? '')}</span>
-    <span class="num">${j ? html`${ibar(j.listUsd ?? 0, maxUsd)}${usd(j.listUsd)}` : a?.indexed ? usd(a.indexed.listUsd) : ''}</span>
+    <span class="num">${j ? html`${ibar(j.listUsd ?? 0, maxUsd, { of: 'priciest job here' })}${usd(j.listUsd)}` : a?.indexed ? usd(a.indexed.listUsd) : ''}</span>
     <span class="mono">${sid && (j || a?.indexed) ? html`<a href="/session/${sid}" title="${lastAt ?? ''}">${lastAt ? agoText(Date.now() - Date.parse(lastAt)) : 'yes'}</a>` : sid ? html`<span class="muted">not yet</span>` : ''}</span>
     <span>${(j?.peers ?? []).map((p, i) => html`${i ? ' ' : ''}<a href="/thread/${encodeURIComponent(name ?? r.key ?? '')}/${encodeURIComponent(p)}">@${p}</a>`)}</span>
     <span class="mono">${a?.attach ?? ''}</span>

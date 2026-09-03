@@ -4,7 +4,7 @@ import { sentHead } from './envelope'
 import { cut, day, hm, hms, ms, tok, usd, zone } from './fmt'
 import { modelDrift, modelLabel } from './model'
 import type { Annotations, Instruction, SpawnGroup, Trace, Transaction } from './trace'
-import { rateFor } from './usage'
+import { priceOf, rateFor } from './usage'
 import { type FeeSplit, feeBar, ibar, modelChip } from './viz'
 
 // The block view (docs/EXPLORER.md, design pass 2026-09-01): one session
@@ -148,10 +148,11 @@ function feeByClass(txs: Transaction[]): Fee {
         f.unpriced++
         continue
       }
-      f.input += (r.input * rate.input) / 1e6
-      f.cacheWrite += (r.cacheWrite * rate.cacheWrite) / 1e6
-      f.cacheRead += (r.cacheRead * rate.cacheRead) / 1e6
-      f.output += (r.output * rate.output) / 1e6
+      const usd = priceOf(r, rate)
+      f.input += usd.input
+      f.cacheWrite += usd.cacheWrite
+      f.cacheRead += usd.cacheRead
+      f.output += usd.output
     }
   return f
 }
@@ -263,8 +264,8 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
     <span class="num">${x.instructions.length || ''}</span>
     <span class="num ${x.errors ? 'err' : ''}">${x.errors || ''}</span>
     <span class="num">${x.output ? tok(x.output) : ''}</span>
-    <span class="num">${x.listUsd ? html`${ibar(x.listUsd, o.maxUsd)}${usd(x.listUsd)}` : ''}</span>
-    <span class="num">${x.ms ? html`${ibar(x.ms, o.maxMs)}${ms(x.ms)}` : ''}</span>`
+    <span class="num">${x.listUsd ? html`${ibar(x.listUsd, o.maxUsd, { of: 'priciest transaction in this session' })}${usd(x.listUsd)}` : ''}</span>
+    <span class="num">${x.ms ? html`${ibar(x.ms, o.maxMs, { of: 'longest transaction in this session', fmt: ms })}${ms(x.ms)}` : ''}</span>`
   const body = x.instructions.length || x.reply || x.notes.length || x.received.length
   if (!body) return html`<div class="row txn ${x.kind}" id="${id}">${cells}</div>`
   return html`<details class="txn ${x.kind} ${x.message ? 'hasmsg' : ''}" id="${id}" ${o.open ? 'open' : ''}>

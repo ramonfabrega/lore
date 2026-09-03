@@ -98,7 +98,7 @@ import { z } from 'zod'
 // pairs the two halves. A job is keyed on its bridge id (jobs.ts): the root
 // changes on a respawn, the daemon id dies with the job, the bridge id is in
 // every transcript and every commit trailer.
-const SCHEMA_VERSION = 18
+const SCHEMA_VERSION = 19
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -232,6 +232,12 @@ CREATE TABLE IF NOT EXISTS requests(
   effort TEXT,
   input_tokens INTEGER NOT NULL DEFAULT 0,
   cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  -- The TTL split of cache_write_tokens (v19). A 5-minute write bills at
+  -- 1.25× base input, a 1-hour write at 2×. Records older than the
+  -- envelope field carry neither, so the two need not sum to the total —
+  -- usage.ts prices the unsplit remainder at the 5-minute rate.
+  cache_write_5m_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
   cache_read_tokens INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
   thinking_tokens INTEGER NOT NULL DEFAULT 0,

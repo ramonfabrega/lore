@@ -16,6 +16,7 @@ function seedDb(): Database {
     CREATE VIRTUAL TABLE messages_fts USING fts5(text);
     CREATE TABLE requests(id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, message_id TEXT NOT NULL, ts TEXT, model TEXT,
       effort TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_5m_tokens INTEGER NOT NULL DEFAULT 0, cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
       cache_read_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
       thinking_tokens INTEGER NOT NULL DEFAULT 0, stop_reason TEXT, UNIQUE(session_id, message_id));
   `)

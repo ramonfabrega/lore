@@ -63,10 +63,21 @@ export function stackedBars(labels: string[], series: Series[], o: { height?: nu
 }
 
 // An inline bar beside a number: the value as a fraction of the largest in
-// its list, so the heavy row reads before its digits do.
-export function ibar(v: number, max: number) {
+// its list, so the heavy row reads before its digits do. It is a RANK within
+// the rows on screen, never a fraction of a budget or a total — filter the
+// list and every bar rescales.
+//
+// `of` names that denominator in the tooltip, because nothing else on the
+// page does: unlabelled, the mark reads as a progress bar toward some
+// unstated whole. Callers pass the noun for the row ('priciest session
+// listed'); `fmt` renders the denominator's value in the column's own unit.
+// The mark stays aria-hidden — its number sits beside it in the same cell,
+// so a screen reader gets the value, not a redundant bar.
+export function ibar(v: number, max: number, o: { of?: string; fmt?: (n: number) => string } = {}) {
   if (!(max > 0)) return html``
-  return html`<span class="ib" aria-hidden="true"><i style="width:${Math.max(2, Math.round((v / max) * 100))}%"></i></span>`
+  const pct = Math.round((v / max) * 100)
+  const shown = (o.fmt ?? usd)(max)
+  return html`<span class="ib" aria-hidden="true" title="${pct}% of the ${o.of ?? 'largest row listed'} (${shown})"><i style="width:${Math.max(2, pct)}%"></i></span>`
 }
 
 // The list-price fee split by token class as one stacked bar. Dollars, not

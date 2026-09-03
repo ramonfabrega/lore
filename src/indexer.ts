@@ -59,8 +59,9 @@ export async function buildIndex(
   const deleteRequests = db.prepare('DELETE FROM requests WHERE session_id = ?')
   const insertRequest = db.prepare(
     `INSERT INTO requests(session_id, message_id, ts, model, effort, input_tokens, cache_write_tokens,
-       cache_read_tokens, output_tokens, thinking_tokens, stop_reason)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       cache_write_5m_tokens, cache_write_1h_tokens, cache_read_tokens, output_tokens,
+       thinking_tokens, stop_reason)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
 
   let sessionsIndexed = 0
@@ -151,6 +152,8 @@ export async function buildIndex(
               const r = p.request
               seen.input = Math.max(seen.input, r.input)
               seen.cacheWrite = Math.max(seen.cacheWrite, r.cacheWrite)
+              seen.cacheWrite5m = Math.max(seen.cacheWrite5m, r.cacheWrite5m)
+              seen.cacheWrite1h = Math.max(seen.cacheWrite1h, r.cacheWrite1h)
               seen.cacheRead = Math.max(seen.cacheRead, r.cacheRead)
               seen.output = Math.max(seen.output, r.output)
               seen.thinking = Math.max(seen.thinking, r.thinking)
@@ -161,7 +164,7 @@ export async function buildIndex(
           }
         }
         for (const r of requests.values()) {
-          insertRequest.run(s.sessionId, r.id, r.ts, r.model, r.effort, r.input, r.cacheWrite, r.cacheRead, r.output, r.thinking, r.stopReason)
+          insertRequest.run(s.sessionId, r.id, r.ts, r.model, r.effort, r.input, r.cacheWrite, r.cacheWrite5m, r.cacheWrite1h, r.cacheRead, r.output, r.thinking, r.stopReason)
         }
         upsertSession.run(wellId, s.sessionId, s.size, s.mtimeMs, count, firstTs, lastTs, lastActivityTs, jobSessionId, bridgeKey)
       })

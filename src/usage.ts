@@ -22,24 +22,51 @@ export type Grouping = (typeof GROUPINGS)[number]
 
 // USD per million tokens. Longest model-id prefix wins; within a model the
 // latest `from` on or before the request's day applies (the first rate covers
-// anything earlier). cache write is the 5-minute ephemeral rate (1.25× input).
-type Rate = { from: string; input: number; cacheWrite: number; cacheRead: number; output: number }
+// anything earlier). A cache write has TWO prices — 1.25× base input at the
+// 5-minute TTL, 2× at the 1-hour TTL — so it is two rates, not one. This
+// fleet writes 1-hour entries exclusively (measured 2026-09-02: 100% of
+// 177.9M write tokens over 30 days), and pricing all of them at the
+// 5-minute rate ran the whole ledger 6.5% low.
+type Rate = { from: string; input: number; cacheWrite5m: number; cacheWrite1h: number; cacheRead: number; output: number }
 const RATES: Record<string, Rate[]> = {
-  'claude-fable-5-1': [{ from: '2026-09-01', input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 }],
-  'claude-mythos-5-1': [{ from: '2026-09-01', input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 }],
-  'claude-fable-5': [{ from: '2026-01-01', input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 }],
-  'claude-mythos-5': [{ from: '2026-01-01', input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 }],
-  'claude-opus-5': [{ from: '2026-01-01', input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
-  'claude-opus-4-8': [{ from: '2026-01-01', input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
-  'claude-opus-4-7': [{ from: '2026-01-01', input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
-  'claude-opus-4-6': [{ from: '2026-01-01', input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
-  'claude-opus-4-5': [{ from: '2025-11-01', input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 }],
-  'claude-opus-4-1': [{ from: '2025-01-01', input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 }],
-  'claude-opus-4': [{ from: '2025-01-01', input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 }],
-  'claude-sonnet-5': [{ from: '2026-01-01', input: 2, cacheWrite: 2.5, cacheRead: 0.2, output: 10 }],
-  'claude-sonnet-4': [{ from: '2025-01-01', input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 }],
-  'claude-haiku-4-5': [{ from: '2025-01-01', input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 }],
-  'claude-haiku-3-5': [{ from: '2025-01-01', input: 0.8, cacheWrite: 1, cacheRead: 0.08, output: 4 }],
+  'claude-fable-5-1': [{ from: '2026-09-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50 }],
+  'claude-mythos-5-1': [{ from: '2026-09-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50 }],
+  'claude-fable-5': [{ from: '2026-01-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, output: 50 }],
+  'claude-mythos-5': [{ from: '2026-01-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, output: 50 }],
+  'claude-opus-5': [{ from: '2026-01-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
+  'claude-opus-4-8': [{ from: '2026-01-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
+  'claude-opus-4-7': [{ from: '2026-01-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
+  'claude-opus-4-6': [{ from: '2026-01-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
+  'claude-opus-4-5': [{ from: '2025-11-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
+  'claude-opus-4-1': [{ from: '2025-01-01', input: 15, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5, output: 75 }],
+  'claude-opus-4': [{ from: '2025-01-01', input: 15, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5, output: 75 }],
+  'claude-sonnet-5': [{ from: '2026-01-01', input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.2, output: 10 }],
+  'claude-sonnet-4': [{ from: '2025-01-01', input: 3, cacheWrite5m: 3.75, cacheWrite1h: 6, cacheRead: 0.3, output: 15 }],
+  'claude-haiku-4-5': [{ from: '2025-01-01', input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.1, output: 5 }],
+  'claude-haiku-3-5': [{ from: '2025-01-01', input: 0.8, cacheWrite5m: 1, cacheWrite1h: 1.6, cacheRead: 0.08, output: 4 }],
+}
+
+// The list price of one request's (or one cell's) token classes, in dollars.
+// The ONE place the four classes meet their rates — block.ts and trace.ts
+// price through here too, so a rate change cannot land in one view and miss
+// another.
+//
+// `cacheWrite1h` is the 1-hour slice of `cacheWrite`, not a separate total.
+// Whatever is left over prices at the 5-minute rate, which is exactly right
+// in both cases: when the envelope carried the TTL split the remainder IS
+// the 5-minute slice, and when it did not (records older than the field)
+// the pre-v19 behaviour is preserved rather than a zero invented.
+export type ClassTokens = { input: number; cacheWrite: number; cacheWrite1h?: number; cacheRead: number; output: number }
+export type ClassUsd = { input: number; cacheWrite: number; cacheRead: number; output: number }
+export function priceOf(t: ClassTokens, rate: Rate): ClassUsd {
+  const w1h = Math.min(t.cacheWrite1h ?? 0, t.cacheWrite)
+  const w5m = t.cacheWrite - w1h
+  return {
+    input: (t.input * rate.input) / 1e6,
+    cacheWrite: (w5m * rate.cacheWrite5m + w1h * rate.cacheWrite1h) / 1e6,
+    cacheRead: (t.cacheRead * rate.cacheRead) / 1e6,
+    output: (t.output * rate.output) / 1e6,
+  }
 }
 
 export function rateFor(model: string | null, day: string | null): Rate | null {
@@ -60,6 +87,7 @@ const Tokens = {
   sessions: z.number(),
   input: z.number(),
   cacheWrite: z.number(),
+  cacheWrite1h: z.number(),
   cacheRead: z.number(),
   output: z.number(),
   thinking: z.number(),
@@ -76,6 +104,9 @@ export type UsageRow = {
   sessions: number
   input: number
   cacheWrite: number
+  // The 1-hour slice of cacheWrite — the expensive half of the write bill,
+  // and the reason two rows with equal cacheWrite can price differently.
+  cacheWrite1h: number
   cacheRead: number
   output: number
   thinking: number
@@ -130,7 +161,7 @@ export function listUsage(
   const where: string[] = ['1=1']
   const params: (string | number)[] = []
   if (opts.sessions) {
-    if (opts.sessions.length === 0) return { by: opts.by, count: 0, totals: { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0 }, rows: [], unpriced: [], note: '' }
+    if (opts.sessions.length === 0) return { by: opts.by, count: 0, totals: { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0 }, rows: [], unpriced: [], note: '' }
     where.push(`r.session_id IN (${opts.sessions.map(() => '?').join(',')})`)
     params.push(...opts.sessions)
   }
@@ -170,6 +201,7 @@ export function listUsage(
         `SELECT ${KEY_SQL[opts.by]} AS key, r.model AS model, substr(r.ts, 1, 10) AS day,
                 COUNT(*) AS requests, COUNT(DISTINCT r.session_id) AS sessions,
                 SUM(r.input_tokens) AS input, SUM(r.cache_write_tokens) AS cacheWrite,
+                SUM(r.cache_write_1h_tokens) AS cacheWrite1h,
                 SUM(r.cache_read_tokens) AS cacheRead, SUM(r.output_tokens) AS output,
                 SUM(r.thinking_tokens) AS thinking
          FROM requests r
@@ -189,6 +221,7 @@ export function listUsage(
     sessions: 0,
     input: 0,
     cacheWrite: 0,
+    cacheWrite1h: 0,
     cacheRead: 0,
     output: 0,
     thinking: 0,
@@ -200,18 +233,12 @@ export function listUsage(
     row.requests += c.requests
     row.input += c.input
     row.cacheWrite += c.cacheWrite
+    row.cacheWrite1h += c.cacheWrite1h
     row.cacheRead += c.cacheRead
     row.output += c.output
     row.thinking += c.thinking
     const rate = rateFor(c.model, c.day)
-    const cellUsd = rate
-      ? {
-          input: (c.input * rate.input) / 1e6,
-          cacheWrite: (c.cacheWrite * rate.cacheWrite) / 1e6,
-          cacheRead: (c.cacheRead * rate.cacheRead) / 1e6,
-          output: (c.output * rate.output) / 1e6,
-        }
-      : null
+    const cellUsd = rate ? priceOf(c, rate) : null
     if (cellUsd) {
       row.listUsd = (row.listUsd ?? 0) + cellUsd.input + cellUsd.cacheWrite + cellUsd.cacheRead + cellUsd.output
     } else {
@@ -313,13 +340,14 @@ export function listUsage(
       sessions: t.sessions + r.sessions,
       input: t.input + r.input,
       cacheWrite: t.cacheWrite + r.cacheWrite,
+      cacheWrite1h: t.cacheWrite1h + r.cacheWrite1h,
       cacheRead: t.cacheRead + r.cacheRead,
       output: t.output + r.output,
       thinking: t.thinking + r.thinking,
       ...(r.spawns != null ? { spawns: (t.spawns ?? 0) + r.spawns, spawnOutput: (t.spawnOutput ?? 0) + (r.spawnOutput ?? 0) } : {}),
       listUsd: t.listUsd == null || r.listUsd == null ? null : round2(t.listUsd + r.listUsd),
     }),
-    { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0 },
+    { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0 },
   )
   // `sessions` in totals is distinct across the whole filter, not a sum of rows.
   if (opts.by !== 'session') {
@@ -342,7 +370,7 @@ export function listUsage(
     rows: page,
     unpriced: [...unpriced].sort(),
     note:
-      'listUsd is a list-price equivalent at first-party API rates (dated; cache reads priced per model/date) — not a bill. Main-thread requests only; spawns/spawnOutput join the subagent observatory (`lore spawns` for detail). Open a session with `lore session <id>`.',
+      'listUsd is a list-price equivalent at first-party API rates (dated; cache reads priced per model/date, cache writes per TTL — 1.25x base input at 5 minutes, 2x at 1 hour, with cacheWrite1h the 1-hour slice of cacheWrite) — not a bill. Main-thread requests only; spawns/spawnOutput join the subagent observatory (`lore spawns` for detail). Open a session with `lore session <id>`.',
   }
 }
 

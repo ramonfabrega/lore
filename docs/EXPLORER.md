@@ -545,7 +545,14 @@ steering; every rule in `style.ts`, no client code.
   standard thin themed bar). Cost: a 6px gutter per panel.
 - **Metered cells.** A cell with an inline bar is a flex row — bar pinned
   left, number right — so bars line up down a column whatever the number's
-  width (they used to ride the right-aligned number, jittering 1ch).
+  width (they used to ride the right-aligned number, jittering 1ch). The
+  bar is a **rank among the rows on screen**, never a fraction of a budget:
+  100% is whatever the biggest row in that list happens to be, and
+  filtering the list rescales every bar. Nothing on the page said so, and
+  unlabelled it read as a progress bar toward an unstated whole, so each
+  one carries a tooltip naming its own denominator (2026-09-02) —
+  "38% of the priciest session listed ($12.40)". Callers pass that noun;
+  the mark stays `aria-hidden`, since its number is in the same cell.
 - **Timeline type is HTML.** The SVG holds geometry only, `preserveAspectRatio:
   none`, x in permille and y in CSS px — widths are time spans, so the
   horizontal stretch is exact. Lane labels, band numbers, and the axis are

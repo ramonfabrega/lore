@@ -28,10 +28,23 @@ export type Entry = { lane: Lane; text: string; toolName?: string; toolUseId?: s
 // is just the per-line reading. thinking is a sub-count of output (billed as
 // output), carried so the profile can show how much of the output was
 // reasoning.
+//
+// `cache_creation` splits `cache_creation_input_tokens` by TTL, and the two
+// TTLs are priced differently: a 5-minute write is 1.25× base input, a
+// 1-hour write is 2×. The fleet writes 1-hour entries exclusively, so
+// pricing every write at the 5-minute rate ran the whole ledger ~6% low.
+// The field is a later addition — records that predate it carry the total
+// and no split, and usage.ts prices that remainder at the 5-minute rate.
 const RequestUsage = z.object({
   input_tokens: z.number().nullish(),
   cache_creation_input_tokens: z.number().nullish(),
   cache_read_input_tokens: z.number().nullish(),
+  cache_creation: z
+    .object({
+      ephemeral_5m_input_tokens: z.number().nullish(),
+      ephemeral_1h_input_tokens: z.number().nullish(),
+    })
+    .nullish(),
   output_tokens: z.number().nullish(),
   output_tokens_details: z.object({ thinking_tokens: z.number().nullish() }).nullish(),
 })
@@ -52,6 +65,10 @@ export type Request = {
   stopReason: string | null
   input: number
   cacheWrite: number
+  // The TTL split of cacheWrite. Zero on records older than the field —
+  // never assume cacheWrite5m + cacheWrite1h === cacheWrite.
+  cacheWrite5m: number
+  cacheWrite1h: number
   cacheRead: number
   output: number
   thinking: number
@@ -205,6 +222,8 @@ export function parseLine(line: string): Parsed | null {
           stopReason: m.stop_reason ?? null,
           input: u.input_tokens ?? 0,
           cacheWrite: u.cache_creation_input_tokens ?? 0,
+          cacheWrite5m: u.cache_creation?.ephemeral_5m_input_tokens ?? 0,
+          cacheWrite1h: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
           cacheRead: u.cache_read_input_tokens ?? 0,
           output: u.output_tokens ?? 0,
           thinking: u.output_tokens_details?.thinking_tokens ?? 0,

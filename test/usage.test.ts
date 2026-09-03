@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { parseLine } from '../src/parse'
-import { listUsage, rateFor } from '../src/usage'
+import { listUsage, priceOf, rateFor } from '../src/usage'
 import { day } from '../src/fmt'
 
 // The real shape, from an autonomous-loop transcript (2026-09-01): assistant
@@ -23,6 +23,9 @@ function assistantLine(opts: {
   output: number
   thinking?: number
   stop?: string
+  // The TTL split the harness records alongside the write total. Omitted
+  // reproduces a record older than the `cache_creation` field.
+  ttl?: '5m' | '1h'
 }): string {
   return JSON.stringify({
     type: 'assistant',
@@ -37,6 +40,14 @@ function assistantLine(opts: {
       usage: {
         input_tokens: opts.input ?? 2,
         cache_creation_input_tokens: opts.cacheWrite,
+        ...(opts.ttl
+          ? {
+              cache_creation: {
+                ephemeral_5m_input_tokens: opts.ttl === '5m' ? opts.cacheWrite : 0,
+                ephemeral_1h_input_tokens: opts.ttl === '1h' ? opts.cacheWrite : 0,
+              },
+            }
+          : {}),
         cache_read_input_tokens: opts.cacheRead,
         output_tokens: opts.output,
         output_tokens_details: { thinking_tokens: opts.thinking ?? 0 },
@@ -57,10 +68,23 @@ describe('parseLine: request envelope', () => {
       stopReason: 'tool_use',
       input: 2,
       cacheWrite: 100,
+      cacheWrite5m: 0,
+      cacheWrite1h: 0,
       cacheRead: 5000,
       output: 40,
       thinking: 10,
     })
+  })
+
+  test('cache_creation splits the write by TTL', () => {
+    const p = parseLine(
+      assistantLine({ ts: '2026-09-01T10:00:00Z', id: 'msg_h', model: 'claude-fable-5-1', cacheWrite: 2253, cacheRead: 69052, output: 453, ttl: '1h' }),
+    )!
+    expect(p.request).toMatchObject({ cacheWrite: 2253, cacheWrite5m: 0, cacheWrite1h: 2253 })
+    const q = parseLine(
+      assistantLine({ ts: '2026-09-01T10:00:00Z', id: 'msg_5', model: 'claude-fable-5-1', cacheWrite: 900, cacheRead: 10, output: 5, ttl: '5m' }),
+    )!
+    expect(q.request).toMatchObject({ cacheWrite: 900, cacheWrite5m: 900, cacheWrite1h: 0 })
   })
 
   test('a <synthetic> harness record is not a request', () => {
@@ -114,6 +138,36 @@ describe('rateFor', () => {
     expect(rateFor('claude-sonnet-4-6', '2026-09-01')?.input).toBe(3)
     expect(rateFor('claude-unknown-9', '2026-09-01')).toBeNull()
     expect(rateFor(null, '2026-09-01')).toBeNull()
+  })
+
+  test('a cache write has two prices: 1.25x input at 5m, 2x at 1h', () => {
+    for (const id of ['claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']) {
+      const r = rateFor(id, '2026-09-02')!
+      expect(r.cacheWrite5m).toBeCloseTo(r.input * 1.25, 10)
+      expect(r.cacheWrite1h).toBeCloseTo(r.input * 2, 10)
+    }
+  })
+})
+
+describe('priceOf', () => {
+  const rate = rateFor('claude-opus-5', '2026-09-02')!
+
+  test('the 1h slice bills at 2x and the remainder at 1.25x', () => {
+    const both = priceOf({ input: 0, cacheWrite: 1_000_000, cacheWrite1h: 400_000, cacheRead: 0, output: 0 }, rate)
+    // 600k × $6.25/M + 400k × $10/M
+    expect(both.cacheWrite).toBeCloseTo(3.75 + 4, 10)
+    const allHour = priceOf({ input: 0, cacheWrite: 1_000_000, cacheWrite1h: 1_000_000, cacheRead: 0, output: 0 }, rate)
+    expect(allHour.cacheWrite).toBeCloseTo(10, 10)
+  })
+
+  test('a write with no TTL split keeps the 5-minute rate (pre-v19 records)', () => {
+    const old = priceOf({ input: 0, cacheWrite: 1_000_000, cacheRead: 0, output: 0 }, rate)
+    expect(old.cacheWrite).toBeCloseTo(6.25, 10)
+  })
+
+  test('a 1h slice larger than the total cannot inflate the fee', () => {
+    const bad = priceOf({ input: 0, cacheWrite: 100, cacheWrite1h: 999, cacheRead: 0, output: 0 }, rate)
+    expect(bad.cacheWrite).toBeCloseTo((100 * rate.cacheWrite1h) / 1e6, 10)
   })
 })
 
@@ -169,6 +223,27 @@ describe('listUsage', () => {
   // the two halves must never drift apart.
   const REQ_TS = ['2026-08-30T10:00:00Z', '2026-08-30T11:00:00Z', '2026-09-01T10:00:00Z', '2026-09-01T12:00:00Z']
   const localDays = [...new Set(REQ_TS.map((t) => day(t)))].sort()
+
+  test('the TTL split rides on the row and moves the price', () => {
+    const db = openDb(':memory:')
+    db.exec(`
+      INSERT INTO wells(id, dir, real_path) VALUES (1, '-u-code-a', '/u/code/a');
+      INSERT INTO sessions(well_id, session_id, size, mtime_ms, first_ts) VALUES
+        (1, 'hour', 0, 0, '2026-09-01T10:00:00Z'), (1, 'legacy', 0, 0, '2026-09-01T10:00:00Z');
+      INSERT INTO requests(session_id, message_id, ts, model, input_tokens, cache_write_tokens, cache_write_1h_tokens, cache_read_tokens, output_tokens, thinking_tokens) VALUES
+        ('hour', 'h1', '2026-09-01T10:00:00Z', 'claude-opus-5', 0, 1000000, 1000000, 0, 0, 0),
+        ('legacy', 'l1', '2026-09-01T10:00:00Z', 'claude-opus-5', 0, 1000000, 0, 0, 0, 0);
+    `)
+    const r = listUsage(db, { by: 'session', limit: 10 })
+    const hour = r.rows.find((x) => x.key === 'hour')!
+    const legacy = r.rows.find((x) => x.key === 'legacy')!
+    expect(hour.cacheWrite1h).toBe(1_000_000)
+    expect(legacy.cacheWrite1h).toBe(0)
+    // The same million write tokens: $10 at the 1-hour rate, $6.25 unsplit.
+    expect(hour.listUsd).toBe(10)
+    expect(legacy.listUsd).toBe(6.25)
+    expect(r.totals.cacheWrite1h).toBe(1_000_000)
+  })
 
   test('time groupings sort ascending and page from the newest end', () => {
     const r = listUsage(seedDb(), { by: 'day', limit: 1 })

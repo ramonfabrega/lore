@@ -5,7 +5,7 @@ import { cut, cutProse } from './fmt'
 import { JOB_KEY_SQL } from './job'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
-import { rateFor } from './usage'
+import { priceOf, rateFor } from './usage'
 
 // The explorer's block view (docs/EXPLORER.md): one session decomposed into
 // transactions (one user prompt and everything until the next), each with
@@ -33,6 +33,7 @@ const Req = z.object({
   effort: z.string().nullable(),
   input: z.number(),
   cacheWrite: z.number(),
+  cacheWrite1h: z.number(),
   cacheRead: z.number(),
   output: z.number(),
   thinking: z.number(),
@@ -111,6 +112,10 @@ export type Step = {
   stopReason: string | null
   input: number
   cacheWrite: number
+  // The 1-hour slice of cacheWrite: a 1-hour write bills at 2× base input
+  // against the 5-minute write's 1.25×, so the fee cannot be recomputed
+  // from cacheWrite alone. block.ts prices its fee bar off these steps.
+  cacheWrite1h: number
   cacheRead: number
   output: number
   thinking: number
@@ -288,6 +293,7 @@ export function getTrace(
         db
           .prepare(
             `SELECT message_id AS messageId, ts, model, effort, input_tokens AS input, cache_write_tokens AS cacheWrite,
+                    cache_write_1h_tokens AS cacheWrite1h,
                     cache_read_tokens AS cacheRead, output_tokens AS output, thinking_tokens AS thinking, stop_reason AS stopReason
              FROM requests WHERE session_id = ?`,
           )
@@ -438,8 +444,7 @@ export function getTrace(
       const q = reqs.get(id)
       // Rate dates are vendor facts and stay UTC (block.ts).
       const rate = rateFor(q?.model ?? null, q?.ts?.slice(0, 10) ?? null)
-      const listUsd =
-        q && rate ? (q.input * rate.input + q.cacheWrite * rate.cacheWrite + q.cacheRead * rate.cacheRead + q.output * rate.output) / 1e6 : null
+      const listUsd = q && rate ? Object.values(priceOf(q, rate)).reduce((a, v) => a + v, 0) : null
       return {
         requestId: id,
         ts: q?.ts ?? null,
@@ -447,6 +452,7 @@ export function getTrace(
         stopReason: q?.stopReason ?? null,
         input: q?.input ?? 0,
         cacheWrite: q?.cacheWrite ?? 0,
+        cacheWrite1h: q?.cacheWrite1h ?? 0,
         cacheRead: q?.cacheRead ?? 0,
         output: q?.output ?? 0,
         thinking: q?.thinking ?? 0,
