@@ -1,6 +1,7 @@
 import { html } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
-import { tok, usd } from './fmt'
+import { TZ } from './config'
+import { day, dayName, hm, hms, stamp, tok, usd, volatile, when, whenForms, whenShort, zone } from './fmt'
 import { modelClass, modelLabel, orderModels } from './model'
 
 // The explorer's marks (dataviz skill): thin bars, 2px surface gaps, per-mark
@@ -129,6 +130,54 @@ export function spark(values: number[], o: { height?: number; title?: (i: number
     const bh = Math.max(1, (v / max) * h)
     return html`<rect class="mark ${i === n - 1 ? 'last' : ''}" x="${i * 10}" y="${(h - bh).toFixed(2)}" width="8" height="${bh.toFixed(2)}">${o.title ? html`<title>${o.title(i)}</title>` : ''}</rect>`
   })}</svg></div>`
+}
+
+// ---- instants (fmt.ts's ladder) ---------------------------------------
+
+// Every instant the pages show goes through here, and the shape is the one
+// every design system lands on: a short readable text, a machine-readable
+// `datetime`, and the full absolute — seconds and zone — in the tooltip. The
+// pages used to put a raw UTC ISO string in that tooltip while the text beside
+// it was local, so hovering "17:45" said "22:45": the localization reached
+// the text and not its own tooltip.
+//
+// A stamp within two days also carries the texts it will read as tomorrow and
+// the day after (`whenForms`), which is what style.ts's tick script selects
+// among. Server-rendered text stays the truth of the page — the script only
+// keeps it current — so a page still reads correctly with no JS at all, and
+// the tests still assert on rendered HTML rather than on what a browser
+// would have done to it.
+export function timeEl(ts: string | null, o: { full?: boolean; title?: string; now?: number } = {}) {
+  if (!ts) return html``
+  const short = !o.full
+  const now = o.now ?? Date.now()
+  const text = short ? whenShort(ts, TZ, now) : when(ts, TZ, now)
+  const title = o.title ? `${o.title} · ${stamp(ts)}` : stamp(ts)
+  if (!volatile(ts, now)) return html`<time datetime="${ts}" title="${title}">${text}</time>`
+  return html`<time datetime="${ts}" title="${title}" data-forms="${whenForms(ts, TZ, now, short).join('|')}">${text}</time>`
+}
+
+// The wall clock, with the same tooltip and no ladder: for rows that already
+// sit under a date — a session's own transactions, a thread's messages, a
+// listing grouped by day header — where "2 sep" would repeat what the group
+// above it says and a clock is the only thing that varies down the column.
+export function clockEl(ts: string | null, o: { sec?: boolean } = {}) {
+  if (!ts) return html``
+  const t = o.sec ? hms(ts) : hm(ts)
+  if (!t) return html``
+  return html`<time datetime="${ts}" title="${stamp(ts)}">${t}</time>`
+}
+
+// A span — a session, a thread, a job — as its header states it. Both ends
+// are absolute and of the SAME kind: a header is identity, not freshness, and
+// "28m ago → 23:03" makes a reader do subtraction to learn what the second
+// half already told them. The date appears once unless the span crosses one,
+// and the zone comes from the FIRST instant rather than from the reading, so
+// a July session read in January says EDT.
+export function spanEl(a: string | null, b: string | null, o: { sec?: boolean } = {}) {
+  if (!a) return html``
+  const crossed = day(b) !== day(a)
+  return html`${dayName(day(a))} ${clockEl(a, o)} → ${crossed ? html`${dayName(day(b))} ` : ''}${clockEl(b, o)} ${zone(a)}`
 }
 
 // ---- model identity (model.ts) ----------------------------------------

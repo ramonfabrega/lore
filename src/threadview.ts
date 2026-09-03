@@ -1,7 +1,8 @@
 import { html } from 'hono/html'
-import { cut, day, hms, ms, zone } from './fmt'
+import { cut, day, dayName, ms, stamp } from './fmt'
 import type { Thread, ThreadPair, ThreadRow } from './thread'
 import { tile } from './block'
+import { clockEl, spanEl, timeEl } from './viz'
 
 // The thread page: two agents, one ledger. Neither side is nested inside
 // the other — the design decision the session page could not make, because
@@ -47,7 +48,7 @@ export function threadBody(t: Thread) {
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/thread">threads</a></p>
     <h1 class="mono">${sideChip(t.a, 'a')} <span class="muted">↔</span> ${sideChip(t.b, 'b')}</h1>
-    <p class="muted">${first ? html`${day(first)} ${hms(first)} → ${day(last) === day(first) ? '' : `${day(last)} `}${hms(last)} ${zone()} · ${ms(span)}` : 'no messages'}
+    <p class="muted">${first ? html`${spanEl(first, last, { sec: true })} · ${ms(span)}` : 'no messages'}
       · ${messages} messages${yours ? html` · <a href="?you=0" title="the agents' traffic alone">${yours} of yours</a>` : ''} · ${A}: ${t.a.sessions.length} session${t.a.sessions.length === 1 ? '' : 's'} · ${B}: ${t.b.sessions.length} session${t.b.sessions.length === 1 ? '' : 's'}</p>
     <div class="tiles">
       ${dirs.map(([dir, d]) => tile(html`${dir} · <span title="opened a turn">${d.turn} turn</span> · <span title="read inside a running turn">${d.midTurn} mid-turn</span>${d.lost ? html` · <span class="err">${d.lost} lost</span>` : ''}${d.unseen ? html` · ${d.unseen} unseen` : ''}`, String(d.sent)))}
@@ -64,7 +65,7 @@ export function threadBody(t: Thread) {
 
 function threadRow(r: ThreadRow, t: Thread, prev: ThreadRow | undefined) {
   const newDay = !prev || day(prev.ts) !== day(r.ts)
-  const at = html`<span class="at">${newDay ? html`<span class="d">${day(r.ts)}</span>` : ''}${hms(r.ts)}</span>`
+  const at = html`<span class="at">${newDay ? html`<span class="d">${dayName(day(r.ts))}</span>` : ''}${clockEl(r.ts, { sec: true })}</span>`
   // The user's words sit in the column of the agent they were typed to, in
   // plain ink, with no arrow: they did not cross between the agents.
   if (r.kind === 'you') {
@@ -125,7 +126,7 @@ function landingCell(r: ThreadRow) {
   if (r.landed === 'lost') return html`<div class="land"><span class="kind err">lost</span> <span class="small muted">${cut(r.error ?? 'the ack refused it', 160)}</span></div>`
   if (!r.received) return html`<div class="land"><span class="kind land unseen">unseen</span> <span class="small muted">acked, no copy indexed</span></div>`
   const href = `/session/${r.received.session}${r.received.promptId ? `#tx-${r.received.promptId}` : ''}`
-  return html`<div class="land"><a class="kind land ${r.landed}" href="${href}" title="${r.landed === 'turn' ? 'opened a turn' : 'read inside a running turn'} in ${r.received.session} at ${hms(r.received.ts)}">${r.landed}</a> <a class="mono small" href="${href}">${short(r.received.session)}</a></div>`
+  return html`<div class="land"><a class="kind land ${r.landed}" href="${href}" title="${r.landed === 'turn' ? 'opened a turn' : 'read inside a running turn'} in ${r.received.session} at ${stamp(r.received.ts)}">${r.landed}</a> <a class="mono small" href="${href}">${short(r.received.session)}</a></div>`
 }
 
 // The index: every pair that has talked, most recent first.
@@ -142,8 +143,8 @@ export function threadsBody(pairs: ThreadPair[]) {
         (p) => html`<div class="row">
           <span class="mono"><a href="/thread/${encodeURIComponent(p.a)}/${encodeURIComponent(p.b)}">@${short(p.a)} ↔ @${short(p.b)}</a></span>
           <span class="num">${p.messages}</span>
-          <span class="mono muted">${p.first ? `${day(p.first)} ${hms(p.first)}` : ''}</span>
-          <span class="mono">${p.last ? `${day(p.last)} ${hms(p.last)}` : ''}</span>
+          <span class="mono muted">${timeEl(p.first, { full: true })}</span>
+          <span class="mono">${timeEl(p.last, { full: true })}</span>
         </div>`,
       )}
       ${pairs.length === 0 ? html`<p class="muted" style="padding:10px">no cross-session messages indexed yet</p>` : ''}

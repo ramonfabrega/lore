@@ -114,6 +114,24 @@ true, it is a design change, not a bug fix.
   unpinned run has the two disagreeing. CI runs UTC on all three platforms
   and a second POSIX-only pass at UTC+14, because UTC hides every day-bucket
   regression — there a local day and a UTC day are the same day.
+- **One stamp shape, and it ticks.** Every instant a page shows goes through
+  the `fmt.ts` ladder: `now` / `12m ago` / `17:45` / `yest` / `2 sep` /
+  `2 sep 25`, 24h, with the full `2 sep 26 17:45:40 EST` in a `<time>`
+  tooltip. The duration head lives one HOUR, not the 7 days (Atlassian,
+  Close) or 30 (GitHub's `<relative-time>`) the feed-shaped systems use — a
+  lore column holds twenty rows from one afternoon, and "4d ago" twenty times
+  destroys what a clock carries. "Yesterday" is the previous CALENDAR day,
+  never "under 24 hours". Pick by surface: `whenShort` for a grid column,
+  `when` for prose, `spanEl` for a header (both ends absolute, the date
+  stated once, the zone taken from the instant not from the reading),
+  `clockEl` where a date already sits above. Bucket KEYS stay ISO — they are
+  sorted, filtered, typed into `?since=` and must read the same as
+  `lore usage --by day` prints. The browser never reimplements the ladder:
+  `whenForms` ships the three texts an instant will read as tomorrow and
+  after, and `style.ts`'s `tick` — the explorer's ONLY client-side script —
+  selects among them, owning nothing but the duration head. A tooltip is
+  never a raw ISO string: that shipped for months, saying 22:45 beside a
+  17:45 it was explaining.
 
 ## Data-model invariants
 

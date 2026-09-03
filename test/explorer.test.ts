@@ -226,7 +226,8 @@ describe('jobs: commit trailer → transcript', () => {
   test('nav shows when the server last refreshed the index', async () => {
     const db = await seeded()
     const app = createApp(() => db, { wikiDir: '/nonexistent', indexed: { at: new Date(Date.now() - 120_000).toISOString(), busy: false, error: null } })
-    expect(await (await app.request('/usage')).text()).toContain('indexed 2 min ago')
+    expect(await (await app.request('/usage')).text()).toContain('indexed <time datetime=')
+    expect(await (await app.request('/usage')).text()).toContain('>2m ago</time>')
     const stale = createApp(() => db, { wikiDir: '/nonexistent' })
     expect(await (await stale.request('/usage')).text()).toContain('last `lore index`')
   })

@@ -1,11 +1,11 @@
 import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
 import { sentHead } from './envelope'
-import { cut, day, hm, hms, ms, tok, usd, zone } from './fmt'
+import { cut, hm, hms, ms, tok, usd } from './fmt'
 import { modelDrift, modelLabel } from './model'
 import type { Annotations, Instruction, SpawnGroup, Trace, Transaction } from './trace'
 import { priceOf, rateFor } from './usage'
-import { type FeeSplit, feeBar, ibar, modelChip } from './viz'
+import { clockEl, type FeeSplit, feeBar, ibar, modelChip, spanEl } from './viz'
 
 // The block view (docs/EXPLORER.md, design pass 2026-09-01): one session
 // rendered from `getTrace` alone. Three reads, top to bottom —
@@ -92,7 +92,7 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
     <h1 class="mono">${s.sessionId}${s.name ? html` <span class="kind self" title="this session's agent">@${s.name}</span>` : ''}</h1>
-    <p class="muted">${day(s.first)} ${hms(s.first)} → ${day(s.last) === day(s.first) ? '' : `${day(s.last)} `}${hms(s.last)} ${zone()}
+    <p class="muted">${spanEl(s.first, s.last, { sec: true })}
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobKey ? html` · job <a class="mono" href="/job/${encodeURIComponent(s.jobKey)}" title="${s.jobKey}">${s.name ? `@${s.name}` : s.jobKey.slice(0, 8)}</a>` : ''}
       ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
         peers.length ? html` · thread with ${peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(s.name ?? s.sessionId)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
@@ -257,7 +257,7 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
   // is work, not preamble. Harness injections wear what they are and stay
   // muted.
   const chip = x.kind === 'relay' ? `@${x.tag ?? 'peer'}` : x.kind === 'meta' ? (x.tag ?? 'meta') : x.kind === 'command' ? 'command' : null
-  const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${hms(x.ts)}</span>
+  const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${clockEl(x.ts, { sec: true })}</span>
     <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${receivedBadges(x.received)}${sentBadges(x.sent)}</span>
     ${o.mixed ? html`<span class="m">${modelChip(x.model)}</span>` : ''}
     <span class="num">${x.steps || ''}</span>
@@ -341,7 +341,7 @@ function receivedRow(r: Transaction['received'][number]) {
   const who = r.kind === 'relay' ? html`<b>← @${r.tag ?? 'peer'}</b>` : r.kind === 'prompt' ? html`<b>← you</b>` : html`<span class="muted">← ${r.tag ?? 'harness'}</span>`
   const long = r.text.length > RECV_PREVIEW
   return html`<tr class="recv ${r.kind}">
-    <td class="mono muted t">${hms(r.ts)}</td>
+    <td class="mono muted t">${clockEl(r.ts, { sec: true })}</td>
     <td class="mono tool"><i class="sw agent"></i>${r.kind === 'relay' ? 'message' : r.kind === 'prompt' ? 'you' : 'harness'}</td>
     <td class="in" colspan="4">${who} <span class="msgline">${cut(r.text, RECV_PREVIEW)}</span>${long ? html`<details><summary class="muted small">full message</summary><p class="msgfull">${r.text}</p></details>` : ''}</td>
   </tr>`
@@ -413,7 +413,7 @@ function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, 
     const fee = newStep && ix.requestId ? stepFee.get(ix.requestId) : undefined
     const out = ix.tool === 'SendMessage'
     rows.push(html`<tr class="${family(ix.tool)} ${ix.error ? 'err' : ''} ${newStep ? 'step' : ''} ${out ? 'sent' : ''}">
-      <td class="mono muted t">${hms(ix.ts)}</td>
+      <td class="mono muted t">${clockEl(ix.ts, { sec: true })}</td>
       <td class="mono tool"><i class="sw ${family(ix.tool)}"></i>${ix.tool}</td>
       <td class="mono small in">${out ? sentCell(ix) : inputHead(ix.tool, ix.input)}</td>
       <td class="num muted">${ms(ix.ms)}</td>

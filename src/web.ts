@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { z } from 'zod'
 import { type AgentRow, listAgents } from './agents'
-import { WIKI_DIR } from './config'
+import { TZ, WIKI_DIR } from './config'
 import { JOB_KEY_SQL, type JobKind, type JobRow, jobNames, jobsOfSessions, listJobs, resolveJob } from './job'
 import type { Lane } from './parse'
 import { FAMILIES, type ModelFamily, modelFamily } from './model'
@@ -14,10 +14,10 @@ import { searchSessions } from './search'
 import { resolveSessionId } from './session'
 import { listSessions, modelsFor } from './sessions'
 import { annotationLine, sessionBody, tile } from './block'
-import { cut, day, hm, tok, todayLocal, usd } from './fmt'
+import { cut, day, dayName, stamp, tok, todayLocal, usd } from './fmt'
 import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
-import { CSS } from './style'
-import { bars, feeBar, feeLegend, ibar, modelChip, modelChips, spark, stackedBars } from './viz'
+import { CSS, tick } from './style'
+import { bars, clockEl, feeBar, feeLegend, ibar, modelChip, modelChips, spanEl, spark, stackedBars, timeEl } from './viz'
 import { getThread, listThreads } from './thread'
 import { threadBody, threadsBody } from './threadview'
 import { getTrace } from './trace'
@@ -171,7 +171,7 @@ export function createApp(
                   <a class="mono" href="/session/${s.sessionId}">${s.sessionId.slice(0, 8)}</a>
                   <a class="mono" href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a>
                   ${modelChips(models.get(s.sessionId), { max: 2 })}
-                  <span class="muted mono">${s.first ?? ''} → ${s.last ?? ''}</span>
+                  <span class="muted mono">${dayName(s.first)}${s.last !== s.first ? html` → ${dayName(s.last)}` : ''}</span>
                   <span class="muted">${s.hits} hit${s.hits === 1 ? '' : 's'}</span>
                 </div>
                 <div class="prompt">${s.firstPrompt ? opener(s) : ''}</div>
@@ -269,7 +269,7 @@ export function createApp(
         <p class="muted">${kindText}${job.nameSource === 'peer' ? html` · <span class="kind peer" title="the daemon has forgotten this job; its peers called it this">named by its peers</span>` : ''}${
           job.jobId ? html` · daemon ${job.jobId} · <span class="kind st-${job.state ?? ''}">${job.state ?? '?'}</span> as of the last index` : job.kind === 'session' ? '' : ' · not at the daemon'
         }
-          · ${day(job.first)} → ${day(job.last)} · in ${job.wells.map((w, i) => html`${i ? ', ' : ''}<a class="mono" href="/well/${encodeURIComponent(w)}" title="${w}">${shortWell(w)}</a>`)}
+          · ${spanEl(job.first, job.last)} · in ${job.wells.map((w, i) => html`${i ? ', ' : ''}<a class="mono" href="/well/${encodeURIComponent(w)}" title="${w}">${shortWell(w)}</a>`)}
           ${job.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
             job.peers.length ? html` · thread with ${job.peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(job.name ?? job.key)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
           }</p>
@@ -285,10 +285,10 @@ export function createApp(
       <div class="panel"><div class="scroll list jobsess">
         <div class="row head"><span>at</span><span>well</span><span>model</span><span>opening</span><span class="num">turns</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
         ${[...days].map(
-          ([d, ss]) => html`<div class="row day"><span>${d}${d === today ? ' · today' : ''}</span><span>${ss.length} session${ss.length === 1 ? '' : 's'}</span><span class="sp">${usd(ss.reduce((n, s) => n + (s.usage?.listUsd ?? 0), 0))}</span></div>
+          ([d, ss]) => html`<div class="row day"><span>${dayName(d)}${d === today ? ' · today' : ''}</span><span>${ss.length} session${ss.length === 1 ? '' : 's'}</span><span class="sp">${usd(ss.reduce((n, s) => n + (s.usage?.listUsd ?? 0), 0))}</span></div>
           ${ss.map(
             (s) => html`<div class="row">
-              <span class="mono"><a href="/session/${s.sessionId}" title="${s.firstAt ?? ''}">${hm(s.firstAt)}</a></span>
+              <span class="mono"><a href="/session/${s.sessionId}">${clockEl(s.firstAt)}</a></span>
               <span class="mono"><a href="/well/${encodeURIComponent(s.well)}" title="${s.well}">${shortWell(s.well)}</a></span>
               <span>${modelChips(s.models)}</span>
               <span title="${s.firstPrompt ?? ''}">${s.respawn ? html`<span class="kind respawn" title="a new root: the daemon respawned the job here (${s.root ?? ''})">respawn</span>` : ''}${opener(s)}</span>
@@ -374,7 +374,7 @@ export function createApp(
           <div class="row head"><span>at</span><span>who · where</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
           ${recent.map(
             (s) => html`<div class="row">
-              <span class="mono"><a href="/session/${s.sessionId}" title="${s.lastAt ?? ''}">${whenLabel(s.lastAt, today)}</a></span>
+              <span class="mono"><a href="/session/${s.sessionId}">${timeEl(s.lastAt)}</a></span>
               <span class="mono" title="${s.well}${s.sessions > 1 ? ` · ${s.sessions} sessions in this window` : ''}">${
                 s.name ? html`<a href="/job/${encodeURIComponent(s.key)}">@${s.name}</a>` : html`<a href="/well/${encodeURIComponent(s.well)}">${shortWell(s.well)}</a>`
               }${s.sessions > 1 ? html` <span class="kind">×${s.sessions}</span>` : ''}</span>
@@ -564,8 +564,14 @@ export function createApp(
         <div class="row head"><span>first</span><span>last</span><span>model</span><span>opening</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num">list $</span><span class="num">spawns</span></div>
         ${rows.map(
           (s) => html`<div class="row">
-            <span class="mono"><a href="/session/${s.sessionId}">${s.first ?? ''}</a></span>
-            <span class="mono muted" title="${s.idleUntil ? `open until ${s.idleUntil} with no work` : ''}">${s.last ?? ''}${s.idleUntil ? ' ⋯' : ''}</span>
+            <span class="mono"><a href="/session/${s.sessionId}">${timeEl(s.firstAt)}</a></span>
+            <span class="mono muted" title="${s.idleUntil ? `open until ${dayName(s.idleUntil)} with no work` : ''}">${
+              // the span rule (viz.ts) split across two cells: the date is
+              // stated once, and `last` narrows to a clock when the session
+              // ended on the day it began — which is nearly all of them, and
+              // "19 aug → 19 aug" told the reader nothing twice.
+              s.last === s.first ? clockEl(s.lastAt) : timeEl(s.lastAt)
+            }${s.idleUntil ? ' ⋯' : ''}</span>
             <span>${modelChips(s.models)}</span>
             <span title="${s.firstPrompt ?? ''}">${opener(s)}</span>
             <span class="num">${s.prompts || ''}</span>
@@ -674,14 +680,6 @@ function stat(label: string, value: string, days: UsageRow[], pick: (d: UsageRow
   )}</div>`
 }
 
-// "14:32" for today, "08-29" otherwise — both on the local clock, and
-// compared against a local `today`. Slicing the ISO string here while the
-// buckets elsewhere went local is exactly how a page starts contradicting
-// itself, so this reads through the same formatters everything else does.
-function whenLabel(ts: string | null, today: string): string {
-  if (!ts) return ''
-  return day(ts) === today ? hm(ts) : day(ts).slice(5)
-}
 
 // The day chart: list $ stacked by model FAMILY (model.ts). Stacking by
 // exact id meant the colours were assigned by rank within the window — the
@@ -838,7 +836,7 @@ function agentRow(r: AgentJob, maxLive: number, maxUsd: number) {
   const sid = a?.sessionId ?? j?.latest?.sessionId ?? null
   const lastAt = j?.last ?? a?.indexed?.last ?? null
   const cls = a ? a.state : gone ? 'gone' : ''
-  return html`<div class="row ${cls}" title="${a ? `started ${a.startedAt.slice(0, 16)}${a.updatedAt ? ` · updated ${a.updatedAt.slice(0, 16)}` : ''}` : j ? `${j.first?.slice(0, 10) ?? ''} → ${j.last?.slice(0, 10) ?? ''} · ${j.kind} ${j.key}` : ''}">
+  return html`<div class="row ${cls}" title="${a ? `started ${stamp(a.startedAt)}${a.updatedAt ? ` · updated ${stamp(a.updatedAt)}` : ''}` : j ? `${stamp(j.first)} → ${stamp(j.last)} · ${j.kind} ${j.key}` : ''}">
     <span title="${a?.tempo ?? ''}${a?.waitingFor ? ` · waiting for ${a.waitingFor}` : ''}">${
       a ? html`<span class="dot st-${a.state}"></span> ${a.state}` : j?.jobId ? html`<span class="muted">${j.state ?? ''}</span>` : html`<span class="muted" title="the daemon no longer lists this job">gone</span>`
     }</span>
@@ -854,7 +852,7 @@ function agentRow(r: AgentJob, maxLive: number, maxUsd: number) {
     <span class="num" title="${j ? `${j.incarnations} incarnation${j.incarnations === 1 ? '' : 's'}` : ''}">${j?.sessions ?? ''}</span>
     <span class="num">${j ? j.requests.toLocaleString() : (a?.indexed?.requests ?? '')}</span>
     <span class="num">${j ? html`${ibar(j.listUsd ?? 0, maxUsd, { of: 'priciest job here' })}${usd(j.listUsd)}` : a?.indexed ? usd(a.indexed.listUsd) : ''}</span>
-    <span class="mono">${sid && (j || a?.indexed) ? html`<a href="/session/${sid}" title="${lastAt ?? ''}">${lastAt ? agoText(Date.now() - Date.parse(lastAt)) : 'yes'}</a>` : sid ? html`<span class="muted">not yet</span>` : ''}</span>
+    <span class="mono">${sid && (j || a?.indexed) ? html`<a href="/session/${sid}">${lastAt ? timeEl(lastAt) : 'yes'}</a>` : sid ? html`<span class="muted">not yet</span>` : ''}</span>
     <span>${(j?.peers ?? []).map((p, i) => html`${i ? ' ' : ''}<a href="/thread/${encodeURIComponent(name ?? r.key ?? '')}/${encodeURIComponent(p)}">@${p}</a>`)}</span>
     <span class="mono">${a?.attach ?? ''}</span>
   </div>`
@@ -867,29 +865,26 @@ function tallyWellModels(rows: { models: { model: string; requests: number }[] }
   return [...n].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests || (a.model < b.model ? -1 : 1))
 }
 
-function agoText(msAgo: number): string {
-  if (msAgo < 60_000) return 'just now'
-  if (msAgo < 3_600_000) return `${Math.round(msAgo / 60_000)} min ago`
-  if (msAgo < 48 * 3_600_000) return `${(msAgo / 3_600_000).toFixed(1)} h ago`
-  return `${Math.round(msAgo / 86_400_000)} d ago`
-}
-
 type Layout = 'one' | 'head' | 'root' | 'usage'
 function page(
   title: string,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   opts: { q?: string; indexedAt?: string | null; indexError?: string | null; layout?: Layout; nav?: string; bare?: boolean; theme?: string | null } = {},
 ) {
+  // The freshness LED: colour is the staleness signal (fresh under a quarter
+  // hour), so the text beside it is the same ladder every other stamp wears —
+  // "indexed 3m ago" while it is warm, "indexed yest 03:12" when it is not,
+  // and ticking, because it is the stamp most likely to be read off a page
+  // that has been open a while.
   const agoMs = opts.indexedAt ? Date.now() - Date.parse(opts.indexedAt) : null
-  const ago = agoMs != null ? agoText(agoMs) : null
   const layout = opts.layout ?? 'one'
   const theme = opts.theme === 'light' || opts.theme === 'dark' ? opts.theme : null
   const link = (href: string, label: string) => html`<a href="${href}" class="${opts.nav === label ? 'on' : ''}">${label}</a>`
   const nav = html`<nav class="nav">
     ${link('/', 'lore')} ${link('/usage', 'usage')} ${link('/agents', 'agents')} ${link('/thread', 'threads')}
     <form method="get" action="/search" class="navsearch"><input type="search" name="q" value="${opts.q ?? ''}" placeholder="search sessions…" /></form>
-    <span class="muted small" title="${opts.indexedAt ?? 'the server has not refreshed the index; pages show the last lore index'}"><span class="led ${opts.indexError ? 'err' : agoMs != null && agoMs < 15 * 60_000 ? 'fresh' : ''}"></span>${
-      opts.indexError ? html`<span class="err">index refresh failed</span>` : ago ? `indexed ${ago}` : 'index: last `lore index`'
+    <span class="muted small" title="${opts.indexedAt ? '' : 'the server has not refreshed the index; pages show the last lore index'}"><span class="led ${opts.indexError ? 'err' : agoMs != null && agoMs < 15 * 60_000 ? 'fresh' : ''}"></span>${
+      opts.indexError ? html`<span class="err">index refresh failed</span>` : opts.indexedAt ? html`indexed ${timeEl(opts.indexedAt)}` : 'index: last `lore index`'
     }</span>
   </nav>`
   // layout-one wraps a plain document body in a single scrolling panel;
@@ -904,6 +899,7 @@ function page(
 <link rel="icon" href="${FAVICON}" />
 <style>${raw(CSS)}</style>
 </head>
-<body>${nav}<main class="layout-${layout}">${main}</main></body>
+<body>${nav}<main class="layout-${layout}">${main}</main>
+<script>${raw(tick(TZ, todayLocal()))}</script></body>
 </html>`
 }

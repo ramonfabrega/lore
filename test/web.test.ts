@@ -107,6 +107,28 @@ describe('explorer routes', () => {
     const app = await seededApp()
     const res = await app.request('/usage')
     expect(res.status).toBe(200)
+    // A usage bucket is a KEY — sorted, filtered, put in a ?since= and typed
+    // into an <input type="date">, and it has to read the same as what
+    // `lore usage --by day` prints. It stays ISO while the stamps around it
+    // went human.
     expect(await res.text()).toContain(day('2026-09-01T10:00:00.000Z'))
+  })
+
+  // The pages localized their text and left their own tooltips in UTC: hover
+  // "17:45" on the front page and it answered "2026-09-02T22:45:40.123Z",
+  // five hours off, in a different format, with milliseconds. Every instant
+  // now goes through one helper that owns both halves, and this is the guard
+  // that no call site quietly grows a raw one back.
+  test('no page puts a raw UTC ISO string in a tooltip', async () => {
+    const app = await seededApp()
+    for (const path of ['/', '/usage', '/agents', `/well/${encodeURIComponent(WELL)}`, '/session/sess-1']) {
+      const text = await (await app.request(path)).text()
+      expect(text, path).not.toMatch(/title="[^"]*\d{4}-\d{2}-\d{2}T\d{2}:/)
+      // and the machine-readable half is on the element where it belongs
+      // (/usage is buckets and /agents an empty roster in this fixture)
+      if (path === '/' || path.startsWith('/well') || path.startsWith('/session')) {
+        expect(text, path).toContain('<time datetime="')
+      }
+    }
   })
 })

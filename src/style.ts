@@ -3,6 +3,49 @@
 // frame, `main` is a grid of panels, and panels scroll internally. Tokens
 // are the dataviz reference palette; text wears text ink, marks wear
 // series hues, status colors are reserved.
+//
+// Below the stylesheet: the explorer's only client-side script (`tick`).
+
+// A relative stamp that does not move is the standing complaint against
+// relative stamps — "1 hour ago" on a page that has been open for three is a
+// lie the reader cannot detect. So every `<time>` the pages emit carries what
+// it will read as later (fmt.ts's `whenForms`) and this re-selects among
+// them. GitHub's <relative-time> does the same job with a singleton observer
+// on an adaptive interval; this is the flat version — one timer, 30s, which
+// is at most half a minute of lag on a display whose finest unit is the
+// minute.
+//
+// The ladder is NOT reimplemented here: the three calendar forms were
+// rendered by the same TypeScript that renders the visible one, and all this
+// computes is the duration head (two thresholds) and which form the calendar
+// has advanced to. `k` is whole local days elapsed since the render, so a
+// page held open past midnight moves 17:45 → yest 17:45 → 2 sep on its own,
+// and past two days the last form is stable forever.
+//
+// `tz` is passed rather than assumed: the reader's browser zone is the
+// server's process zone here (one machine — CLAUDE.md), but the day
+// comparison is the one place that assumption would silently produce a wrong
+// label, and pinning it costs one argument.
+export const tick = (tz: string, renderedDay: string) => `
+(function () {
+  var TZ = ${JSON.stringify(tz)}, DAY0 = ${JSON.stringify(renderedDay)};
+  function paint() {
+    var now = Date.now();
+    var today = new Date(now).toLocaleDateString('en-CA', { timeZone: TZ });
+    var k = Math.round((Date.parse(today) - Date.parse(DAY0)) / 86400000);
+    k = k < 0 ? 0 : k > 2 ? 2 : k;
+    var els = document.querySelectorAll('time[data-forms]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i], age = now - Date.parse(el.dateTime), f = el.dataset.forms.split('|');
+      el.textContent = age >= 0 && age < 45000 ? 'now'
+        : age >= 0 && age < 3600000 ? Math.max(1, Math.round(age / 60000)) + 'm ago'
+        : f[k];
+    }
+  }
+  paint();
+  setInterval(paint, 30000);
+})();
+`
 
 export const CSS = `
 /* Tokens: OKLCH, one cool-tinted neutral scale (hue 265, the cdn pages'),
@@ -41,6 +84,9 @@ a { color: var(--link); text-decoration: none; } a:hover { text-decoration: unde
 h1 { font: 600 var(--fs-16) var(--mono); margin: 0; } h2 { font: 600 var(--fs-125) var(--mono); margin: 0; }
 .muted { color: var(--ink-3); } .err { color: var(--err); } .small { font-size: var(--fs-115); }
 .mono { font-family: var(--mono); font-size: var(--fs-12); }
+/* A stamp is one token: "2 sep 25" must not break across two lines in a
+   narrow column, and a ticking stamp must not reflow the row it sits in. */
+time { white-space: nowrap; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* nav */
@@ -126,10 +172,14 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list .row:not(.head):hover { background: var(--surface-2); }
 .list .row .num { text-align: right; font-family: var(--mono); font-size: var(--fs-12); }
 .list .row.done, .list .row.muted { color: var(--ink-3); }
-.list.recent .row { grid-template-columns: calc(42px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(30px * var(--z)) calc(40px * var(--z)) calc(44px * var(--z)) calc(104px * var(--z)); }
+/* An "at" column is sized for the widest form its list can actually show.
+   "recent" is newest-by-activity, so it reaches "10m ago" and never a year —
+   the roster, which lists jobs deleted last August, is sized for "19 aug 25".
+   A stamp truncated to "1m a…" is worse than one that costs six pixels. */
+.list.recent .row { grid-template-columns: calc(56px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(30px * var(--z)) calc(40px * var(--z)) calc(44px * var(--z)) calc(104px * var(--z)); }
 .list.active .row { grid-template-columns: minmax(0, 1fr) calc(40px * var(--z)) calc(52px * var(--z)) calc(112px * var(--z)); }
 .list.agents .row { grid-template-columns: calc(12px * var(--z)) minmax(calc(70px * var(--z)), 1fr) calc(76px * var(--z)) minmax(0, 2fr) calc(96px * var(--z)) calc(60px * var(--z)); }
-.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
+.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(72px * var(--z)) calc(178px * var(--z)); }
 /* a model read from the index, not the transcript: only as fresh as the last index run */
 .list.roster .row .stale .mchip { color: var(--ink-3); } .list.roster .row .stale .sw { opacity: .55; }
 .list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(122px * var(--z)); }
@@ -137,7 +187,7 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list.days .row { grid-template-columns: calc(74px * var(--z)) calc(52px * var(--z)) calc(34px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
 .list.sessions .row { grid-template-columns: calc(84px * var(--z)) calc(92px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(28px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(44px * var(--z)); }
 /* the agents page: every job, live first — state · name · model · where · doing · live · sess · req · $ · last · peers · attach */
-.list.jobsall .row { grid-template-columns: calc(78px * var(--z)) calc(150px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(36px * var(--z)) calc(52px * var(--z)) calc(72px * var(--z)) calc(64px * var(--z)) calc(120px * var(--z)) calc(178px * var(--z)); }
+.list.jobsall .row { grid-template-columns: calc(78px * var(--z)) calc(150px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(36px * var(--z)) calc(52px * var(--z)) calc(72px * var(--z)) calc(72px * var(--z)) calc(120px * var(--z)) calc(178px * var(--z)); }
 .list.jobsall .row.gone { color: var(--ink-3); }
 .list.jobsall .row .stale .mchip { color: var(--ink-3); } .list.jobsall .row .stale .sw { opacity: .55; }
 /* a job's sessions, by local day: at · well · model · opening · turns · req · out · $ */
@@ -302,6 +352,6 @@ mark { background: color-mix(in oklab, var(--series-1) 22%, transparent); color:
 @media (max-width: 900px) {
   body { overflow: auto; height: auto; } html { height: auto; }
   main { display: flex; flex-direction: column; } .panel { max-height: 70vh; } .panel > .scroll { max-height: 60vh; }
-  .list.recent .row { grid-template-columns: 42px 96px 74px minmax(0, 1fr) 100px; } .list.recent .row > .hide { display: none; }
+  .list.recent .row { grid-template-columns: 56px 96px 74px minmax(0, 1fr) 100px; } .list.recent .row > .hide { display: none; }
 }
 `

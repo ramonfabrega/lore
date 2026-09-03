@@ -46,6 +46,25 @@ sparklines (the dataviz skill's palette). Hono via incur's `fetch` mount, so
 tailnet reaches it as `<host>:<port>/…` (incur mounts the handler; listening
 is `Bun.serve` — the bind address is ours to get right).
 
+### Stamps (landed 2026-09-02)
+
+One ladder, in `fmt.ts`, behind every instant the pages show (CLAUDE.md for
+the rule; the thresholds and their divergence from the feed-shaped systems
+are argued at the code). Three cleanups came with it: the tooltips, which
+were raw UTC ISO strings sitting beside localized text and disagreeing with
+it by the offset; `zone()`, which named the zone of the READING rather than
+of the instant, so a July session read in January claimed EST; and
+`whenLabel`'s `day(ts).slice(5)`, a formatted date cut with a string index.
+
+It is also where the explorer grew its first client-side code — fifteen
+lines, in `style.ts` beside the CSS, on one 30s timer. A relative stamp that
+does not move is the standing argument against relative stamps, so the choice
+was to tick or to stay absolute. It does not reimplement the ladder: the
+server ships the three texts an instant will read as (`whenForms`) and the
+script picks, owning only the duration head. Server-rendered text stays the
+truth of the page — it reads correctly with JS off, and the tests assert on
+HTML rather than on what a browser would have done to it.
+
 - `/` — the control room: today and the week, the day chart by model,
   recent activity folded by JOB (a job /cleared a dozen times today is one
   row, headed by its newest session), the live agents, the active wells.
