@@ -71,6 +71,12 @@ export type AgentRow = {
   startedAt: string
   updatedAt: string | null
   liveTokens: number | null
+  // The context the NEXT turn carries: input + cache read + cache write of
+  // the last assistant request, read from the transcript's tail. This is the
+  // number a /clear decision needs and nothing else surfaces it — liveTokens
+  // is the daemon's cumulative count, which only ever grows. Null when no
+  // transcript was found.
+  ctx: number | null
   children: { id: string; href: string; kind: string }[]
   attach: string | null
   // What is running this conversation (model.ts), and how we know.
@@ -133,6 +139,7 @@ export function joinAgents(
       startedAt: new Date(a.startedAt).toISOString(),
       updatedAt: iso(st?.updatedAt),
       liveTokens: st?.tokens ?? null,
+      ctx: null,
       children: st?.children ?? [],
       attach: a.id ? `claude attach ${a.id}` : null,
       model,
@@ -193,33 +200,60 @@ export async function listAgents(db: Database): Promise<AgentRow[]> {
 // that holds no assistant record answers null rather than a guess — the
 // caller falls back to the index and says so.
 export async function verifyModel(path: string, bytes = 256 * 1024): Promise<string | null> {
+  return (await tailOf(path, bytes)).model
+}
+
+// The last assistant record's model AND its context. The same record
+// carries `usage`, and input + cache_read + cache_creation on it is the
+// window the request was answered from — i.e. what the next turn will
+// carry. The harness streams one record per content block with a running
+// usage, so the LAST assistant record is the one to read; a record whose
+// final usage never landed still names its inputs, which is the half this
+// needs (output is the half that goes missing — see `telemetryPartial`).
+const Usage = z
+  .object({ input_tokens: z.number().optional(), cache_read_input_tokens: z.number().optional(), cache_creation_input_tokens: z.number().optional() })
+  .loose()
+const TailRecord = z.object({ type: z.string().optional(), message: z.object({ model: z.string().optional(), usage: Usage.optional() }).loose().optional() }).loose()
+
+export async function tailOf(path: string, bytes = 256 * 1024): Promise<{ model: string | null; ctx: number | null }> {
+  const none = { model: null, ctx: null }
   const f = Bun.file(path)
   const size = f.size
-  if (!size) return null
+  if (!size) return none
   const text = await (size > bytes ? f.slice(size - bytes) : f).text()
   const lines = text.split('\n')
   const from = size > bytes ? 1 : 0
   for (let i = lines.length - 1; i >= from; i--) {
     const line = lines[i]
     if (!line || !line.includes('"model"')) continue
+    let raw: unknown
     try {
-      const rec = JSON.parse(line) as { type?: string; message?: { model?: string } }
-      if (rec.type === 'assistant' && typeof rec.message?.model === 'string') return rec.message.model
+      raw = JSON.parse(line)
     } catch {
-      // a truncated or non-record line — keep walking back
+      continue // a truncated or non-record line — keep walking back
     }
+    const rec = TailRecord.safeParse(raw)
+    if (!rec.success || rec.data.type !== 'assistant' || typeof rec.data.message?.model !== 'string') continue
+    const u = rec.data.message.usage
+    const ctx = u ? (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) : null
+    return { model: rec.data.message.model, ctx }
   }
-  return null
+  return none
 }
 
-// Verify the LIVE rows only. A finished agent's model is settled and the
-// index already holds it; a working or blocked one is exactly where the
-// index lags, and it is the row a person is reading.
-export async function verifyModels(rows: AgentRow[]): Promise<void> {
+// Read every row's transcript tail once. The MODEL is overwritten for the
+// LIVE rows only — a finished agent's model is settled and the index already
+// holds it; a working or blocked one is exactly where the index lags, and it
+// is the row a person is reading. The CONTEXT is taken for every row that
+// has a transcript, because the rows that most need it are the resting
+// commanders (`done` with a live process, waiting for their next prompt):
+// the one who has to decide on a /clear is the one who cannot feel the
+// window from inside it.
+export async function verifyModels(rows: AgentRow[], projectsDir = PROJECTS_DIR): Promise<void> {
   await Promise.all(
     rows.map(async (r) => {
-      if (r.state !== 'working' && r.state !== 'blocked') return
       if (!r.sessionId) return
+      const live = r.state === 'working' || r.state === 'blocked'
       // Two candidate wells. Worktree entry MOVES the transcript file
       // retroactively — the whole file, pre-entry records included, ends up
       // in the worktree well with nothing left in the parent (confirmed
@@ -229,12 +263,13 @@ export async function verifyModels(rows: AgentRow[]): Promise<void> {
       // `lore index`. Take whichever exists.
       const path = [slugWellDir(r.cwd), r.indexed?.well]
         .filter((w): w is string => !!w)
-        .map((w) => join(PROJECTS_DIR, w, `${r.sessionId}.jsonl`))
+        .map((w) => join(projectsDir, w, `${r.sessionId}.jsonl`))
         .find((p) => existsSync(p))
       if (!path) return
-      const model = await verifyModel(path)
-      if (model) {
-        r.model = model
+      const tail = await tailOf(path)
+      r.ctx = tail.ctx
+      if (live && tail.model) {
+        r.model = tail.model
         r.modelSource = 'transcript'
       }
     }),

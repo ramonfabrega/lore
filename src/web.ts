@@ -217,7 +217,7 @@ export function createApp(
           <span class="sp small">a row is a JOB — an agent across /clears and respawns, keyed on its bridge id · the daemon's roster for what runs now · a deleted job keeps the name its peers gave it · attach in a terminal</span></header>
         ${error ? html`<p class="footnote err">${error}</p>` : ''}
         <div class="scroll list jobsall">
-          <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num">sess</span><span class="num">req</span><span class="num">list $</span><span>last</span><span>peers</span><span>attach</span></div>
+          <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num" title="the context the next turn carries — input + cache read + cache write of the last request, read from the transcript; the number a /clear decision needs">ctx</span><span class="num">sess</span><span class="num">req</span><span class="num">list $</span><span>last</span><span>peers</span><span>attach</span></div>
           ${rows.map((r) => agentRow(r, maxLive, maxUsd))}
         </div>
       </div>`
@@ -403,6 +403,7 @@ export function createApp(
               <span>${modelChip(a.model, { title: modelTitle(a) })}</span>
               <span class="muted">${a.detail ?? ''}</span>
               <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive, { of: 'largest live context here', fmt: tok })}${tok(a.liveTokens)}` : ''}</span>
+              <span class="num ${ctxClass(a.ctx)}" title="${a.ctx != null ? `${a.ctx.toLocaleString()} tokens in the window at the last request` : ''}">${a.ctx != null ? tok(a.ctx) : ''}</span>
               <span class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</span>
             </div>`,
           )}
@@ -745,6 +746,16 @@ function modelLegend(rows: UsageRow[]) {
   return html`<span class="legend small muted">${familiesIn(rows).map((f) => html`<span class="key"><i class="sw m-${f}"></i>${f}</span>`)}</span>`
 }
 
+// The window's fill, as a class the row can colour by. The cap is not on
+// the row — the harness's launch flags carry `opus[1m]` but a bare `opus`
+// has answered 260k-token contexts, so no cap is derived from them; the
+// Claude 5 window is 1M and the bands are absolute against it. 60% is when a
+// commander should plan the /clear, 80% when it is overdue.
+function ctxClass(ctx: number | null | undefined): string {
+  if (ctx == null) return ''
+  return ctx >= 800_000 ? 'ctx-full' : ctx >= 600_000 ? 'ctx-hi' : ''
+}
+
 // A roster row's model, and where the answer came from — a live agent's is
 // read from its transcript, a finished one's from the index, which a
 // mid-session /model switch can outdate.
@@ -849,6 +860,7 @@ function agentRow(r: AgentJob, maxLive: number, maxUsd: number) {
     }</span>
     <span title="${a?.detail ?? j?.latest?.firstPrompt ?? ''}">${a?.detail ?? (j?.latest ? opener(j.latest) : '')}</span>
     <span class="num">${a?.liveTokens != null ? html`${ibar(a.liveTokens, maxLive, { of: 'largest live context here', fmt: tok })}${tok(a.liveTokens)}` : ''}</span>
+    <span class="num ${ctxClass(a?.ctx)}" title="${a?.ctx != null ? `${a.ctx.toLocaleString()} tokens in the window at the last request` : ''}">${a?.ctx != null ? tok(a.ctx) : ''}</span>
     <span class="num" title="${j ? `${j.incarnations} incarnation${j.incarnations === 1 ? '' : 's'}` : ''}">${j?.sessions ?? ''}</span>
     <span class="num">${j ? j.requests.toLocaleString() : (a?.indexed?.requests ?? '')}</span>
     <span class="num">${j ? html`${ibar(j.listUsd ?? 0, maxUsd, { of: 'priciest job here' })}${usd(j.listUsd)}` : a?.indexed ? usd(a.indexed.listUsd) : ''}</span>

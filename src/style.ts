@@ -163,6 +163,7 @@ td.prompt { max-width: 640px; }
 tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .kind { font-size: var(--fs-105); padding: 0 5px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
 .kind.err { color: var(--err); }
+.num.ctx-hi { color: var(--warn); } .num.ctx-full { color: var(--err); font-weight: 500; }
 .kind.st-working { color: var(--series-1); } .kind.st-blocked { color: var(--warn); } .kind.st-failed { color: var(--err); } .kind.st-stopped { color: var(--warn); }
 
 /* dense lists: grid rows, one line each, ellipsis — the console's unit */
@@ -183,8 +184,8 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
    reading "$115…" since the bar arrived. */
 .list.recent .row { grid-template-columns: calc(56px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(30px * var(--z)) calc(40px * var(--z)) calc(44px * var(--z)) calc(104px * var(--z)); }
 .list.active .row { grid-template-columns: minmax(0, 1fr) calc(40px * var(--z)) calc(52px * var(--z)) calc(112px * var(--z)); }
-.list.agents .row { grid-template-columns: calc(12px * var(--z)) minmax(calc(70px * var(--z)), 1fr) calc(76px * var(--z)) minmax(0, 2fr) calc(96px * var(--z)) calc(60px * var(--z)); }
-.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
+.list.agents .row { grid-template-columns: calc(12px * var(--z)) minmax(calc(70px * var(--z)), 1fr) calc(76px * var(--z)) minmax(0, 2fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(60px * var(--z)); }
+.list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
 /* a model read from the index, not the transcript: only as fresh as the last index run */
 .list.roster .row .stale .mchip { color: var(--ink-3); } .list.roster .row .stale .sw { opacity: .55; }
 .list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(122px * var(--z)); }

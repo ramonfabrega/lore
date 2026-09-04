@@ -278,6 +278,16 @@ Where it lands:
   parameter or a notification (CLAUDE.md's fan-out rules) — the roster
   holds itself to it. Two candidate wells are tried, cwd-slug and indexed,
   because a session that enters a worktree has been observed under both.
+  The same tail record carries `usage`, and the roster reads it too: the
+  **ctx** column is input + cache read + cache write of the last request —
+  the window the next turn will carry, which is the number a `/clear`
+  decision needs and which nothing else surfaces (`live tokens` is the
+  daemon's cumulative count and only grows). Read for every row with a
+  transcript, resting commanders included — the one who must decide on a
+  `/clear` is the one who cannot feel the window from inside it. Coloured
+  at 600k (plan it) and 800k (overdue) against the 1M window; no cap is
+  derived from launch flags, since a bare `opus` has answered 260k-token
+  contexts.
 - `/well/<dir>` — a model column per session and the well's own mix as a
   tile; `/job/<id>` — which `/clear` ran on what.
 - `/search` — a chip on each hit's meta line.

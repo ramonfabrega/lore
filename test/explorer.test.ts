@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { joinAgents } from '../src/agents'
+import { joinAgents, tailOf, verifyModels } from '../src/agents'
+import { slugWellDir } from '../src/wells'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { parseLine } from '../src/parse'
@@ -106,6 +107,51 @@ describe('annotations', () => {
   })
 })
 
+describe('transcript tail', () => {
+  const rec = (type: string, model: string, usage: Record<string, number> | undefined, content = 'x') =>
+    JSON.stringify({ type, message: { model, usage, content: [{ type: 'text', text: content }] } })
+
+  test('the last assistant record names the model AND the window the next turn carries', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lore-tail-'))
+    const path = join(dir, 'sess.jsonl')
+    writeFileSync(
+      path,
+      [
+        rec('assistant', 'claude-opus-5', { input_tokens: 5, cache_read_input_tokens: 100_000, cache_creation_input_tokens: 2_000, output_tokens: 40 }),
+        JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'ok' }] } }),
+        // the streamed final record: model on it, usage with the inputs, output never finalized
+        rec('assistant', 'claude-fable-5-1', { input_tokens: 2, cache_read_input_tokens: 388_000, cache_creation_input_tokens: 1_200, output_tokens: 1 }),
+        JSON.stringify({ type: 'attachment', attachment: { type: 'queued_command' } }),
+      ].join('\n') + '\n',
+    )
+    expect(await tailOf(path)).toEqual({ model: 'claude-fable-5-1', ctx: 389_202 })
+    // a tail with no usage still names the model; ctx is honestly null
+    writeFileSync(path, `${rec('assistant', 'claude-opus-5', undefined)}\n`)
+    expect(await tailOf(path)).toEqual({ model: 'claude-opus-5', ctx: null })
+    // an empty file answers nothing rather than a guess
+    writeFileSync(path, '')
+    expect(await tailOf(path)).toEqual({ model: null, ctx: null })
+  })
+
+  test('verifyModels reads ctx for every row with a transcript, and overwrites the model for live rows only', async () => {
+    const projects = mkdtempSync(join(tmpdir(), 'lore-tail-projects-'))
+    const cwd = '/u/code/fun/app'
+    const well = slugWellDir(cwd)
+    mkdirSync(join(projects, well), { recursive: true })
+    for (const sid of ['live-1', 'done-1']) {
+      writeFileSync(join(projects, well, `${sid}.jsonl`), `${rec('assistant', 'claude-fable-5-1', { input_tokens: 1, cache_read_input_tokens: 700_000, cache_creation_input_tokens: 0 })}\n`)
+    }
+    const row = (sessionId: string, state: string) =>
+      ({ id: sessionId, name: sessionId, state, waitingFor: null, detail: null, tempo: null, cwd, branch: null, sessionId, startedAt: '2026-09-01T00:00:00.000Z', updatedAt: null, liveTokens: null, ctx: null, children: [], attach: null, model: 'claude-opus-5', modelSource: 'index' as const, indexed: null })
+    const rows = [row('live-1', 'working'), row('done-1', 'done'), row('missing', 'working')]
+    await verifyModels(rows, projects)
+    expect(rows[0]).toMatchObject({ ctx: 700_001, model: 'claude-fable-5-1', modelSource: 'transcript' })
+    // the resting commander gets its window and keeps its settled model
+    expect(rows[1]).toMatchObject({ ctx: 700_001, model: 'claude-opus-5', modelSource: 'index' })
+    expect(rows[2]).toMatchObject({ ctx: null, model: 'claude-opus-5', modelSource: 'index' })
+  })
+})
+
 describe('agents join', () => {
   test('working, blocked, failed, stopped, done — then by last update; lore side joins by session id; attach is a command', () => {
     const rows = joinAgents(
@@ -141,7 +187,7 @@ describe('explorer pages: search, agents, job, anchors', () => {
     const db = await seeded()
     const app = createApp(() => db, {
       agents: async () => [
-        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, children: [], attach: 'claude attach bbb', model: 'claude-fable-5-1', modelSource: 'transcript', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-fable-5-1', requests: 5 }] } },
+        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, ctx: 640_000, children: [], attach: 'claude attach bbb', model: 'claude-fable-5-1', modelSource: 'transcript', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-fable-5-1', requests: 5 }] } },
       ],
       wikiDir: '/nonexistent',
     })
@@ -159,6 +205,9 @@ describe('explorer pages: search, agents, job, anchors', () => {
     // the roster names the model without opening the session, and says how it knows
     expect(agents).toContain('<i class="sw m-fable"></i>fable-5.1')
     expect(agents).toContain('verified from the transcript')
+    // the window the next turn carries, coloured past 600k — the /clear number
+    expect(agents).toContain('ctx-hi')
+    expect(agents).toContain('640,000 tokens in the window at the last request')
     // A row is a job: the live row merged with the index's job (both
     // sessions under the root), named by the roster, linking the job page.
     expect(agents).toContain(`/job/${JOB}`)
