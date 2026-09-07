@@ -257,6 +257,14 @@ true, it is a design change, not a bug fix.
   on prose or time (the window is a fallback for records older than the
   field). A failed send (`"success":false`, a stale socket after a respawn)
   is NOT a tool error in the harness's eyes: read the ack.
+- **The index outlives its sources, on purpose** — the archive is additive and
+  `lore index` never prunes — so deleting a transcript by hand does NOT
+  unindex it: the session keeps answering `trace`, keeps its tokens in
+  `usage`, keeps its text in the FTS. `lore purge <id>` is the only way out
+  and takes every copy at once (rows across 7 tables + both FTS, the well
+  file and its `<id>/` dir, the archive mirror, and the session's lines in
+  `history.jsonl` — which `index` reloads WHOLESALE every run, so a purge
+  that skips them un-purges itself at the next index). Dry run until `--yes`.
 - Wiki durability is CLI-owned: **every wiki op ends with
   `lore wiki commit`** (hooks don't travel across drivers).
 
