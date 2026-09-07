@@ -34,6 +34,21 @@ await $`bun install --frozen-lockfile`.quiet()
 // TZ pinned: `bun test` forces the JS side to UTC but leaves SQLite's
 // `localtime` on the OS zone, and the day-bucket tests hold the two to each
 // other (CLAUDE.md, "an instant is UTC, a day is local").
+// Typecheck first, and it is not redundant with the tests: `bun test`
+// only parses what the tests import, and cli.ts — 400 lines of verb
+// descriptions, the widest-read prose in the project — is imported by
+// none of them. A stray apostrophe inside a single-quoted description
+// passed 251 green tests and landed on master on 09-07; the build failed
+// afterwards, at install, with the bad commit already pushed. A gate that
+// runs after the push is not a gate.
+console.error('gate: tsc --noEmit')
+const types = await $`bun x tsc --noEmit -p .`.quiet().nothrow()
+if (types.exitCode !== 0) {
+  process.stderr.write(types.stdout)
+  process.stderr.write(types.stderr)
+  process.exit(types.exitCode)
+}
+
 console.error('gate: bun test')
 const tests = await $`bun test`.env({ ...process.env, TZ: 'UTC' }).quiet().nothrow()
 if (tests.exitCode !== 0) {
