@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { ackHead, metaHead, relayHead, type Sent, sentHead } from './envelope'
+import { type ClassRow, type PollShape, type ToolClass, classify, pollShape, requestClass, rollup, taskRef } from './classes'
 import { cut, cutProse } from './fmt'
 import { JOB_KEY_SQL } from './job'
 import { dominantModel, tallyModels } from './model'
@@ -240,6 +241,14 @@ export type Trace = {
   // What served the session, most requests first, and what its fan-out ran on.
   models: { model: string; requests: number }[]
   spawns: SpawnGroup[]
+  // What the session's requests were SPENT ON (classes.ts): per tool class,
+  // requests, output, list price and share. A request costs the same
+  // whatever it does, so this is the lever a lane or a worker has.
+  classes: ClassRow[]
+  // The polling shape (classes.ts): reads of background-task output files,
+  // in consecutive runs (a live guard's shape) and as re-reads however
+  // interleaved (the lint's). `lore polls` is the same over many sessions.
+  polls: PollShape
   transactions: Transaction[]
 }
 
@@ -351,6 +360,12 @@ export function getTrace(
     cur.rows.push(r)
   }
 
+  // Side ledgers across the whole session, in instruction order: which
+  // classes each request's calls fell in, the task each poll-class call
+  // read, and every step — the top-level `classes` and `polls` sum these.
+  const callClasses = new Map<string, ToolClass[]>()
+  const pollSeq: { ref: string | null; ts: string | null }[] = []
+  const allSteps: Step[] = []
   const transactions: Transaction[] = buckets.map((b) => {
     const opener = b.rows.find((r) => r.lane === 'prompt' || r.lane === 'meta' || r.lane === 'relay')
     // A meta opener with no command wrapper (caveats, context dumps) is
@@ -430,6 +445,9 @@ export function getTrace(
         requestId: r.requestId,
       })
       full.push({ tool, inputFull, resultFull: res?.text ?? '', error })
+      const cls = classify(tool, inputFull)
+      if (r.requestId) callClasses.set(r.requestId, [...(callClasses.get(r.requestId) ?? []), cls])
+      pollSeq.push({ ref: cls === 'poll' ? taskRef(tool, inputFull) : null, ts: r.ts })
     }
     const annotations = annotate(full)
     // The closing text is the last text row when nothing was instructed
@@ -459,6 +477,7 @@ export function getTrace(
         listUsd,
       }
     })
+    allSteps.push(...steps)
     const fee = sumFee(steps)
     const first = b.rows[0]?.ts ?? null
     const last = b.rows[b.rows.length - 1]?.ts ?? null
@@ -529,6 +548,8 @@ export function getTrace(
     totals: { ...totals, listUsd: totals.listUsd == null ? null : round2(totals.listUsd) },
     models,
     spawns: spawnGroups,
+    classes: rollup(allSteps, new Map([...callClasses].map(([id, cs]) => [id, requestClass(cs)]))),
+    polls: pollShape(pollSeq),
     transactions: transactions.slice(0, opts.limit).map((x) => ({ ...x, listUsd: x.listUsd == null ? null : round2(x.listUsd) })),
   }
 }

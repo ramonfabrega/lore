@@ -158,6 +158,7 @@ from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 | `lore search <query>` | FTS5 across lanes; `--history` includes the prompt spine. Hyphenated terms fall back to literal match. |
 | `lore spawns` | The subagent observatory: **verified** per-spawn model vs requested (drift flag), boot cost, partial-telemetry honesty. |
 | `lore workflows` | One row per Workflow orchestration run: script meta, agents, tokens, model mix. Drill down: `spawns --workflow <id>`. |
+| `lore polls` | The polling lint: sessions that re-read a background task's output file per turn (every read re-bills the whole context), consecutive runs and re-reads, priced. `lore trace` carries the same per session as `polls`, beside `classes` (what each request was spent on). |
 | `lore tools` | Invocation counts per tool/skill/command — evidence for what ambient config actually earns its context cost. |
 | `lore usage` | The token profile: four billed classes + thinking, by well/session/model/day/week/month, dated list-price equivalent. |
 | `lore trace <id-prefix>` | One session as a block: transactions → steps (fee) + instructions (tool, latency, error) + annotations. `--steps` expands requests. |

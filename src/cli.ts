@@ -15,6 +15,7 @@ import { listSessions } from './sessions'
 import { indexSpawns, listSpawns } from './spawns'
 import { listToolUsage } from './tools'
 import { getThread } from './thread'
+import { listPolls } from './polls'
 import { getTrace } from './trace'
 import { GROUPINGS, listUsage } from './usage'
 import { composeHandler, createApp } from './web'
@@ -127,7 +128,7 @@ cli.command('session', {
 
 cli.command('trace', {
   description:
-    'One session opened like a block (docs/EXPLORER.md): transactions (one turn and everything until the next), each with its steps (API requests), fee (four token classes + thinking, dated list-price `listUsd`), instructions (tool calls with the paired result\'s latency `ms` and `error` flag), the assistant\'s closing text, and wall time. Zero inference — every field is a transcript field or a join. Accepts a unique id prefix. `--steps` expands each transaction\'s requests (model, stop reason, per-request fee). Top level: `models` (what served the session, most requests first) and `spawns` (the fan-out ledger — agent type x verified model x output tokens); each transaction carries the `model` that served most of its steps. `kind` says who opened the turn — `prompt` (the user typed it), `command` (a slash command), `relay` (another SESSION sent it) or `meta` (a harness injection, which opened nothing). `prompt` is the message with the harness envelope taken off and `tag` names what was taken off: the peer for a relay, the injection kind (`task`, `stdout`, `image`, `skill`) for meta. The raw record stays in the index — `lore session --lane relay` still shows it whole. A turn also has an INBOUND half that did not open it: `received[]` is every message read WHILE the turn ran — a peer\'s message (`kind: relay`, `tag` the peer), the user\'s own words typed mid-turn (`kind: prompt`), a task notification (`kind: meta`) — placed at its position among the instructions (`at`), the way `sent[]` places the SendMessage calls; on a long turn most of a peer thread arrives this way. `sent[].agent` is set when the address was one of the session\'s own spawns (a subagent follow-up, not a relay).',
+    'One session opened like a block (docs/EXPLORER.md): transactions (one turn and everything until the next), each with its steps (API requests), fee (four token classes + thinking, dated list-price `listUsd`), instructions (tool calls with the paired result\'s latency `ms` and `error` flag), the assistant\'s closing text, and wall time. Zero inference — every field is a transcript field or a join. Accepts a unique id prefix. `--steps` expands each transaction\'s requests (model, stop reason, per-request fee). Top level: `models` (what served the session, most requests first) and `spawns` (the fan-out ledger — agent type x verified model x output tokens); each transaction carries the `model` that served most of its steps. `kind` says who opened the turn — `prompt` (the user typed it), `command` (a slash command), `relay` (another SESSION sent it) or `meta` (a harness injection, which opened nothing). `prompt` is the message with the harness envelope taken off and `tag` names what was taken off: the peer for a relay, the injection kind (`task`, `stdout`, `image`, `skill`) for meta. The raw record stays in the index — `lore session --lane relay` still shows it whole. A turn also has an INBOUND half that did not open it: `received[]` is every message read WHILE the turn ran — a peer\'s message (`kind: relay`, `tag` the peer), the user\'s own words typed mid-turn (`kind: prompt`), a task notification (`kind: meta`) — placed at its position among the instructions (`at`), the way `sent[]` places the SendMessage calls; on a long turn most of a peer thread arrives this way. `sent[].agent` is set when the address was one of the session\'s own spawns (a subagent follow-up, not a relay). Top-level `classes` says what the requests were SPENT ON — per tool class (`poll` a per-turn read of a background task\'s output file; `wait` a blocking one — Monitor, or an until/while loop around a sleep in ONE call; `read`, `write`, `shell`, `spawn`, `relay`, `other`; `text` a request that called nothing), requests, output, `listUsd` and `share`; a request with several calls takes the highest class, poll first, so its share is a measurement, not a floor. Every request costs about the same whatever it does, so this is the lever a lane or a worker has. Top-level `polls` is the polling shape: `runs`/`longest`/`inRuns` count CONSECUTIVE reads of the same task file (a live guard\'s shape — refuse the third), `rereads` every read past the first however interleaved (the lint\'s), `medianGapS` the seconds between adjacent re-reads. `lore polls` is the same over many sessions.',
   args: z.object({
     id: z.string().describe('Session id or unique prefix (see the sessions listing or `usage --by session`)'),
   }),
@@ -362,6 +363,22 @@ cli.command('tools', {
       limit: options.limit,
     })
     return { count: tools.length, tools }
+  },
+})
+
+cli.command('polls', {
+  description:
+    'The polling lint: every session in the window that read a background task\'s output file, worst first — `lore trace`\'s `polls` over many sessions. A per-turn `cat` of a task\'s output re-bills the whole context per read and buys nothing the harness would not deliver unprompted (`run_in_background` re-invokes the session when the task exits): measured 2026-09-06 on one capture lane, 381 reads at 240k cache-read tokens each, median 4.6 s apart, 63 USD — 41% of the lane\'s spend against 2% for the captures it existed to run. Two shapes per session: `runs`/`longest`/`inRuns` count CONSECUTIVE reads of the same task file with nothing between (the live guard\'s shape — refuse the third; every honest check measured was a run of one or two), `rereads` every read past the first of each file however interleaved (a session alternating between two long jobs never hits three in a row). `pollRequests`/`pollUsd` price the requests that polled. A session that never touched a task file is not a row. Populated by `lore index`.',
+  options: z.object({
+    well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
+    exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
+    since: z.string().optional().describe('Only sessions active on/after this ISO date (activity, not heartbeats)'),
+    limit: z.coerce.number().default(50).describe('Max rows (totals cover every matching session)'),
+  }),
+  alias: { well: 'w', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    return listPolls(db, { well: options.well, exact: options.exact, since: options.since, limit: options.limit })
   },
 })
 

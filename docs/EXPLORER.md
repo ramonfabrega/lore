@@ -33,6 +33,13 @@ such file; their trailers stay unresolved and the page says so.
 - `messages` gains `prompt_id`, `tool_use_id`, `is_error`, `request_id`
   (assistant rows: `message.id`, the join to `requests`).
 - `sessions` gains `job_session_id`.
+- `lore trace <id>` carries `classes` and `polls` at the top level: what the
+  requests were spent on, per tool class (`poll`, `wait`, `read`, `write`,
+  `shell`, `spawn`, `relay`, `other`, `text`), and the polling shape —
+  consecutive same-task-file reads (a guard's shape) and re-reads however
+  interleaved (the lint's). `lore polls` is the lint over many sessions. Born
+  from the 09-06 lane split: a lane request costs the same whatever it does,
+  so spend is context × requests and what a turn is spent on is the lever.
 - `lore trace <id>`: the transaction list — per prompt: the prompt head,
   steps, fee (tokens + listUsd), instructions with name / input head /
   latency / error, the assistant's text head, wall time. Totals on top.
