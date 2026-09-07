@@ -84,6 +84,7 @@ those wells instead.
 git clone https://github.com/ramonfabrega/lore && cd lore
 bun install
 bun scripts/install.ts # builds the frozen `lore` bin -> ~/.bun/bin/lore (gates on tests)
+bun scripts/harness-corpus.ts # after a Claude Code update: snapshot the daemon's shapes into test/fixtures/harness/<version>/ (scrubbed); the suite asserts them
 ```
 
 `scripts/install.ts` refuses a dirty tree: the installed bin is a reproducible

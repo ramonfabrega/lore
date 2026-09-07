@@ -16,7 +16,9 @@ import { slugWellDir } from './wells'
 // by however long since `lore index`; the row says so with `indexed`.
 // Attach stays in the terminal: the row carries the command, not a button.
 
-const Listed = z
+// Exported for test/harness-corpus.test.ts: every snapshotted version of the
+// daemon's listing and job file must parse with the schema the roster uses.
+export const Listed = z
   .object({
     id: z.string().nullish(),
     cwd: z.string(),
@@ -33,7 +35,7 @@ const Listed = z
 export type ListedAgent = z.infer<typeof Listed>
 
 const Child = z.object({ id: z.string(), href: z.string(), kind: z.string() }).loose()
-const State = z
+export const State = z
   .object({
     state: z.string().nullish(),
     detail: z.string().nullish(),

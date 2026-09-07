@@ -1,0 +1,46 @@
+{
+  "state": "working",
+  "detail": "verified queue full, found 2 git blocking issues, building fix",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 207588,
+  "children": null,
+  "linkScanOffset": 3193461,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-ccc--claude-worktrees-v2/9d5ac986-95e8-4afc-8847-947694bd9ae7.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "ccc",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "opus"
+  ],
+  "intent": "Relaunch after the Friday 09-04 crash, from lore…",
+  "name": "ccc",
+  "nameSource": "user",
+  "sessionId": "b87b7169-7608-4b8d-afd0-c070ed3610cb",
+  "resumeSessionId": "9d5ac986-95e8-4afc-8847-947694bd9ae7",
+  "daemonShort": "b87b7169",
+  "cliVersion": "2.1.260",
+  "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+  "createdAt": "2026-09-07T00:38:15.840Z",
+  "updatedAt": "2026-09-07T05:22:32.424Z",
+  "firstTerminalAt": "2026-09-07T01:40:39.520Z",
+  "bridgeSessionId": "cse_01YYPbMRFLoY82q9xYDcFJjk",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon",
+  "fan": [
+    {
+      "id": "bf60lx2au",
+      "kind": "shell",
+      "label": "cat /private/tmp/claude-501/-Users-u-code-fun-ccc--c…",
+      "startedAt": 1788758552415
+    }
+  ]
+}

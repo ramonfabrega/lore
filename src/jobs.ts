@@ -12,7 +12,10 @@ import { z } from 'zod'
 // session_<X>` works. Interactive (non-job) sessions carry no such file;
 // their trailers stay unresolved and the page says so.
 
-const State = z
+// The index's read of state.json — the second decoder of the same file in
+// this repo (agents.ts has the roster's). Exported so the harness corpus
+// test parses every snapshotted version with both.
+export const State = z
   .object({
     sessionId: z.string().nullish(),
     bridgeSessionId: z.string().nullish(),

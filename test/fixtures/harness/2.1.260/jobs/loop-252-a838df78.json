@@ -1,0 +1,46 @@
+{
+  "state": "working",
+  "detail": "run10 tail structure",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 10419,
+  "children": null,
+  "linkScanOffset": 284050,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-loop-252/a838df78-38ba-434c-8a03-c7795696c386.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "loop-252",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "opus"
+  ],
+  "intent": "You are a worker in the attrition commander loop…",
+  "name": "loop-252",
+  "nameSource": "user",
+  "sessionId": "a838df78-38ba-434c-8a03-c7795696c386",
+  "resumeSessionId": "a838df78-38ba-434c-8a03-c7795696c386",
+  "daemonShort": "a838df78",
+  "cliVersion": "2.1.260",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-252",
+  "createdAt": "2026-09-07T05:23:41.752Z",
+  "updatedAt": "2026-09-07T05:28:42.488Z",
+  "firstTerminalAt": null,
+  "bridgeSessionId": "cse_01Y7bknwDPZuV6yKkq5A8B1J",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon",
+  "fan": [
+    {
+      "id": "bn42wuh1l",
+      "kind": "shell",
+      "label": "L=\"$HOME/ron-data/AppData/Roaming/Microsoft Games/Rise of Na…",
+      "startedAt": 1788758922483
+    }
+  ]
+}

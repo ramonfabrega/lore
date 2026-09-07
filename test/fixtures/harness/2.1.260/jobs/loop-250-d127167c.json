@@ -1,0 +1,61 @@
+{
+  "state": "working",
+  "detail": "reading docs, implementing attrition commander mechanism",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 3,
+    "queued": 0,
+    "kinds": [
+      "monitor",
+      "local_bash"
+    ],
+    "drainableMonitors": 0
+  },
+  "fan": [
+    {
+      "id": "b28j0bl8x",
+      "kind": "monitor",
+      "label": "final gate + sim tests + clippy",
+      "startedAt": 1788758611730
+    },
+    {
+      "id": "b6c8jpu5a",
+      "kind": "shell",
+      "label": "export RON_INSTALL=/Users/u/code/fun/attrition/game …",
+      "startedAt": 1788758770222
+    },
+    {
+      "id": "biqtjsh3f",
+      "kind": "monitor",
+      "label": "final verification pass",
+      "startedAt": 1788758779900
+    }
+  ],
+  "tokens": 143246,
+  "children": null,
+  "linkScanOffset": 2304542,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-loop-250/d127167c-9f32-4666-a24c-891c5a924c1f.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "loop-250",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "opus"
+  ],
+  "intent": "You are a worker in the attrition commander loop…",
+  "name": "loop-250",
+  "nameSource": "user",
+  "sessionId": "d127167c-9f32-4666-a24c-891c5a924c1f",
+  "resumeSessionId": "d127167c-9f32-4666-a24c-891c5a924c1f",
+  "daemonShort": "d127167c",
+  "cliVersion": "2.1.260",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-250",
+  "bridgeSessionId": "cse_017MJhC4jub7m5Joj4zq6L7P",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon",
+  "createdAt": "2026-09-07T04:44:24.973Z",
+  "updatedAt": "2026-09-07T05:28:42.919Z",
+  "firstTerminalAt": null
+}

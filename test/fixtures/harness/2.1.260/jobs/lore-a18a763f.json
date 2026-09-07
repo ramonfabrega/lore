@@ -1,0 +1,310 @@
+{
+  "state": "working",
+  "detail": "installed b124 at a602811, restarted server; checking job record schema",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 815061,
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "2",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "3",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "73",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "74",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "19",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "38",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "panama-spend-data-map.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Panamá — Mapa de Fuentes de Gasto Público"
+    },
+    {
+      "id": "runelite-recon.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "RuneLite Recon"
+    },
+    {
+      "id": "lore.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "lore"
+    },
+    {
+      "id": "2",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "3",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "4",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "5",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "6",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "distance-field.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "The Distance Field"
+    },
+    {
+      "id": "01-comite.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Comité de Operaciones"
+    },
+    {
+      "id": "02-tablero.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Tablero de Red Primaria"
+    },
+    {
+      "id": "03-cuarta-sede.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Cuarta Sede Costa del Este"
+    },
+    {
+      "id": "04-ruta-paciente.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Ruta del Paciente en Coronado"
+    },
+    {
+      "id": "00-muestrario.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Cuatro Maneras de Ver la Red"
+    },
+    {
+      "id": "bhs-resurrected.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "BHS, Resurrected"
+    },
+    {
+      "id": "8",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "attrition-loop-telemetry.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Attrition Loop Telemetry"
+    },
+    {
+      "id": "peer-steering-protocol.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Peer Steering Protocol"
+    },
+    {
+      "id": "9",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "10",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "11",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "12",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "13",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "14",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "15",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "16",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "17",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "18",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "19",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "20",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "21",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "22",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "23",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "24",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "25",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "26",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "27",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "31",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "exchange.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "The Overnight Exchange"
+    },
+    {
+      "id": "thread.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "The 869-Line File"
+    },
+    {
+      "id": "correction-ledger.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "The Correction Ledger"
+    },
+    {
+      "id": "transfer-list.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "The Transfer List"
+    },
+    {
+      "id": "commander-flow.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Commander Flow"
+    }
+  ],
+  "linkScanOffset": 1706021,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-lore--claude-worktrees-tool-class/3669a9fc-3143-4bf3-9990-f7e66be3439d.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--name",
+    "lore",
+    "--model",
+    "claude-fable-5-1[1m]"
+  ],
+  "intent": "",
+  "name": "lore",
+  "nameSource": "user",
+  "sessionId": "a18a763f-e9a6-4024-aeae-c29132dfc351",
+  "resumeSessionId": "3669a9fc-3143-4bf3-9990-f7e66be3439d",
+  "daemonShort": "a18a763f",
+  "cliVersion": "2.1.260",
+  "cwd": "/Users/u/code/fun/lore",
+  "worktreePath": "/Users/u/code/fun/lore/.claude/worktrees/tool-class",
+  "worktreeBranch": "worktree-tool-class",
+  "bridgeSessionId": "cse_0145QxeqUnB3uGTCNBWmAHea",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 30768,
+  "backend": "daemon",
+  "createdAt": "2026-07-17T06:52:37.020Z",
+  "updatedAt": "2026-09-07T05:28:42.422Z",
+  "firstTerminalAt": "2026-09-01T05:47:20.498Z"
+}

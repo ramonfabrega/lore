@@ -1,0 +1,81 @@
+{
+  "state": "working",
+  "detail": "sizing script scanning archives (~90 multi-hundred-MB); analyzing poll-guard hoo…",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 4,
+    "queued": 0,
+    "kinds": [
+      "monitor",
+      "local_bash"
+    ],
+    "drainableMonitors": 0
+  },
+  "fan": [
+    {
+      "id": "bicgzd88b",
+      "kind": "monitor",
+      "label": "attrition worker transitions by ref, teeing the JSON stream …",
+      "startedAt": 1788752081466
+    },
+    {
+      "id": "bzjccfwh0",
+      "kind": "shell",
+      "label": "while true; do printf '{\"capturedAt\":\"%s\",\"rows\":' \"$(date -…",
+      "startedAt": 1788752125995
+    },
+    {
+      "id": "b64bbw3jn",
+      "kind": "shell",
+      "label": "ccc watch --json --all --stall 10 --interval 30 2>/dev/null …",
+      "startedAt": 1788752131094
+    },
+    {
+      "id": "bwp1dn07a",
+      "kind": "shell",
+      "label": "zsh /Users/u/.claude/jobs/3c382923/tmp/sizeprize.sh …",
+      "startedAt": 1788758459024
+    }
+  ],
+  "tokens": 1824025,
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "atlas.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Attrition Atlas"
+    }
+  ],
+  "linkScanOffset": 2419964,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/be764960-3abf-4c65-954f-3c0e64eeac24.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--name",
+    "attrition",
+    "--model",
+    "opus[1m]"
+  ],
+  "intent": "",
+  "name": "attrition",
+  "nameSource": "user",
+  "sessionId": "3c382923-412a-449d-9060-d72d5fd3cea2",
+  "resumeSessionId": "be764960-3abf-4c65-954f-3c0e64eeac24",
+  "daemonShort": "3c382923",
+  "cliVersion": "2.1.260",
+  "cwd": "/Users/u/code/fun/attrition",
+  "worktreePath": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+  "worktreeBranch": "worktree-replan-pdb",
+  "bridgeSessionId": "cse_015gugL5nLaA1s9eKtEjQxBs",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 146485,
+  "backend": "daemon",
+  "createdAt": "2026-08-19T22:28:39.680Z",
+  "updatedAt": "2026-09-07T05:28:29.851Z",
+  "firstTerminalAt": "2026-08-19T23:50:40.430Z"
+}

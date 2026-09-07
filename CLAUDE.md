@@ -222,6 +222,19 @@ true, it is a design change, not a bug fix.
   (the daemon forgets a deleted job; its peers' `peer` rows remember what
   it was called, and `lore index` backfills that). `lore jobs`, `/job/<key>`
   and the agents page are that unit; `/job/` accepts any of the three ids.
+- **The daemon's shapes are undocumented, and the corpus is the contract.**
+  `claude agents --json`, `~/.claude/daemon/roster.json` and each job's
+  `state.json` are read by lore (two zod decoders: `agents.ts` for the
+  roster, `jobs.ts` for the index) and by ccc, and every Claude Code
+  update moves them — launch flags, `children[]` being links not spawns,
+  `replPid` keying the inbox socket rather than `pid`. After an update,
+  `bun scripts/harness-corpus.ts` snapshots that version into
+  `test/fixtures/harness/<version>/` (scrubbed: personal trees only, no
+  auth, owner or env fields, openers cut — the repo is public and the
+  test re-checks the scrub), and `test/harness-corpus.test.ts` parses
+  every version with every schema and asserts the invariants above. A
+  moved field fails a test the day it is snapshotted, not a page a week
+  later.
 - **A message that arrives mid-turn is not a user record.** When a session is
   idle, a peer's message or the user's words become a `user` record and open
   a turn. When it is busy, the harness enqueues it (`queue-operation`) and

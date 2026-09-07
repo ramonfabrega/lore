@@ -1,0 +1,50 @@
+{
+  "state": "done",
+  "detail": "api-rs healthy on :8080, port-forward re-attached; clear to loop out",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": []
+  },
+  "tokens": 298537,
+  "children": [
+    {
+      "id": "atlas-body.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "Studio Centaur"
+    },
+    {
+      "id": "3",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 0,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-centaur/174f8d02-3a36-417b-8868-0673a584852c.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--name",
+    "centaur mev",
+    "--model",
+    "opus[1m]"
+  ],
+  "intent": "",
+  "name": "centaur mev",
+  "nameSource": "user",
+  "sessionId": "1fd92acc-350f-40d1-8047-be54e8665f67",
+  "resumeSessionId": "174f8d02-3a36-417b-8868-0673a584852c",
+  "daemonShort": "1fd92acc",
+  "cliVersion": "2.1.245",
+  "cwd": "/Users/u/code/fun/centaur",
+  "createdAt": "2026-08-21T06:30:45.139Z",
+  "updatedAt": "2026-09-07T04:18:15.681Z",
+  "firstTerminalAt": "2026-08-21T06:58:28.043Z",
+  "bridgeSessionId": "cse_018NZvkWHE4QWGagMpESiaAj",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 2323,
+  "backend": "daemon",
+  "lastTerminalAt": "2026-08-21T06:58:28.043Z"
+}

@@ -1,0 +1,66 @@
+[
+  {
+    "id": "1fd92acc",
+    "cwd": "/Users/u/code/fun/centaur",
+    "kind": "background",
+    "startedAt": 1787293845139,
+    "sessionId": "1fd92acc-350f-40d1-8047-be54e8665f67",
+    "name": "centaur mev",
+    "state": "done"
+  },
+  {
+    "pid": 72853,
+    "id": "a18a763f",
+    "cwd": "/Users/u/code/fun/lore/.claude/worktrees/tool-class",
+    "kind": "background",
+    "startedAt": 1788735122637,
+    "sessionId": "3669a9fc-3143-4bf3-9990-f7e66be3439d",
+    "name": "lore",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 73062,
+    "id": "3c382923",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+    "kind": "background",
+    "startedAt": 1788737036640,
+    "sessionId": "be764960-3abf-4c65-954f-3c0e64eeac24",
+    "name": "attrition",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 73462,
+    "id": "b87b7169",
+    "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+    "kind": "background",
+    "startedAt": 1788741496437,
+    "sessionId": "9d5ac986-95e8-4afc-8847-947694bd9ae7",
+    "name": "ccc",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 74161,
+    "id": "d127167c",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-250",
+    "kind": "background",
+    "startedAt": 1788756265336,
+    "sessionId": "d127167c-9f32-4666-a24c-891c5a924c1f",
+    "name": "loop-250",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 26038,
+    "id": "a838df78",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-252",
+    "kind": "background",
+    "startedAt": 1788758622094,
+    "sessionId": "a838df78-38ba-434c-8a03-c7795696c386",
+    "name": "loop-252",
+    "status": "busy",
+    "state": "working"
+  }
+]

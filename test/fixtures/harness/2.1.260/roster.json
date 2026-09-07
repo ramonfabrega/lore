@@ -1,0 +1,336 @@
+{
+  "proto": 1,
+  "supervisorPid": 72792,
+  "updatedAt": 1788758622018,
+  "workers": {
+    "a18a763f": {
+      "pid": 72841,
+      "procStart": "Sun Sep  6 22:51:48 2026",
+      "sessionId": "a21f188c-29e1-4e21-8365-d90ed5e03045",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/a18a763f.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/d94eec76.pty.sock",
+      "cliVersion": "2.1.260",
+      "startedAt": 1788735122446,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/lore",
+      "dispatch": {
+        "proto": 1,
+        "short": "a18a763f",
+        "nonce": "8816646b",
+        "sessionId": "a21f188c-29e1-4e21-8365-d90ed5e03045",
+        "createdAt": 1788735122442,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/lore",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "a21f188c-29e1-4e21-8365-d90ed5e03045",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-lore/a21f188c-29e1-4e21-8365-d90ed5e03045.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "--name",
+            "lore",
+            "--model",
+            "claude-fable-5-1[1m]"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "--name",
+          "lore",
+          "--model",
+          "claude-fable-5-1[1m]"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "lore"
+        },
+        "cols": 182,
+        "rows": 52
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 1032,
+          "msgsInJsonl": 1032,
+          "msgsRenderedAtFirstPaint": 1034
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 72853,
+      "replProcStart": "Sun Sep  6 22:51:48 2026"
+    },
+    "3c382923": {
+      "pid": 73051,
+      "procStart": "Sun Sep  6 22:52:02 2026",
+      "sessionId": "ef071ed4-3add-49bf-9fe2-accdc1914001",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/3c382923.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/17a04808.pty.sock",
+      "cliVersion": "2.1.260",
+      "startedAt": 1788737036426,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition",
+      "dispatch": {
+        "proto": 1,
+        "short": "3c382923",
+        "nonce": "ea2eabf9",
+        "sessionId": "ef071ed4-3add-49bf-9fe2-accdc1914001",
+        "createdAt": 1788737036422,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/attrition",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "ef071ed4-3add-49bf-9fe2-accdc1914001",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/ef071ed4-3add-49bf-9fe2-accdc1914001.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--rc",
+            "--name",
+            "attrition",
+            "--model",
+            "opus[1m]"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--rc",
+          "--name",
+          "attrition",
+          "--model",
+          "opus[1m]"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "attrition"
+        },
+        "cols": 182,
+        "rows": 52
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 971,
+          "msgsInJsonl": 971,
+          "msgsRenderedAtFirstPaint": 971
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 73062,
+      "replProcStart": "Sun Sep  6 22:52:02 2026"
+    },
+    "b87b7169": {
+      "pid": 73440,
+      "procStart": "Mon Sep  7 00:20:29 2026",
+      "sessionId": "b87b7169-7608-4b8d-afd0-c070ed3610cb",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/b87b7169.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/499e453c.pty.sock",
+      "cliVersion": "2.1.260",
+      "startedAt": 1788741495849,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+      "dispatch": {
+        "proto": 1,
+        "short": "b87b7169",
+        "nonce": "2b017303",
+        "sessionId": "b87b7169-7608-4b8d-afd0-c070ed3610cb",
+        "createdAt": 1788741495840,
+        "source": "shell",
+        "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "b87b7169-7608-4b8d-afd0-c070ed3610cb",
+            "--name",
+            "ccc",
+            "--model",
+            "opus",
+            "--permission-mode",
+            "auto",
+            "Relaunch after the Friday 09-04 crash, from lore (the overseer) with Ramon's word. You are ccc's single working session — not a commander; the list below is serial. Ramon's verdict: ccc held up under the first real commander swarm (three commanders, seven workers, a machine crash mid-run) and counts as v1; the gaps it exposed are all at the spawner/roster layer, none in the terminal embed. Keep the architecture. Facts, not asks; your queue's own words decide the shape.\n\nContext you should know: on Friday the machine locked at 23:13Z when an attrition worker's release test suite reached 27.6 GB (swap 53 GB full); the daemon respawned everything on 09-06. Tonight's lore ingest (#24) mined ccc's Friday (e17a9837, 3caa7ded) and audited canon at master e904087 / worktree-v2 1575db7. The old ccc job was reopened as a test (it resumed the empty post-/clear stub in this worktree on the launch flags: opus[1m], --rc, prompting), then stopped and deleted. You are the fresh spawn, auto mode, in worktree-v2.\n\nIn this order, because the first gates the rest:\n\n1. master is behind the frontier. e904087 is not a descendant of 4df8f55 (ingest #23's audit point); twelve commits, five tags (v0.1.21–v0.1.25), items 17 and 18 and the live QUEUE.md exist only on worktree-v2. `git merge-base --is-ancestor master worktree-v2` is true, 22 commits, clean fast-forward. The reflog shows 20+ consecutive ff merges before this — a break in cadence, not the workflow. Land it (`ccc merge` or by hand), push master, and say so.\n\n2. A lane respawn into a live name+cwd. On 09-06 two jobs named att-capture existed for twenty minutes in the same lane-capture worktree: the daemon still held Friday's job, the attrition commander spawned a new one with the same name and cwd. By-name routing (SendMessage, lore thread, the roster) goes to the newest, so both halves mis-attribute; two live sessions shared one working tree. If `ccc spawn` knew a name+cwd already had a live job it could refuse, or stop-then-spawn. Workers never hit it (fresh worktree, fresh name); lanes do. Credit: the attrition commander.\n\n3. The one git verb a worker needs. Inside a worker's session tonight, `git merge --no-edit origin/worktree-replan-pdb` (taking its own base's tip) was refused by the auto-mode permission classifier; the worker handed the merge back to its commander (the good failure mode). Question for you: is `ccc update <ref>` the intended path for a worker fast-forwarding its own base, in which case briefs should say `ccc update`, never `git merge`? Attrition will try it on its next worker and report; your side is whether the verb covers it and whether the README says so.\n\n4. A free-space and memory floor before a spawn. Friday's shape: six Rust target/ trees (1–18 GB each) and 25 Next .next trees crowded the disk; the suite that ate the RAM was attrition's, but the spawner is where a floor belongs (refuse below N GB free, or warn on the row). ccc's backlog has no trace of the crash today.\n\n5. A stall transition. `ccc watch` fires on blocked / done / failed / stopped. cuanto's Lane B on Friday was contracted to report at each landing point, sent zero messages, and sat with two unpushed commits for two days; nothing fired because it was \"working\" the whole time. \"Working, no message past its own cadence for N minutes\" is the missing transition.\n\n6. An agent-first CLI surface. `ccc spawn --help` answers \"unknown flag '--help' for spawn\"; there is no per-verb help, no --json on every verb, no schema, no manifest an agent can read. Lore is built on incur (Bun/TS: --llms, --schema, --format toon|json, --token-limit); incur cannot be a Swift dependency but its conventions can. Adopt them in Swift. Separately, a question to argue in your queue, not decide: since v0.1.24 `ccc list` answers from the running app's roster over the socket, so the CLI is a thin client — superterminal (sonnylazuardi, gpuix + Rust daemon, read by lore tonight) ships its CLI as a separate crate over a socket; a Bun `ccc` CLI on incur over your socket is possible at the cost of Bun on every ssh host.\n\n7. Two do"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "ccc",
+          "--model",
+          "opus",
+          "--permission-mode",
+          "auto",
+          "Relaunch after the Friday 09-04 crash, from lore (the overseer) with Ramon's word. You are ccc's single working session — not a commander; the list below is serial. Ramon's verdict: ccc held up under the first real commander swarm (three commanders, seven workers, a machine crash mid-run) and counts as v1; the gaps it exposed are all at the spawner/roster layer, none in the terminal embed. Keep the architecture. Facts, not asks; your queue's own words decide the shape.\n\nContext you should know: on Friday the machine locked at 23:13Z when an attrition worker's release test suite reached 27.6 GB (swap 53 GB full); the daemon respawned everything on 09-06. Tonight's lore ingest (#24) mined ccc's Friday (e17a9837, 3caa7ded) and audited canon at master e904087 / worktree-v2 1575db7. The old ccc job was reopened as a test (it resumed the empty post-/clear stub in this worktree on the launch flags: opus[1m], --rc, prompting), then stopped and deleted. You are the fresh spawn, auto mode, in worktree-v2.\n\nIn this order, because the first gates the rest:\n\n1. master is behind the frontier. e904087 is not a descendant of 4df8f55 (ingest #23's audit point); twelve commits, five tags (v0.1.21–v0.1.25), items 17 and 18 and the live QUEUE.md exist only on worktree-v2. `git merge-base --is-ancestor master worktree-v2` is true, 22 commits, clean fast-forward. The reflog shows 20+ consecutive ff merges before this — a break in cadence, not the workflow. Land it (`ccc merge` or by hand), push master, and say so.\n\n2. A lane respawn into a live name+cwd. On 09-06 two jobs named att-capture existed for twenty minutes in the same lane-capture worktree: the daemon still held Friday's job, the attrition commander spawned a new one with the same name and cwd. By-name routing (SendMessage, lore thread, the roster) goes to the newest, so both halves mis-attribute; two live sessions shared one working tree. If `ccc spawn` knew a name+cwd already had a live job it could refuse, or stop-then-spawn. Workers never hit it (fresh worktree, fresh name); lanes do. Credit: the attrition commander.\n\n3. The one git verb a worker needs. Inside a worker's session tonight, `git merge --no-edit origin/worktree-replan-pdb` (taking its own base's tip) was refused by the auto-mode permission classifier; the worker handed the merge back to its commander (the good failure mode). Question for you: is `ccc update <ref>` the intended path for a worker fast-forwarding its own base, in which case briefs should say `ccc update`, never `git merge`? Attrition will try it on its next worker and report; your side is whether the verb covers it and whether the README says so.\n\n4. A free-space and memory floor before a spawn. Friday's shape: six Rust target/ trees (1–18 GB each) and 25 Next .next trees crowded the disk; the suite that ate the RAM was attrition's, but the spawner is where a floor belongs (refuse below N GB free, or warn on the row). ccc's backlog has no trace of the crash today.\n\n5. A stall transition. `ccc watch` fires on blocked / done / failed / stopped. cuanto's Lane B on Friday was contracted to report at each landing point, sent zero messages, and sat with two unpushed commits for two days; nothing fired because it was \"working\" the whole time. \"Working, no message past its own cadence for N minutes\" is the missing transition.\n\n6. An agent-first CLI surface. `ccc spawn --help` answers \"unknown flag '--help' for spawn\"; there is no per-verb help, no --json on every verb, no schema, no manifest an agent can read. Lore is built on incur (Bun/TS: --llms, --schema, --format toon|json, --token-limit); incur cannot be a Swift dependency but its conventions can. Adopt them in Swift. Separately, a question to argue in your queue, not decide: since v0.1.24 `ccc list` answers from the running app's roster over the socket, so the CLI is a thin client — superterminal (sonnylazuardi, gpuix + Rust daemon, read by lore tonight) ships its CLI as a separate crate over a socket; a Bun `ccc` CLI on incur over your socket is possible at the cost of Bun on every ssh host.\n\n7. Two do"
+        ],
+        "seed": {
+          "intent": "Relaunch after the Friday 09-04 crash, from lore…",
+          "name": "ccc"
+        }
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "replPid": 73462,
+      "replProcStart": "Mon Sep  7 00:20:29 2026"
+    },
+    "d127167c": {
+      "pid": 74149,
+      "procStart": "Mon Sep  7 04:18:15 2026",
+      "sessionId": "d127167c-9f32-4666-a24c-891c5a924c1f",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/d127167c.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/1a1c949b.pty.sock",
+      "cliVersion": "2.1.260",
+      "startedAt": 1788756265008,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-250",
+      "dispatch": {
+        "proto": 1,
+        "short": "d127167c",
+        "nonce": "15665372",
+        "sessionId": "d127167c-9f32-4666-a24c-891c5a924c1f",
+        "createdAt": 1788756264973,
+        "source": "shell",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-250",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "d127167c-9f32-4666-a24c-891c5a924c1f",
+            "--name",
+            "loop-250",
+            "--model",
+            "opus",
+            "--permission-mode",
+            "auto",
+            "You are a worker in the attrition commander loop (`docs/DECISIONS.md` entry 34).\nRead `CLAUDE.md`, then `docs/QUEUE.md`'s \"Where things stand\", then\n`docs/ARMY.md` §16.7 and §4.1, then this. A capture-lane worker (`cap-241`) is\nlive on East Indies and transport; stay out of `docs/TRANSPORT.md`.\n\n# Item 250 — the headline. `come_out`'s group move: the order this crate never issues.\n\n## The score it moves\n\n`LONG_WORD_GREAT_LAKES` = 6994 in `crates/rondata/src/diff/testkit.rs:732`,\nasserted by run53's word test in `crates/rondata/src/diff/harness.rs`. The\nheadline number of the project. If you move it, move the constant, the assert\nthat reads it, and `docs/QUEUE.md`'s two scoreboard lines (`Scoreboard:` and\n`Long captures:`) — **those two lines only**; the rest of that file is mine.\n\nThis item was bought by item 249, which spent itself locating the cause and\nmoved nothing. The commander stopped on entry 34's rule and the user chose to\nspend one more worker on it, because for the first time in three landings the\nmechanism is named and the evidence is already on disk. Land it.\n\n## The measured seam — established, not hypothesised\n\n`docs/ARMY.md` §16.7 has it whole and it is diff-backed by\n`run84_says_great_lakes_6994_belongs_to_the_second_squad`. In short: the two\n`Unit::do_move+0xe84 < Unit::do_attack_to+0x11 < Unit::do_job+0x4b` draws on\n6994 (and a third on 6995) are **not** the marching Archers `1/27`–`1/29` —\nrun84 refuses them, `dest = 1` and `unit_masks & 8` set, and the roll needs\n`dest == 0` or the bit already clear. They belong to **`1/31`, `1/32`, `1/33`**,\nborn on 6993, standing orderless when 6994 opens, and by 6995 each carrying an\n`ATTACK_TO` of its own to `(41352, 22920)`, `(41256, 23016)`, `(41448, 22824)`,\none shared heading `-560070656`, a planned stack, and the marching squad's\ngroup. The marching squad's own order point does not move across the frame, so\nit was not a group order over all six.\n\nSo the gap is **an order this crate never issues**. `Unit::come_out@00617c10`\nis the candidate — 1,619 lines, three `Group::action_move_to@0070fba0` sites,\nand `docs/ARMY.md` §4.1 models only its `add_to_army` tail. Membership is\nalready right: this crate has all six in one army by the end of 6994, which is\nwhat makes this an order and not a bookkeeping bug.\n\n**Three things the reading owes**, none of which §16.7 explains:\n- the anchor `(41352, 22920)` — near the marching squad, **not** its centre of\n  gravity, so find what it actually is;\n- the shared heading;\n- why `1/31` comes out on **tile** waypoints (tolerance 384) while `1/32` and\n  `1/33` come out on the **fine grid** (tolerance 96). One squad, one frame,\n  two planners: that is a predicate, and the audit README says predicates are\n  where reading errors live.\n\n## Do this first, before any decompile\n\n**Diff the whole record, not the units you came for.** That is 249's own\nprocess note and it is why two sessions went at the wrong three units: a call\nchain names a *function*, and the cast was assumed. run84 gives eighty\n`UNITDATA` blocks either side of 6994 — they answer \"who changed\" with no\nhypothesis at all, and three blocks answer nothing. Widen first; the widening\nledger is item 87, `docs/DATALAYER.md` §4.\n\n## Free coverage, already on disk — no capture is owed\n\n`python3 tools/trace/report.py \"$RON_GAMELOG_DIR/rontrace-run53.log\" when \"Unit::do_move<Unit::do_attack_to<Unit::do_job\"`\ngives **7213–7216, 7440/7441, 7675/7676** as well as 6994/6995 — inside run79's\n`[6910, 7250]` or reachable from it. So the fix has three more windows to be\nchecked against without spending a screen. Use them: a mechanic that fixes one\nframe and breaks 7213 has not landed.\n\nArchives: `gamelog-run84-greatlakes-makelist.txt` (`[6950, 7030)`, run79's\ndetail, per-frame `UNITDATA`), `gamelog-run79-greatlakes-secondsquad.txt`\n(`[6910, 7250)` — the second squad's whole march), `gamelog-run76-greatlakes-\narchermarch.txt` (the first squad, born 6612).\n\n**Do not book a capture without asking me first.** If you conclude one is owed,\nstop and message me with the window, the categories and"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "loop-250",
+          "--model",
+          "opus",
+          "--permission-mode",
+          "auto",
+          "You are a worker in the attrition commander loop (`docs/DECISIONS.md` entry 34).\nRead `CLAUDE.md`, then `docs/QUEUE.md`'s \"Where things stand\", then\n`docs/ARMY.md` §16.7 and §4.1, then this. A capture-lane worker (`cap-241`) is\nlive on East Indies and transport; stay out of `docs/TRANSPORT.md`.\n\n# Item 250 — the headline. `come_out`'s group move: the order this crate never issues.\n\n## The score it moves\n\n`LONG_WORD_GREAT_LAKES` = 6994 in `crates/rondata/src/diff/testkit.rs:732`,\nasserted by run53's word test in `crates/rondata/src/diff/harness.rs`. The\nheadline number of the project. If you move it, move the constant, the assert\nthat reads it, and `docs/QUEUE.md`'s two scoreboard lines (`Scoreboard:` and\n`Long captures:`) — **those two lines only**; the rest of that file is mine.\n\nThis item was bought by item 249, which spent itself locating the cause and\nmoved nothing. The commander stopped on entry 34's rule and the user chose to\nspend one more worker on it, because for the first time in three landings the\nmechanism is named and the evidence is already on disk. Land it.\n\n## The measured seam — established, not hypothesised\n\n`docs/ARMY.md` §16.7 has it whole and it is diff-backed by\n`run84_says_great_lakes_6994_belongs_to_the_second_squad`. In short: the two\n`Unit::do_move+0xe84 < Unit::do_attack_to+0x11 < Unit::do_job+0x4b` draws on\n6994 (and a third on 6995) are **not** the marching Archers `1/27`–`1/29` —\nrun84 refuses them, `dest = 1` and `unit_masks & 8` set, and the roll needs\n`dest == 0` or the bit already clear. They belong to **`1/31`, `1/32`, `1/33`**,\nborn on 6993, standing orderless when 6994 opens, and by 6995 each carrying an\n`ATTACK_TO` of its own to `(41352, 22920)`, `(41256, 23016)`, `(41448, 22824)`,\none shared heading `-560070656`, a planned stack, and the marching squad's\ngroup. The marching squad's own order point does not move across the frame, so\nit was not a group order over all six.\n\nSo the gap is **an order this crate never issues**. `Unit::come_out@00617c10`\nis the candidate — 1,619 lines, three `Group::action_move_to@0070fba0` sites,\nand `docs/ARMY.md` §4.1 models only its `add_to_army` tail. Membership is\nalready right: this crate has all six in one army by the end of 6994, which is\nwhat makes this an order and not a bookkeeping bug.\n\n**Three things the reading owes**, none of which §16.7 explains:\n- the anchor `(41352, 22920)` — near the marching squad, **not** its centre of\n  gravity, so find what it actually is;\n- the shared heading;\n- why `1/31` comes out on **tile** waypoints (tolerance 384) while `1/32` and\n  `1/33` come out on the **fine grid** (tolerance 96). One squad, one frame,\n  two planners: that is a predicate, and the audit README says predicates are\n  where reading errors live.\n\n## Do this first, before any decompile\n\n**Diff the whole record, not the units you came for.** That is 249's own\nprocess note and it is why two sessions went at the wrong three units: a call\nchain names a *function*, and the cast was assumed. run84 gives eighty\n`UNITDATA` blocks either side of 6994 — they answer \"who changed\" with no\nhypothesis at all, and three blocks answer nothing. Widen first; the widening\nledger is item 87, `docs/DATALAYER.md` §4.\n\n## Free coverage, already on disk — no capture is owed\n\n`python3 tools/trace/report.py \"$RON_GAMELOG_DIR/rontrace-run53.log\" when \"Unit::do_move<Unit::do_attack_to<Unit::do_job\"`\ngives **7213–7216, 7440/7441, 7675/7676** as well as 6994/6995 — inside run79's\n`[6910, 7250]` or reachable from it. So the fix has three more windows to be\nchecked against without spending a screen. Use them: a mechanic that fixes one\nframe and breaks 7213 has not landed.\n\nArchives: `gamelog-run84-greatlakes-makelist.txt` (`[6950, 7030)`, run79's\ndetail, per-frame `UNITDATA`), `gamelog-run79-greatlakes-secondsquad.txt`\n(`[6910, 7250)` — the second squad's whole march), `gamelog-run76-greatlakes-\narchermarch.txt` (the first squad, born 6612).\n\n**Do not book a capture without asking me first.** If you conclude one is owed,\nstop and message me with the window, the categories and"
+        ],
+        "seed": {
+          "intent": "You are a worker in the attrition commander loop…",
+          "name": "loop-250"
+        }
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "replPid": 74161,
+      "replProcStart": "Mon Sep  7 04:18:15 2026"
+    },
+    "a838df78": {
+      "pid": 26023,
+      "procStart": "Mon Sep  7 04:44:25 2026",
+      "sessionId": "a838df78-38ba-434c-8a03-c7795696c386",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/a838df78.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/c104382f.pty.sock",
+      "cliVersion": "2.1.260",
+      "startedAt": 1788758621776,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-252",
+      "dispatch": {
+        "proto": 1,
+        "short": "a838df78",
+        "nonce": "0d68932d",
+        "sessionId": "a838df78-38ba-434c-8a03-c7795696c386",
+        "createdAt": 1788758621753,
+        "source": "shell",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/loop-252",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "a838df78-38ba-434c-8a03-c7795696c386",
+            "--name",
+            "loop-252",
+            "--model",
+            "opus",
+            "--permission-mode",
+            "auto",
+            "You are a worker in the attrition commander loop (`docs/DECISIONS.md` entry 34).\nRead `CLAUDE.md`, then `docs/QUEUE.md`'s \"Where things stand\", then this. A\nsecond worker (`loop-250`) is live on `crates/sim/` movement and orders —\n**stay out of `orders.rs`, `movement.rs` and `army.rs`**. Your surface is\n`crates/rondata/` and the documents.\n\n# Item 252 — the shutdown dump: free ground truth on every archive, and one capture reads it.\n\n## The score it moves\n\nNot a word directly, and say so honestly in your report. This is **the widening\nledger** (item 87, `docs/DATALAYER.md` §4), which is the mechanism that has\nproduced most of the recent word movements: 238, 241 and 249 were all found by\ncomparing a record nobody had compared. The claim to test is that this is the\ncheapest and largest unclaimed widening on the board. If a divergence you\nsurface moves `LONG_WORD_EAST_INDIES` (7529) or `LONG_WORD_GREAT_LAKES` (6994),\nmove the constant, the assert that reads it, and `docs/QUEUE.md`'s\n`Long captures:` line — **that line only**; the rest of that file is mine.\n\n## What was found, and by whom\n\nItem 241 (landed tonight) discovered that `GameLog::end_game` writes a\n**whole-map state at `FRAME`'s own indent** — a *sibling* of the last frame\nrather than a child — so the frame walk could never reach it, and `Log::dumps`\ncatches it only when it is wrapped in a `FULL DUMP` (the `DUMP_ALL` shape).\nOn an ordinary windowed capture it is not wrapped, so the map's positions at\nthe quit frame have been sitting unparsed on every such archive.\n\n`Log::final_state` (`crates/rondata/src/gamelog.rs:2705`) is the reader. It\nexists, it is tested synthetically, and **exactly one capture uses it** —\nrun82, whose dump is labelled **6946**, seventeen frames past where East\nIndies' coverage was believed to stop. Its first reading produced two\ndivergences no test had ever seen: `0/3` off by (−18, 18) and `1/13` off by\n(11, 7).\n\n## The item\n\n**Sweep every archive, then assert what the sweep finds.**\n\n1. **Measure the prize first and report the number.** How many of the ~90\n   `gamelog-run*.txt` archives carry a shutdown dump `final_state` can read?\n   A rough scan is running as `/Users/u/.claude/jobs/3c382923/tmp/sizeprize.sh`\n   (records after the file's last `FRAME` line) — treat it as a hint, not an\n   answer, and get the real count from `final_state` itself. That number is\n   the item's headline finding whatever else happens.\n2. **Diff every one of them.** For each archive with a dump: whose game is it,\n   what frame is it labelled, and does this crate reproduce the whole record —\n   **every unit, every field**, not positions only. The rule that earned this\n   item is `CLAUDE.md`'s: when the original dumps a record, diff the whole\n   record. run82's 6946 is the worked example and it is already in\n   `run82_s_window_is_the_east_indies_ride_s_run_up`.\n3. **Assert it.** A sweep that leaves no test behind has not closed anything.\n   The shape to aim for is one test per archive family, or a table-driven test\n   over the set, so that a later commit cannot quietly stop reproducing them.\n   Make it fail on purpose before you keep it.\n4. **Triage what you cannot close.** A divergence you can explain and fix,\n   fix. One you cannot goes to the **back** of the queue in your report, with\n   the archive, the frame, the unit and the field named — not a paragraph.\n\nKnown first customer, already booked as **253** and yours if the sweep reaches\nit: `1/13` parts at **6938** at `myspeed 25` on run86, and run82's 6946 shows\nthe same unit off by (11, 7). That is a diff, not a capture.\n\n## Traps this item will hit\n\n- **A dump labelled with the last frame is not necessarily *at* that frame.**\n  `final_state` labels it with the run's last `FRAME n`. Satisfy yourself\n  what the engine's own semantics are before asserting positions against a\n  simulated frame number, and write what you establish into\n  `docs/ORACLE.md`. Getting this wrong makes every assertion off by a frame\n  in a way that looks like a sim bug.\n- **`None` is a correct answer** for every `DUMP_ALL` capt"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "loop-252",
+          "--model",
+          "opus",
+          "--permission-mode",
+          "auto",
+          "You are a worker in the attrition commander loop (`docs/DECISIONS.md` entry 34).\nRead `CLAUDE.md`, then `docs/QUEUE.md`'s \"Where things stand\", then this. A\nsecond worker (`loop-250`) is live on `crates/sim/` movement and orders —\n**stay out of `orders.rs`, `movement.rs` and `army.rs`**. Your surface is\n`crates/rondata/` and the documents.\n\n# Item 252 — the shutdown dump: free ground truth on every archive, and one capture reads it.\n\n## The score it moves\n\nNot a word directly, and say so honestly in your report. This is **the widening\nledger** (item 87, `docs/DATALAYER.md` §4), which is the mechanism that has\nproduced most of the recent word movements: 238, 241 and 249 were all found by\ncomparing a record nobody had compared. The claim to test is that this is the\ncheapest and largest unclaimed widening on the board. If a divergence you\nsurface moves `LONG_WORD_EAST_INDIES` (7529) or `LONG_WORD_GREAT_LAKES` (6994),\nmove the constant, the assert that reads it, and `docs/QUEUE.md`'s\n`Long captures:` line — **that line only**; the rest of that file is mine.\n\n## What was found, and by whom\n\nItem 241 (landed tonight) discovered that `GameLog::end_game` writes a\n**whole-map state at `FRAME`'s own indent** — a *sibling* of the last frame\nrather than a child — so the frame walk could never reach it, and `Log::dumps`\ncatches it only when it is wrapped in a `FULL DUMP` (the `DUMP_ALL` shape).\nOn an ordinary windowed capture it is not wrapped, so the map's positions at\nthe quit frame have been sitting unparsed on every such archive.\n\n`Log::final_state` (`crates/rondata/src/gamelog.rs:2705`) is the reader. It\nexists, it is tested synthetically, and **exactly one capture uses it** —\nrun82, whose dump is labelled **6946**, seventeen frames past where East\nIndies' coverage was believed to stop. Its first reading produced two\ndivergences no test had ever seen: `0/3` off by (−18, 18) and `1/13` off by\n(11, 7).\n\n## The item\n\n**Sweep every archive, then assert what the sweep finds.**\n\n1. **Measure the prize first and report the number.** How many of the ~90\n   `gamelog-run*.txt` archives carry a shutdown dump `final_state` can read?\n   A rough scan is running as `/Users/u/.claude/jobs/3c382923/tmp/sizeprize.sh`\n   (records after the file's last `FRAME` line) — treat it as a hint, not an\n   answer, and get the real count from `final_state` itself. That number is\n   the item's headline finding whatever else happens.\n2. **Diff every one of them.** For each archive with a dump: whose game is it,\n   what frame is it labelled, and does this crate reproduce the whole record —\n   **every unit, every field**, not positions only. The rule that earned this\n   item is `CLAUDE.md`'s: when the original dumps a record, diff the whole\n   record. run82's 6946 is the worked example and it is already in\n   `run82_s_window_is_the_east_indies_ride_s_run_up`.\n3. **Assert it.** A sweep that leaves no test behind has not closed anything.\n   The shape to aim for is one test per archive family, or a table-driven test\n   over the set, so that a later commit cannot quietly stop reproducing them.\n   Make it fail on purpose before you keep it.\n4. **Triage what you cannot close.** A divergence you can explain and fix,\n   fix. One you cannot goes to the **back** of the queue in your report, with\n   the archive, the frame, the unit and the field named — not a paragraph.\n\nKnown first customer, already booked as **253** and yours if the sweep reaches\nit: `1/13` parts at **6938** at `myspeed 25` on run86, and run82's 6946 shows\nthe same unit off by (11, 7). That is a diff, not a capture.\n\n## Traps this item will hit\n\n- **A dump labelled with the last frame is not necessarily *at* that frame.**\n  `final_state` labels it with the run's last `FRAME n`. Satisfy yourself\n  what the engine's own semantics are before asserting positions against a\n  simulated frame number, and write what you establish into\n  `docs/ORACLE.md`. Getting this wrong makes every assertion off by a frame\n  in a way that looks like a sim bug.\n- **`None` is a correct answer** for every `DUMP_ALL` capt"
+        ],
+        "seed": {
+          "intent": "You are a worker in the attrition commander loop…",
+          "name": "loop-252"
+        }
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "replPid": 26038,
+      "replProcStart": "Mon Sep  7 04:44:25 2026"
+    }
+  }
+}
