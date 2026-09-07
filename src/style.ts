@@ -195,6 +195,11 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 /* the agents page: every job, live first — state · name · model · where · doing · live · sess · req · $ · last · peers · attach */
 .list.jobsall .row { grid-template-columns: calc(78px * var(--z)) calc(150px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(36px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(72px * var(--z)) calc(120px * var(--z)) calc(178px * var(--z)); }
 .list.jobsall .row.gone { color: var(--ink-3); }
+.list.jobsall .row.group { background: var(--surface-2); color: var(--ink-3); font-size: var(--fs-12); padding-top: 5px; }
+.list.jobsall .row.group:hover { background: var(--surface-2); }
+.list.jobsall .row.d1 > :nth-child(2) { padding-left: 14px; }
+.list.jobsall .row.d2 > :nth-child(2) { padding-left: 28px; }
+.list.jobsall .row.d3 > :nth-child(2) { padding-left: 42px; }
 .list.jobsall .row .stale .mchip { color: var(--ink-3); } .list.jobsall .row .stale .sw { opacity: .55; }
 /* a job's sessions, by local day: at · well · model · opening · turns · req · out · $ */
 .list.jobsess .row { grid-template-columns: calc(62px * var(--z)) calc(178px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(40px * var(--z)) calc(44px * var(--z)) calc(48px * var(--z)) calc(104px * var(--z)); }

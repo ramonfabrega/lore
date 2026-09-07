@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { z } from 'zod'
 import { type AgentRow, listAgents } from './agents'
+import { repoOf } from './job'
 import { TZ, WIKI_DIR } from './config'
 import { JOB_KEY_SQL, type JobKind, type JobRow, jobNames, jobsOfSessions, listJobs, resolveJob } from './job'
 import type { Lane } from './parse'
@@ -214,11 +215,15 @@ export function createApp(
         <header><h2>agents</h2><span>${[...counts].map(([st, n]) => html`<span class="kind st-${st}">${n} ${st}</span> `)} · ${jobs.length} jobs${
           all ? html` · <a href="/agents">background only</a>` : html` · <a href="/agents?all=1" title="interactive sessions as one-session jobs">+ interactive</a>`
         }</span>
-          <span class="sp small">a row is a JOB — an agent across /clears and respawns, keyed on its bridge id · the daemon's roster for what runs now · a deleted job keeps the name its peers gave it · attach in a terminal</span></header>
+          <span class="sp small">a row is a JOB — an agent across /clears and respawns, keyed on its bridge id · grouped by repo, a job under the job that spawned it (read off the parent's transcript, never guessed) · the daemon's roster for what runs now · a deleted job keeps the name its peers gave it · attach in a terminal</span></header>
         ${error ? html`<p class="footnote err">${error}</p>` : ''}
         <div class="scroll list jobsall">
           <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num" title="the context the next turn carries — input + cache read + cache write of the last request, read from the transcript; the number a /clear decision needs">ctx</span><span class="num">sess</span><span class="num">req</span><span class="num">list $</span><span>last</span><span>peers</span><span>attach</span></div>
-          ${rows.map((r) => agentRow(r, maxLive, maxUsd))}
+          ${fleetRows(rows).map((r) =>
+            r.kind === 'group'
+              ? html`<div class="row group"><span></span><span class="mono" title="${r.repo}">${shortPath(r.repo)}</span><span></span><span></span><span class="muted">${r.n} job${r.n === 1 ? '' : 's'}${r.live ? html` · ${r.live} live` : ''}</span></div>`
+              : agentRow(r.row, maxLive, maxUsd, r.depth),
+          )}
         </div>
       </div>`
     return c.html(page('agents · lore', body, { ...chrome(c), layout: 'one', nav: 'agents', bare: true }))
@@ -836,7 +841,56 @@ function mergeAgents(jobs: JobRow[], live: AgentRow[], keyOfSession: (sid: strin
   return rows
 }
 
-function agentRow(r: AgentJob, maxLive: number, maxUsd: number) {
+// The fleet tree (docs/EXPLORER.md, Agents): the attention-sorted rows,
+// grouped by repo in order of first appearance — so the repo with the
+// working commander leads — and within a repo each job followed by the jobs
+// it spawned (JobRow.parent, read off the parent's transcript), indented by
+// depth. A child goes where its parent is, whatever its own cwd: a fixture
+// ccc spawned into a tmp dir belongs under ccc, not in a group of one. A
+// child whose parent is not in the listing sits at the top level of its own.
+type FleetRow = { kind: 'group'; repo: string; n: number; live: number } | { kind: 'row'; row: AgentJob; depth: number }
+export function fleetRows(rows: AgentJob[]): FleetRow[] {
+  const byKey = new Map(rows.flatMap((r) => (r.key ? [[r.key, r] as const] : [])))
+  const own = (r: AgentJob) => r.job?.repo ?? repoOf(r.live?.cwd) ?? 'elsewhere'
+  const repo = (r: AgentJob): string => {
+    let top = r
+    for (const seen = new Set<AgentJob>(); !seen.has(top); ) {
+      seen.add(top)
+      const p = top.job?.parent?.key
+      const next = p && p !== top.key ? byKey.get(p) : undefined
+      if (!next) break
+      top = next
+    }
+    return own(top)
+  }
+  const groups = new Map<string, AgentJob[]>()
+  for (const r of rows) groups.set(repo(r), [...(groups.get(repo(r)) ?? []), r])
+  const out: FleetRow[] = []
+  for (const [name, members] of groups) {
+    const keys = new Set(members.map((m) => m.key).filter((k): k is string => k != null))
+    const children = new Map<string, AgentJob[]>()
+    for (const m of members) {
+      const p = m.job?.parent?.key
+      if (p && keys.has(p) && p !== m.key) children.set(p, [...(children.get(p) ?? []), m])
+    }
+    out.push({ kind: 'group', repo: name, n: members.length, live: members.filter((m) => m.live?.state === 'working' || m.live?.state === 'blocked').length })
+    const seen = new Set<AgentJob>()
+    const walk = (r: AgentJob, depth: number) => {
+      if (seen.has(r)) return
+      seen.add(r)
+      out.push({ kind: 'row', row: r, depth })
+      for (const c of r.key ? (children.get(r.key) ?? []) : []) walk(c, Math.min(depth + 1, 3))
+    }
+    for (const m of members) {
+      const p = m.job?.parent?.key
+      if (!(p && keys.has(p) && p !== m.key)) walk(m, 0)
+    }
+    for (const m of members) walk(m, 0)
+  }
+  return out
+}
+
+function agentRow(r: AgentJob, maxLive: number, maxUsd: number, depth = 0) {
   const a = r.live
   const j = r.job
   const name = a?.name ?? j?.name ?? null
@@ -846,12 +900,14 @@ function agentRow(r: AgentJob, maxLive: number, maxUsd: number) {
   // The live session when there is one — what runs now — else the newest.
   const sid = a?.sessionId ?? j?.latest?.sessionId ?? null
   const lastAt = j?.last ?? a?.indexed?.last ?? null
-  const cls = a ? a.state : gone ? 'gone' : ''
+  const cls = `${a ? a.state : gone ? 'gone' : ''}${depth ? ` d${depth}` : ''}`
   return html`<div class="row ${cls}" title="${a ? `started ${stamp(a.startedAt)}${a.updatedAt ? ` · updated ${stamp(a.updatedAt)}` : ''}` : j ? `${stamp(j.first)} → ${stamp(j.last)} · ${j.kind} ${j.key}` : ''}">
     <span title="${a?.tempo ?? ''}${a?.waitingFor ? ` · waiting for ${a.waitingFor}` : ''}">${
       a ? html`<span class="dot st-${a.state}"></span> ${a.state}` : j?.jobId ? html`<span class="muted">${j.state ?? ''}</span>` : html`<span class="muted" title="the daemon no longer lists this job">gone</span>`
     }</span>
-    <span title="${name ?? ''}${j?.nameSource === 'peer' ? ' · the daemon has forgotten this job; its peers called it this' : ''}">${href ? html`<a href="${href}">${label}</a>` : label}${
+    <span title="${name ?? ''}${j?.parent ? ` · spawned by @${j.parent.name ?? j.parent.key.slice(0, 8)}` : ''}${j?.nameSource === 'peer' ? ' · the daemon has forgotten this job; its peers called it this' : ''}">${
+      depth ? html`<span class="muted">↳ </span>` : ''
+    }${href ? html`<a href="${href}">${label}</a>` : label}${
       j?.nameSource === 'peer' ? html` <span class="kind peer">peer</span>` : ''
     }</span>
     <span class="${a?.modelSource === 'index' ? 'stale' : ''}">${a ? modelChip(a.model, { title: modelTitle(a) }) : modelChips(j?.models)}</span>

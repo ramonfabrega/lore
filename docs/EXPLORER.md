@@ -141,6 +141,22 @@ no client code, no reimplemented ranking. `lore search` is the CLI twin.
 
 ## Agents (landed; every job since 2026-09-02)
 
+**The fleet tree (2026-09-07).** The roster is grouped by repo (a worktree
+folds into its base checkout, `repoOf`) in order of first appearance, so the
+repo with the working commander leads, and within a repo each job is
+followed by the jobs it spawned, indented. The edge is exact: the daemon
+records no parentage (`state.json`'s `children[]` are links, a worker's
+file names no parent), but the spawning session's transcript does — a
+`ccc spawn --json` answer carries the child's daemon id as `ref`, the
+harness's own `backgrounded · <id>` line carries the same, and the id is
+the child's root session's first eight characters, so `spawnEdges`
+(job.ts) reads the child's job key off its sessions. `JobRow.parent` and
+`JobRow.repo` carry it to `lore jobs` and `lore api agents`. The first
+render of the 09-06 loop: attrition's commander with its workers and
+capture lanes under it, ccc's session with its clear-verb fixtures under
+it, lore alone at the top of its own group — the diagram the commander-flow
+artifact drew by hand, from the ledger.
+
 A row is a JOB (below), live first. The daemon's listing (`claude agents
 --json --all`, ~140 ms) + each job's `state.json` (state, detail, tempo,
 LIVE tokens, links, worktree branch, attach) decorate the rows the daemon

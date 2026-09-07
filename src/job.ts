@@ -200,9 +200,57 @@ const GroupRow = z.object({
   last: z.string().nullable(),
   lines: z.number(),
   wells: z.string(),
+  paths: z.string().nullable(),
   latest: z.string(),
 })
 const SessionKey = z.object({ sessionId: z.string(), key: z.string() })
+const SpawnRow = z.object({ key: z.string(), result: z.string() })
+
+// The repo a path belongs to: a worktree's checkout is its base repo's
+// (`<repo>/.claude/worktrees/<name>` → `<repo>`), so a commander in one
+// worktree and its workers in others group under one root.
+export function repoOf(p: string | null | undefined): string | null {
+  if (!p) return null
+  const i = p.indexOf('/.claude/worktrees/')
+  return i >= 0 ? p.slice(0, i) : p
+}
+
+// The fleet tree's edges: which job SPAWNED which. The daemon records no
+// parentage (state.json's `children[]` are links, a worker's file names no
+// parent — checked 2026-09-07), but the spawning session's transcript does:
+// a `ccc spawn … --json` call answers with the child's daemon id as `ref`,
+// and the harness's own `backgrounded · <id>` line carries the same. The id
+// is the root session's first eight characters, so the child's job key is
+// read off its sessions. Exact from the ledger, no inference: a child whose
+// transcript is not indexed yet has no edge until it is.
+const CHILD_ID = /"ref"\s*:\s*"([0-9a-f]{8})|backgrounded · ([0-9a-f]{8})/
+export function spawnEdges(db: Database): Map<string, string> {
+  const rows = z.array(SpawnRow).parse(
+    db
+      .prepare(
+        `SELECT ${JOB_KEY_SQL} AS key, f2.text AS result
+         FROM messages m JOIN messages_fts f ON f.rowid = m.id
+         JOIN sessions s ON s.session_id = m.session_id
+         JOIN messages m2 ON m2.tool_use_id = m.tool_use_id AND m2.session_id = m.session_id AND m2.type = 'user' AND m2.lane = 'tool'
+         JOIN messages_fts f2 ON f2.rowid = m2.id
+         WHERE m.type = 'assistant' AND m.lane = 'tool' AND m.tool_name = 'Bash' AND f.text LIKE '%spawn%'
+         ORDER BY m.ts`,
+      )
+      .all(),
+  )
+  const childKey = db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE substr(s.job_session_id, 1, 8) = ? OR substr(s.session_id, 1, 8) = ? LIMIT 1`)
+  const parentOf = new Map<string, string>()
+  for (const r of rows) {
+    const m = CHILD_ID.exec(r.result)
+    const id = m?.[1] ?? m?.[2]
+    if (!id) continue
+    const child = z.object({ key: z.string() }).nullable().parse(childKey.get(id, id) ?? null)
+    // The first spawn wins: a respawn of the same job by the same parent is
+    // the same edge, and a different parent reusing a name is a new job.
+    if (child && child.key !== r.key && !parentOf.has(child.key)) parentOf.set(child.key, r.key)
+  }
+  return parentOf
+}
 const KeyKind = z.object({ key: z.string(), kind: z.enum(['bridge', 'root', 'session']) })
 const PeerRow = z.object({ key: z.string(), peer: z.string(), n: z.number() })
 
@@ -229,6 +277,14 @@ export type JobRow = {
   listUsd: number | null
   // Every agent this job exchanged a message with, by name.
   peers: string[]
+  // The repo this job works in — its cwd, or its first well, with a
+  // worktree folded into its base checkout (repoOf). The fleet tree groups
+  // on it.
+  repo: string | null
+  // The job that spawned this one (spawnEdges): exact, from the parent's
+  // transcript; null for a job the user launched or whose parent is not
+  // indexed. The tree hangs on it.
+  parent: { key: string; name: string | null } | null
   // The newest session: what the job is on now.
   latest: { sessionId: string; firstPrompt: string | null; openedBy: string | null } | null
 }
@@ -251,7 +307,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
         `SELECT ${JOB_KEY_SQL} AS key, ${JOB_KIND_SQL} AS kind,
                 COUNT(*) AS sessions, COUNT(DISTINCT s.job_session_id) AS incarnations,
                 MIN(s.first_ts) AS first, MAX(COALESCE(s.last_activity_ts, s.last_ts)) AS last,
-                SUM(s.lines) AS lines, GROUP_CONCAT(DISTINCT w.dir) AS wells,
+                SUM(s.lines) AS lines, GROUP_CONCAT(DISTINCT w.dir) AS wells, GROUP_CONCAT(DISTINCT COALESCE(w.real_path, w.dir)) AS paths,
                 (SELECT s2.session_id FROM sessions s2 WHERE COALESCE(s2.bridge_key, s2.job_session_id, s2.session_id) = ${JOB_KEY_SQL}
                  ORDER BY COALESCE(s2.last_activity_ts, s2.last_ts) DESC, s2.first_ts DESC LIMIT 1) AS latest
          FROM sessions s JOIN wells w ON w.id = s.well_id
@@ -314,10 +370,12 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     if (sender && receiver) add(sender, receiver)
   }
   const latest = new Map(listSessions(db, { sessions: groups.map((g) => g.latest), limit: groups.length }).map((s) => [s.sessionId, s]))
+  const parentOf = spawnEdges(db)
   return groups.map((g) => {
     const j = idx.forKey(g.key, g.kind)
     const u = usage.get(g.key)
     const l = latest.get(g.latest)
+    const parentKey = parentOf.get(g.key) ?? null
     return {
       key: g.key,
       kind: g.kind,
@@ -337,6 +395,8 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
       output: u?.output ?? 0,
       listUsd: u?.priced ? u.listUsd : null,
       peers: [...(peers.get(g.key) ?? [])].sort(),
+      repo: repoOf(j?.cwd ?? g.paths?.split(',')[0] ?? null),
+      parent: parentKey ? { key: parentKey, name: nameOf(parentKey) } : null,
       latest: l ? { sessionId: l.sessionId, firstPrompt: l.firstPrompt, openedBy: l.openedBy } : null,
     }
   })
