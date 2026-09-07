@@ -30,7 +30,11 @@ not be "fixed" by relocating.
 - `lore session <id-prefix> --lane prompt --lane text --token-limit 12000`
   — add assistant prose for decision-heavy sessions. NEVER exceed
   --token-limit 12000 per dump; use --token-offset to page if truly needed.
-- `lore search "<fts5 query>" --well <substring>` — targeted lookups.
+- `lore search "<fts5 query>" --well <substring>` — targeted lookups over
+  the prompt and text lanes. Add `--lane tool` for the commands a session
+  ran and what they printed: the exact gate command, a `memcap:` line, a
+  file it wrote. The tool lane is indexed and searchable — search it, never
+  dump it and grep by hand.
 - `lore sessions --well <substring>` — the bucket's arc spine.
 
 Budget discipline: prompt lanes first for all sessions, then text lane only
@@ -47,9 +51,15 @@ where prompts show real decisions being made. Do not dump tool/thinking lanes.
 6. **Canon-lag candidates** — durable facts that SHOULD live in the project's
    docs; a separate canon-audit agent covers the repo side, so just list them
 7. **Quotes worth keeping** — short verbatim user lines carrying product or
-   process identity
+   process identity. PASTE each one from `lore session` output, never
+   retype it: the line as the CLI printed it, typos and all, with the
+   record's `ts` beside it. A quote with one word changed is not a quote,
+   and two records joined into one sentence are two quotes — every second
+   reading so far has caught both, in the same section, from retyping.
 8. **CLI gaps** — anything the lore CLI could not answer that forced a
-   workaround (raw sqlite3, manual grep); "none" is a valid answer
+   workaround (raw sqlite3, manual grep); "none" is a valid answer. Check
+   `lore <verb> --help` before naming a gap: a verb you did not look for is
+   not missing (two gap reports so far named verbs that had shipped).
 
 Rules: be dense and factual; cite session prefixes for every claim; never
 speculate beyond what transcripts show; claims about WHERE work happened must
