@@ -22,9 +22,13 @@
 // `run_in_background` waits, exactly as attrition's canon asks — and then,
 // with a task notification already guaranteed, ran `true` 107 times over
 // four minutes to stay alive, one every 2.3 s, each returning no output
-// and re-billing 168k of context. 18.04M cache-read tokens, 28.01 USD at
-// list, 57% of everything that session ever spent, on a session twelve
-// minutes old. The polling lint scored it a 0.10 USD single read — its
+// and re-billing 168k of context. 18.04M cache-read tokens, 9.48 USD at
+// list — 38% of everything that session spent, its largest class after
+// `shell`, on a session twelve minutes old. (The first pass at this said
+// 28.01 and 57%: opus-5 priced from memory at 15/18.75/1.50/75 per M
+// against the 5/6.25/0.50/25 in usage.ts's dated table, exactly 3x. The
+// rate table is the authority, here and in anything quoting a lane's
+// spend.) The polling lint scored it a 0.10 USD single read — its
 // best row of the day — because it measures reads of a task file and this
 // shape reads nothing. A poll at least buys stale information; an idle
 // turn buys none at the same price, so it is the cheapest-looking and most

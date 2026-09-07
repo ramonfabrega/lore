@@ -14,7 +14,7 @@ import { priceOf, rateFor } from './usage'
 // a per-turn read of a task file: stale information at full context price.
 // `idle` is a turn that ran nothing at all — no information at the same
 // price — and it is the one the first version of this lint could not see.
-// lane-286 burned 28.01 USD on 107 `true` calls in four minutes and this
+// lane-286 burned 9.48 USD on 107 `true` calls in four minutes and this
 // verb ranked it BEST IN CLASS on the strength of a single 0.10 USD read,
 // because reads were all it counted. A lint that scores its worst session
 // of the day as its cleanest is worse than no lint, so eligibility and

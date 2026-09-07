@@ -45,8 +45,8 @@ such file; their trailers stay unresolved and the page says so.
   A poll buys stale information at full context price; an idle turn — `true`,
   `:`, `echo waiting` — buys none at the same price, held open while a task
   notification the session is already owed is on its way. lane-286 ran `true`
-  107 times in four minutes: 18.04M cache-read tokens, 28.01 USD, 57% of
-  everything that session ever spent, on a session twelve minutes old. It had
+  107 times in four minutes: 18.04M cache-read tokens, 9.48 USD, 38% of
+  everything that session spent, on a session twelve minutes old. It had
   backgrounded its waits correctly; what it lacked was the second half of the
   rule, which is that the turn then ENDS. Before the class existed those
   turns counted as `shell` and the lint ranked the session BEST IN CLASS on
