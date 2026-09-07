@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { classify, pollShape, requestClass, rollup, taskRef } from '../src/classes'
+import { classify, idleShape, pollShape, requestClass, rollup, taskRef } from '../src/classes'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { listPolls } from '../src/polls'
@@ -36,6 +36,33 @@ describe('classify', () => {
     expect(classify('Skill', '{}')).toBe('other')
   })
 
+  test('a command that runs nothing is idle, and the test is narrow on purpose', () => {
+    // lane-286's loop, verbatim from its transcript.
+    expect(classify('Bash', JSON.stringify({ command: 'true' }))).toBe('idle')
+    expect(classify('Bash', JSON.stringify({ command: 'echo waiting' }))).toBe('idle')
+    expect(classify('Bash', JSON.stringify({ command: ':' }))).toBe('idle')
+    expect(classify('Bash', JSON.stringify({ command: 'true;' }))).toBe('idle')
+    expect(classify('Bash', JSON.stringify({ command: '' }))).toBe('idle')
+    expect(classify('Bash', JSON.stringify({ command: '  ' }))).toBe('idle')
+    expect(classify('Bash', JSON.stringify({ command: 'echo -n done' }))).toBe('idle')
+    expect(classify('Bash', JSON.stringify({ command: 'echo "still here"' }))).toBe('idle')
+    // loop-258's spelling, 275 of them: the reason this matches a literal
+    // echo at all, and the reason a scan for `true` alone found 5 not 282.
+    expect(classify('Bash', JSON.stringify({ command: 'echo .' }))).toBe('idle')
+
+    // Everything that does something falls through to `shell`. A false
+    // positive here accuses a lane of waste, so the doubt goes that way.
+    expect(classify('Bash', JSON.stringify({ command: 'echo $PWD' }))).toBe('shell')
+    expect(classify('Bash', JSON.stringify({ command: 'echo "$(date)"' }))).toBe('shell')
+    expect(classify('Bash', JSON.stringify({ command: 'echo hi | wc -l' }))).toBe('shell')
+    expect(classify('Bash', JSON.stringify({ command: 'echo hi > marker' }))).toBe('shell')
+    expect(classify('Bash', JSON.stringify({ command: 'echo start; cargo test' }))).toBe('shell')
+    expect(classify('Bash', JSON.stringify({ command: 'true && cargo test' }))).toBe('shell')
+    expect(classify('Bash', JSON.stringify({ command: 'truename --version' }))).toBe('shell')
+    // A bare sleep is still the cheap, honest wait: one request, not 107.
+    expect(classify('Bash', JSON.stringify({ command: 'sleep 30' }))).toBe('wait')
+  })
+
   test('taskRef names the task a poll read', () => {
     expect(taskRef('Bash', JSON.stringify({ command: `cat ${TASK}` }))).toBe('bmvcpbo6a')
     expect(taskRef('TaskOutput', '{"task_id":"b1wb1psec"}')).toBe('b1wb1psec')
@@ -46,6 +73,11 @@ describe('classify', () => {
   test('a request with several calls takes the highest class, poll first', () => {
     expect(requestClass(['read', 'poll'])).toBe('poll')
     expect(requestClass(['read', 'shell'])).toBe('shell')
+    // And idle ranks last above text: a turn that ran `true` AND something
+    // real did something, so only an all-nothing turn is idle.
+    expect(requestClass(['idle', 'shell'])).toBe('shell')
+    expect(requestClass(['idle'])).toBe('idle')
+    expect(requestClass(['idle', 'text'])).toBe('idle')
     expect(requestClass(['wait', 'read'])).toBe('read')
     expect(requestClass([])).toBe('text')
   })
@@ -112,6 +144,36 @@ describe('pollShape', () => {
   })
 })
 
+describe('idleShape', () => {
+  const at = (s: number) => `2026-09-07T20:29:${String(s).padStart(2, '0')}.000Z`
+
+  test('a stretch of nothing is counted from the FIRST — there is no honest idle turn', () => {
+    expect(
+      idleShape([
+        { idle: false, ts: at(0) },
+        { idle: true, ts: at(2) },
+        { idle: true, ts: at(4) },
+        { idle: true, ts: at(6) },
+      ]),
+    ).toEqual({ idles: 3, longestIdle: 3, medianIdleGapS: 2 })
+  })
+
+  test('real work breaks the stretch but does not forgive it', () => {
+    expect(
+      idleShape([
+        { idle: true, ts: at(0) },
+        { idle: true, ts: at(2) },
+        { idle: false, ts: at(10) },
+        { idle: true, ts: at(20) },
+      ]),
+    ).toEqual({ idles: 3, longestIdle: 2, medianIdleGapS: 2 })
+  })
+
+  test('a session that idled never is all zeros', () => {
+    expect(idleShape([{ idle: false, ts: at(0) }])).toEqual({ idles: 0, longestIdle: 0, medianIdleGapS: null })
+  })
+})
+
 // One seeded session in the real record shapes (trace.test.ts): a lane that
 // starts a scan, polls its task file three turns in a row, reads a doc, then
 // polls twice more — and a second session that never touched a task file.
@@ -167,6 +229,28 @@ const QUIET = [
   result(B, T(2), 'q1', 'u1', 'the oracle'),
   done(B, T(3), 'n2'),
 ]
+// lane-286's shape (09-07): the wait IS backgrounded — the canon rule
+// obeyed to the letter — and then the turn is held open on nothing while
+// the notification the harness already owes it is on its way. It never
+// reads the task file, so the polling shape stays at zero and only the
+// idle shape sees it. That is the whole reason this lane is in the fixture.
+const C = 'idle-1'
+const IDLE = [
+  prompt(C, T(0), 'r1', 'run the capture'),
+  call(C, T(1), 'i1', 'v1', 'Bash', { command: 'until grep -q done log; do sleep 10; done', run_in_background: true }),
+  result(C, T(2), 'r1', 'v1', 'Command running in background with ID: bq1'),
+  call(C, T(4), 'i2', 'v2', 'Bash', { command: 'echo waiting' }),
+  result(C, T(5), 'r1', 'v2', 'waiting'),
+  call(C, T(6), 'i3', 'v3', 'Bash', { command: 'true' }),
+  result(C, T(7), 'r1', 'v3', ''),
+  call(C, T(8), 'i4', 'v4', 'Bash', { command: 'true' }),
+  result(C, T(9), 'r1', 'v4', ''),
+  call(C, T(10), 'i5', 'v5', 'Bash', { command: ':' }),
+  result(C, T(11), 'r1', 'v5', ''),
+  call(C, T(20), 'i6', 'v6', 'Bash', { command: 'cargo test' }),
+  result(C, T(21), 'r1', 'v6', 'ok'),
+  done(C, T(25), 'i7'),
+]
 
 function seed() {
   const dir = mkdtempSync(join(tmpdir(), 'lore-classes-'))
@@ -174,6 +258,7 @@ function seed() {
   mkdirSync(well, { recursive: true })
   writeFileSync(join(well, `${A}.jsonl`), `${LANE.join('\n')}\n`)
   writeFileSync(join(well, `${B}.jsonl`), `${QUIET.join('\n')}\n`)
+  writeFileSync(join(well, `${C}.jsonl`), `${IDLE.join('\n')}\n`)
   return dir
 }
 
@@ -196,9 +281,27 @@ describe('trace classes and polls; lore polls', () => {
     // file, four of them re-reads; five seconds between the adjacent ones.
     expect(t.polls).toEqual({ reads: 5, files: 1, rereads: 4, runs: 1, longest: 3, inRuns: 3, medianGapS: 5 })
 
+    expect(t.idle).toEqual({ idles: 0, longestIdle: 0, medianIdleGapS: null })
+
     const quiet = getTrace(db, B, { limit: 10 })
     expect(quiet.classes.map((c) => c.class)).toEqual(['read', 'text'])
     expect(quiet.polls.reads).toBe(0)
+    expect(quiet.idle.idles).toBe(0)
+  })
+
+  test('the idle lane read no task file, so only the idle shape sees it', () => {
+    const db = openDb(':memory:')
+    const projectsDir = seed()
+    return buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') }).then(() => {
+      const t = getTrace(db, C, { limit: 10 })
+      // The four no-ops are the session's biggest class by spend — more
+      // than the wait it backgrounded and the test it eventually ran.
+      expect(t.classes[0]).toMatchObject({ class: 'idle', requests: 4 })
+      expect(t.classes.map((c) => c.class).sort()).toEqual(['idle', 'shell', 'text', 'wait'])
+      // Zero polls: it never read the task file. The old lint saw nothing.
+      expect(t.polls.reads).toBe(0)
+      expect(t.idle).toEqual({ idles: 4, longestIdle: 4, medianIdleGapS: 2 })
+    })
   })
 
   test('lore polls lists the sessions that polled, worst first, priced, and leaves the quiet one out', async () => {
@@ -207,17 +310,45 @@ describe('trace classes and polls; lore polls', () => {
     await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
 
     const p = listPolls(db, { limit: 10 })
-    expect(p.count).toBe(1)
+    // Two rows now: the poller and the idler. The quiet session, which
+    // neither read a task file nor idled, is still out.
+    expect(p.count).toBe(2)
     const row = p.sessions[0]!
     expect(row.sessionId).toBe(A)
     expect([row.reads, row.files, row.rereads, row.runs, row.longest, row.inRuns, row.medianGapS]).toEqual([5, 1, 4, 1, 3, 3, 5])
     expect(row.pollRequests).toBe(5)
     // opus-5: five requests at (2×5 + 1000×6.25 + 100000×0.5 + 50×25) µ$ = 5 × 57,510 → 0.29
     expect(row.pollUsd).toBe(0.29)
-    expect(p.totals).toEqual({ reads: 5, inRuns: 3, rereads: 4, pollRequests: 5, pollUsd: 0.29 })
+    expect([row.idles, row.idleRequests, row.idleUsd]).toEqual([0, 0, 0])
+    expect(row.wastedUsd).toBe(0.29)
+
+    // The idler is a row on the strength of its no-ops alone — reads 0,
+    // which under the first version of this lint meant `continue`.
+    const idler = p.sessions[1]!
+    expect(idler.sessionId).toBe(C)
+    expect(idler.reads).toBe(0)
+    expect([idler.idles, idler.longestIdle, idler.medianIdleGapS]).toEqual([4, 4, 2])
+    // Four of the same requests: 4 × 57,510 µ$ → 0.23.
+    expect([idler.idleRequests, idler.idleUsd, idler.wastedUsd]).toEqual([4, 0.23, 0.23])
+
+    expect(p.totals).toEqual({
+      reads: 5,
+      inRuns: 3,
+      rereads: 4,
+      pollRequests: 5,
+      pollUsd: 0.29,
+      idles: 4,
+      idleRequests: 4,
+      idleUsd: 0.23,
+      wastedUsd: 0.52,
+    })
+
+    // Worst first is worst BY PRICE: the poller leads on 0.29 to 0.23, and
+    // would lose the lead the moment the idler ran two more no-ops.
+    expect(p.sessions.map((r) => r.wastedUsd)).toEqual([0.29, 0.23])
 
     // The window filter is activity-based, like `sessions --since`.
     expect(listPolls(db, { since: '2026-09-08', limit: 10 }).count).toBe(0)
-    expect(listPolls(db, { well: 'fun-app', limit: 10 }).count).toBe(1)
+    expect(listPolls(db, { well: 'fun-app', limit: 10 }).count).toBe(2)
   })
 })

@@ -33,13 +33,28 @@ such file; their trailers stay unresolved and the page says so.
 - `messages` gains `prompt_id`, `tool_use_id`, `is_error`, `request_id`
   (assistant rows: `message.id`, the join to `requests`).
 - `sessions` gains `job_session_id`.
-- `lore trace <id>` carries `classes` and `polls` at the top level: what the
-  requests were spent on, per tool class (`poll`, `wait`, `read`, `write`,
-  `shell`, `spawn`, `relay`, `other`, `text`), and the polling shape —
-  consecutive same-task-file reads (a guard's shape) and re-reads however
-  interleaved (the lint's). `lore polls` is the lint over many sessions. Born
-  from the 09-06 lane split: a lane request costs the same whatever it does,
-  so spend is context × requests and what a turn is spent on is the lever.
+- `lore trace <id>` carries `classes`, `polls` and `idle` at the top level:
+  what the requests were spent on, per tool class (`poll`, `wait`, `idle`,
+  `read`, `write`, `shell`, `spawn`, `relay`, `other`, `text`), and the two
+  shapes of expensive waiting — consecutive same-task-file reads (a guard's
+  shape) and re-reads however interleaved (the lint's), plus turns that ran
+  NOTHING. `lore polls` is the lint over both, over many sessions. Born from
+  the 09-06 lane split: a lane request costs the same whatever it does, so
+  spend is context × requests and what a turn is spent on is the lever.
+- The `idle` shape is the 09-07 amendment, and it is the more expensive one.
+  A poll buys stale information at full context price; an idle turn — `true`,
+  `:`, `echo waiting` — buys none at the same price, held open while a task
+  notification the session is already owed is on its way. lane-286 ran `true`
+  107 times in four minutes: 18.04M cache-read tokens, 28.01 USD, 57% of
+  everything that session ever spent, on a session twelve minutes old. It had
+  backgrounded its waits correctly; what it lacked was the second half of the
+  rule, which is that the turn then ENDS. Before the class existed those
+  turns counted as `shell` and the lint ranked the session BEST IN CLASS on
+  the strength of one 0.10 USD read, because reads were all it counted — so
+  eligibility and order now run on `wastedUsd`, not on whether a file was
+  read. The detector is deliberately narrow (a pipe, a redirect, a
+  substitution or a second command falls through to `shell`): a shape it
+  misses reads as work, which is cheaper than a false accusation.
 - `lore trace <id>`: the transaction list — per prompt: the prompt head,
   steps, fee (tokens + listUsd), instructions with name / input head /
   latency / error, the assistant's text head, wall time. Totals on top.

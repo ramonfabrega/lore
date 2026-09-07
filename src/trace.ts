@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { ackHead, metaHead, relayHead, type Sent, sentHead } from './envelope'
-import { type ClassRow, type PollShape, type ToolClass, classify, pollShape, requestClass, rollup, taskRef } from './classes'
+import { type ClassRow, type IdleShape, type PollShape, type ToolClass, classify, idleShape, pollShape, requestClass, rollup, taskRef } from './classes'
 import { cut, cutProse } from './fmt'
 import { JOB_KEY_SQL } from './job'
 import { dominantModel, tallyModels } from './model'
@@ -249,6 +249,10 @@ export type Trace = {
   // in consecutive runs (a live guard's shape) and as re-reads however
   // interleaved (the lint's). `lore polls` is the same over many sessions.
   polls: PollShape
+  // The idle shape (classes.ts): turns held open on nothing at all. The
+  // second half of what waiting costs, and the half a poll count cannot
+  // see — a `true` reads no file, so it leaves the polling shape at zero.
+  idle: IdleShape
   transactions: Transaction[]
 }
 
@@ -364,7 +368,7 @@ export function getTrace(
   // classes each request's calls fell in, the task each poll-class call
   // read, and every step — the top-level `classes` and `polls` sum these.
   const callClasses = new Map<string, ToolClass[]>()
-  const pollSeq: { ref: string | null; ts: string | null }[] = []
+  const pollSeq: { ref: string | null; idle: boolean; ts: string | null }[] = []
   const allSteps: Step[] = []
   const transactions: Transaction[] = buckets.map((b) => {
     const opener = b.rows.find((r) => r.lane === 'prompt' || r.lane === 'meta' || r.lane === 'relay')
@@ -447,7 +451,7 @@ export function getTrace(
       full.push({ tool, inputFull, resultFull: res?.text ?? '', error })
       const cls = classify(tool, inputFull)
       if (r.requestId) callClasses.set(r.requestId, [...(callClasses.get(r.requestId) ?? []), cls])
-      pollSeq.push({ ref: cls === 'poll' ? taskRef(tool, inputFull) : null, ts: r.ts })
+      pollSeq.push({ ref: cls === 'poll' ? taskRef(tool, inputFull) : null, idle: cls === 'idle', ts: r.ts })
     }
     const annotations = annotate(full)
     // The closing text is the last text row when nothing was instructed
@@ -550,6 +554,7 @@ export function getTrace(
     spawns: spawnGroups,
     classes: rollup(allSteps, new Map([...callClasses].map(([id, cs]) => [id, requestClass(cs)]))),
     polls: pollShape(pollSeq),
+    idle: idleShape(pollSeq),
     transactions: transactions.slice(0, opts.limit).map((x) => ({ ...x, listUsd: x.listUsd == null ? null : round2(x.listUsd) })),
   }
 }

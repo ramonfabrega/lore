@@ -13,17 +13,47 @@
 // a non-blocking TaskOutput); `wait` is a BLOCKING wait — Monitor, a
 // blocking TaskOutput, a bare `sleep`, or an until/while loop around one
 // inside a single call, which is the right shape and passes by
-// construction; `read` / `write` / `shell` / `spawn` / `relay` by tool;
-// `other` the rest; `text` a request that called nothing.
+// construction; `idle` is a turn held open on NOTHING; `read` / `write` /
+// `shell` / `spawn` / `relay` by tool; `other` the rest; `text` a request
+// that called nothing.
+//
+// `idle` is the second shape, and it cost more than the first (lane-286,
+// 2026-09-07): a worker backgrounded its capture correctly — two
+// `run_in_background` waits, exactly as attrition's canon asks — and then,
+// with a task notification already guaranteed, ran `true` 107 times over
+// four minutes to stay alive, one every 2.3 s, each returning no output
+// and re-billing 168k of context. 18.04M cache-read tokens, 28.01 USD at
+// list, 57% of everything that session ever spent, on a session twelve
+// minutes old. The polling lint scored it a 0.10 USD single read — its
+// best row of the day — because it measures reads of a task file and this
+// shape reads nothing. A poll at least buys stale information; an idle
+// turn buys none at the same price, so it is the cheapest-looking and most
+// expensive thing a lane can do. Before this class it counted as `shell`,
+// indistinguishable from work.
+//
+// lane-286 was the one a human caught. The lint's first run over the index
+// found a worse one nobody had: loop-258, thirteen hours earlier the same
+// day, 282 idle turns with an unbroken stretch of 187 and 39.99 USD — and
+// its spelling was `echo .`, not `true`, which is why the class matches a
+// literal echo and why a hand-written scan for `true` missed it entirely.
+// The move is what is being detected, not the two spellings: any command
+// whose purpose is to yield the turn. Across the fleet, 447 turns and
+// 60.67 USD, 93% of it in one repo's capture and loop workers — the
+// sessions that background a long external wait are exactly the ones that
+// reach for a way to stay alive while it runs.
 //
 // A request with several calls takes the highest class by CLASS_RANK.
 // `poll` ranks first so its share is a measurement, not a floor: the first
 // pass ranked read over poll, and attrition pointed out that every mixed
 // turn then counted against the conclusion.
 
-export type ToolClass = 'poll' | 'write' | 'spawn' | 'relay' | 'shell' | 'read' | 'wait' | 'other' | 'text'
+export type ToolClass = 'poll' | 'write' | 'spawn' | 'relay' | 'shell' | 'read' | 'wait' | 'other' | 'idle' | 'text'
 
-export const CLASS_RANK: Record<ToolClass, number> = { poll: 8, write: 7, spawn: 6, relay: 5, shell: 4, read: 3, wait: 2, other: 1, text: 0 }
+// `idle` ranks LAST above `text` for the same reason `poll` ranks first: a
+// mixed turn must not count as idle. A request that ran `true` AND
+// something real did something, and only a turn whose every call was
+// nothing is one.
+export const CLASS_RANK: Record<ToolClass, number> = { poll: 9, write: 8, spawn: 7, relay: 6, shell: 5, read: 4, wait: 3, other: 2, idle: 1, text: 0 }
 
 const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LSP', 'WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ListMcpResourcesTool'])
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
@@ -37,6 +67,13 @@ const BLOCKING = /"block":true/
 // loop is the per-turn poll.
 const LOOP_WAIT = /\b(?:until|while)\b[^\n]*?\bdo\b[\s\S]*?\bsleep\b/
 const BARE_SLEEP = /^\s*sleep\s+\d/
+// A command that runs nothing: `true`, `:`, an empty string, or an `echo`
+// of a literal with nowhere to send it. Deliberately NARROW — a false
+// positive accuses a lane of waste — so anything carrying a pipe, a
+// redirect, a substitution or a second command falls through to `shell`,
+// and a shape this misses reads as work rather than as an accusation.
+const IDLE_NOOP = /^\s*(?::|true)?\s*;?\s*$/
+const IDLE_ECHO = /^\s*echo(?:\s+-n)?(?:\s+(?:[\w.,:!?-]+|"[^"'$`\\|;&<>()]*"|'[^'|;&<>()]*'))?\s*;?\s*$/
 
 // The command a Bash call ran, unescaped enough for the patterns here. The
 // input is the tool_use's JSON with the tool name taken off (trace.ts).
@@ -57,6 +94,9 @@ export function taskRef(tool: string, inputFull: string): string | null {
 export function classify(tool: string, inputFull: string): ToolClass {
   if (tool === 'Bash') {
     const cmd = bashCommand(inputFull)
+    // Before every other test: a no-op has no task path, no loop and no
+    // sleep, so nothing below would claim it — it would land on `shell`.
+    if (IDLE_NOOP.test(cmd) || IDLE_ECHO.test(cmd)) return 'idle'
     if (LOOP_WAIT.test(cmd)) return 'wait'
     // A sleep THEN a read of the task file is the per-turn poll with a pause
     // in it — the sleep-and-grep loop spread across turns — not a wait.
@@ -182,4 +222,45 @@ export function pollShape(seq: { ref: string | null; ts: string | null }[]): Pol
   gaps.sort((a, b) => a - b)
   const median = gaps.length ? Math.round(gaps[Math.floor(gaps.length / 2)]! * 10) / 10 : null
   return { reads, files: files.size, rereads: reads - files.size, runs, longest, inRuns, medianGapS: median }
+}
+
+// The idle shape of one session, over the same instruction sequence. No
+// RUN_MIN here and no `inRuns`: the polling shapes need a threshold
+// because an honest check is a run of one or two, but there is no honest
+// idle turn — the first one already bought nothing — so every one counts
+// and `longestIdle` is what separates a loop (107, lane-286) from
+// sloppiness (5, scattered). `medianIdleGapS` is the API round trip and
+// nothing else: 2.3 s in the measured loop, against the 4.6 s of a poll
+// that at least waited for a file to change.
+//
+// The sequence is instructions, not transcript records, so a stretch is
+// contiguous by construction — the assistant's "Waiting." text between two
+// `true`s is not an instruction and does not break the run. Counting off
+// raw records instead reports a longest of 2 for a loop of 107.
+export type IdleShape = {
+  idles: number
+  longestIdle: number
+  medianIdleGapS: number | null
+}
+
+export function idleShape(seq: { idle: boolean; ts: string | null }[]): IdleShape {
+  let idles = 0
+  let longestIdle = 0
+  let n = 0
+  let prevTs: string | null = null
+  const gaps: number[] = []
+  for (const x of seq) {
+    if (x.idle) {
+      idles++
+      n++
+      if (n > longestIdle) longestIdle = n
+      if (prevTs && x.ts) gaps.push((Date.parse(x.ts) - Date.parse(prevTs)) / 1000)
+      prevTs = x.ts
+    } else {
+      n = 0
+      prevTs = null
+    }
+  }
+  gaps.sort((a, b) => a - b)
+  return { idles, longestIdle, medianIdleGapS: gaps.length ? Math.round(gaps[Math.floor(gaps.length / 2)]! * 10) / 10 : null }
 }
