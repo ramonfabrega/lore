@@ -1,0 +1,12 @@
+{
+  "typed": [
+    "--name",
+    "lore-flagfix-p1",
+    "--model",
+    "haiku",
+    "--permission-mode",
+    "auto",
+    "Reply with the single word: ok. Do nothing else, run no tools."
+  ],
+  "note": "haiku alias, typed model-before-mode: auto recorded as default; the transcript's permission-mode record says auto"
+}

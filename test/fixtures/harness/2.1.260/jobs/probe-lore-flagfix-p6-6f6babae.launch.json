@@ -1,0 +1,12 @@
+{
+  "typed": [
+    "--name",
+    "lore-flagfix-p6",
+    "--model",
+    "claude-haiku-4-5-20251001",
+    "--permission-mode",
+    "auto",
+    "Reply with the single word: ok. Do nothing else, run no tools."
+  ],
+  "note": "the full haiku id rewrites too: the gate is the model, not the alias"
+}

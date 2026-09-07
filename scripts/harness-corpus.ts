@@ -11,6 +11,13 @@
 // on the day it is snapshotted, not a page a week later.
 //
 // Usage: bun scripts/harness-corpus.ts   → test/fixtures/harness/<cliVersion>/
+//        bun scripts/harness-corpus.ts --probe <jobId> [--note "…"] -- <the argv as typed>
+//          → jobs/probe-<name>-<id>.json (the state.json, scrubbed) beside
+//            jobs/probe-<name>-<id>.launch.json ({ typed, note }): a PROBE is a
+//            job launched to measure how the harness records a launch, and the
+//            sidecar keeps what was typed so the test can hold the recorded
+//            array against it. Probes survive a re-snapshot; the jobs they
+//            came from are removed once written (they were throwaways).
 //
 // The repo is public, so the snapshot is SCRUBBED, not copied: only jobs
 // whose cwd is under a personal tree (never ~/code/work); $HOME rewritten;
@@ -61,9 +68,38 @@ function scrub(v: unknown, key = ''): unknown {
 
 const version = (await Bun.$`claude --version`.text()).trim().split(/\s+/)[0] ?? 'unknown'
 const dir = join(root, 'test', 'fixtures', 'harness', version)
-rmSync(dir, { recursive: true, force: true })
 mkdirSync(join(dir, 'jobs'), { recursive: true })
 const write = (rel: string, v: unknown) => writeFileSync(join(dir, rel), `${JSON.stringify(v, null, 2)}\n`)
+const slug = (name: unknown) => (typeof name === 'string' ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : '') || 'unnamed'
+
+// --probe: one job, snapshotted with the line that launched it.
+const argv = process.argv.slice(2)
+const probeAt = argv.indexOf('--probe')
+if (probeAt >= 0) {
+  const id = argv[probeAt + 1]
+  const dash = argv.indexOf('--')
+  const typed = dash >= 0 ? argv.slice(dash + 1) : []
+  const noteAt = argv.indexOf('--note')
+  const note = noteAt >= 0 ? argv[noteAt + 1] : undefined
+  if (!id || typed.length === 0) {
+    console.error('usage: harness-corpus.ts --probe <jobId> [--note "…"] -- <argv as typed>')
+    process.exit(2)
+  }
+  const st = JSON.parse(await Bun.file(join(CLAUDE, 'jobs', id, 'state.json')).text()) as Record<string, unknown>
+  if (!eligible(st.cwd)) {
+    console.error(`probe ${id}: cwd ${String(st.cwd)} is not under a personal tree — refusing`)
+    process.exit(2)
+  }
+  const base = join('jobs', `probe-${slug(st.name)}-${id.slice(0, 8)}`)
+  write(`${base}.json`, scrub(st))
+  write(`${base}.launch.json`, { typed, ...(note ? { note } : {}) })
+  console.error(`harness corpus: claude ${version} probe ${id} → ${base}.json (+ .launch.json)`)
+  process.exit(0)
+}
+
+// A full snapshot replaces everything it produces and keeps the probes.
+for (const f of readdirSync(dir)) if (f.endsWith('.json')) rmSync(join(dir, f))
+for (const f of readdirSync(join(dir, 'jobs'))) if (!f.startsWith('probe-')) rmSync(join(dir, 'jobs', f))
 
 // The listing: rows for eligible cwds only.
 const listing = JSON.parse((await Bun.$`claude agents --json --all`.text()) || '[]') as { cwd?: unknown }[]
@@ -82,8 +118,7 @@ for (const id of readdirSync(join(CLAUDE, 'jobs'))) {
     continue
   }
   if (!eligible(st.cwd)) continue
-  const name = typeof st.name === 'string' ? st.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : 'unnamed'
-  write(join('jobs', `${name || 'unnamed'}-${id.slice(0, 8)}.json`), scrub(st))
+  write(join('jobs', `${slug(st.name)}-${id.slice(0, 8)}.json`), scrub(st))
   jobs++
 }
 

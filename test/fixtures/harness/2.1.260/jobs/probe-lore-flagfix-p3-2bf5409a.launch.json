@@ -1,0 +1,12 @@
+{
+  "typed": [
+    "--name",
+    "lore-flagfix-p3",
+    "--model",
+    "opus",
+    "--permission-mode",
+    "auto",
+    "Reply with the single word: ok. Do nothing else, run no tools."
+  ],
+  "note": "opus: auto kept; typed model-before-mode, recorded mode-before-model"
+}

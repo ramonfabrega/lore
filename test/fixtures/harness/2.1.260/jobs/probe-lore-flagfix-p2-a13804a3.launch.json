@@ -1,0 +1,13 @@
+{
+  "typed": [
+    "--name",
+    "lore-flagfix-p2",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "haiku",
+    "--rc",
+    "Reply with the single word: ok. Do nothing else, run no tools."
+  ],
+  "note": "a bare --rc right before the prompt eats it: an idle draft with no prompt, and its flags are rewritten like any haiku row"
+}

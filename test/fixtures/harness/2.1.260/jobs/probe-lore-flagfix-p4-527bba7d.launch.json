@@ -1,0 +1,12 @@
+{
+  "typed": [
+    "--name",
+    "lore-flagfix-p4",
+    "--model",
+    "sonnet",
+    "--permission-mode",
+    "auto",
+    "Reply with the single word: ok. Do nothing else, run no tools."
+  ],
+  "note": "sonnet: auto kept, reordered"
+}

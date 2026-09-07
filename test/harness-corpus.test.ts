@@ -52,7 +52,8 @@ describe('harness corpus', () => {
   for (const v of versions) {
     describe(`claude ${v}`, () => {
       const listing = read(v, 'agents.json')
-      const jobFiles = readdirSync(join(ROOT, v, 'jobs')).filter((f) => f.endsWith('.json'))
+      const jobFiles = readdirSync(join(ROOT, v, 'jobs')).filter((f) => f.endsWith('.json') && !f.endsWith('.launch.json'))
+      const launches = readdirSync(join(ROOT, v, 'jobs')).filter((f) => f.endsWith('.launch.json'))
       const jobs = jobFiles.map((f) => [f, read(v, 'jobs', f)] as const)
 
       test('the scrub held: no home path, no work tree, no auth or owner field anywhere', () => {
@@ -91,8 +92,9 @@ describe('harness corpus', () => {
           expect(typeof a.sessionId, f).toBe('string')
           expect(b.sessionId).toBe(a.sessionId)
           if (j.bridgeSessionId != null) expect(String(j.bridgeSessionId)).toMatch(/^cse_/)
-          // respawnFlags are LAUNCH flags — an array of argv strings, never
-          // the runtime model or mode (log 09-04).
+          // respawnFlags is an array of argv strings — REBUILT by the harness
+          // after init, not the line as typed (log 09-07, the probes below):
+          // trust it for the presence of a flag, never for a value.
           if (j.respawnFlags != null) expect(z.array(z.string()).safeParse(j.respawnFlags).success, f).toBe(true)
           // children[] are LINKS (pr, frame…), not spawns: no parentage here,
           // the fleet tree comes from the parent's spawn calls (log 09-07).
@@ -105,6 +107,39 @@ describe('harness corpus', () => {
           if (j.worktreePath != null) expect(typeof j.worktreeBranch, f).toBe('string')
           if (a.updatedAt != null) expect(Number.isNaN(new Date(a.updatedAt).getTime())).toBe(false)
         }
+      })
+
+      // A probe is a job launched to measure the recording (scripts/
+      // harness-corpus.ts --probe): its sidecar holds the argv as typed. What
+      // lore leans on: every flag typed is present in the recorded array, and
+      // the model named is kept verbatim — but a VALUE can be rewritten. On
+      // 2.1.260 a typed `--permission-mode auto` is recorded `default` when
+      // the model named is Haiku 4.5 (alias or full id), and `auto` on opus,
+      // sonnet and fable; the array is reordered on every model, and a
+      // `--model` nobody typed is filled in. The transcript's own
+      // `permission-mode` record says `auto` on every one of them. Both lore
+      // (CLAUDE.md) and ccc (its `asks` mark) read this array; the day the
+      // rewrite stops, this fails and the rule gets revisited — that is the
+      // point, not a defect in the test.
+      test('probes: every typed flag is present and the model verbatim; at least one typed value was rewritten', () => {
+        if (launches.length === 0) return
+        const Launch = z.object({ typed: z.array(z.string()), note: z.string().optional() })
+        const Flags = z.object({ respawnFlags: z.array(z.string()) }).loose()
+        const val = (a: string[], flag: string) => {
+          const i = a.indexOf(flag)
+          return i >= 0 ? a[i + 1] : undefined
+        }
+        const rewritten: string[] = []
+        for (const f of launches) {
+          const launch = Launch.parse(read(v, 'jobs', f))
+          const fixture = f.replace(/\.launch\.json$/, '.json')
+          const recorded = Flags.parse(read(v, 'jobs', fixture)).respawnFlags
+          for (const flag of launch.typed.filter((x) => x.startsWith('--'))) expect(recorded, `${fixture}: ${flag}`).toContain(flag)
+          const model = val(launch.typed, '--model')
+          if (model != null) expect(val(recorded, '--model'), fixture).toBe(model)
+          if (val(launch.typed, '--permission-mode') !== val(recorded, '--permission-mode')) rewritten.push(fixture)
+        }
+        expect(rewritten.length, 'no probe shows a rewritten value: the harness stopped resolving respawnFlags — revisit the presence-not-value rule').toBeGreaterThan(0)
       })
 
       test('the roster names each worker\'s replPid, session and sockets', () => {

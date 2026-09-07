@@ -1,0 +1,31 @@
+{
+  "state": "working",
+  "detail": "(idle — send a prompt to start)",
+  "tempo": "blocked",
+  "needs": "send a prompt to start",
+  "children": null,
+  "linkScanOffset": 0,
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "lore-flagfix-p2",
+    "--rc",
+    "--model",
+    "haiku",
+    "--permission-mode",
+    "default"
+  ],
+  "intent": "",
+  "name": "lore-flagfix-p2",
+  "nameSource": "user",
+  "sessionId": "a13804a3-96dc-43bb-a687-9701646d5827",
+  "resumeSessionId": "a13804a3-96dc-43bb-a687-9701646d5827",
+  "daemonShort": "a13804a3",
+  "cwd": "/Users/u/.claude/jobs/a18a763f/tmp/flagfix",
+  "createdAt": "2026-09-07T07:01:21.782Z",
+  "updatedAt": "2026-09-07T07:01:22.884Z",
+  "firstTerminalAt": null,
+  "backend": "daemon",
+  "bridgeSessionId": "cse_01GsdA4Bm7rvAsUoNsevn4HA",
+  "bridgeOutboundOnly": false
+}
