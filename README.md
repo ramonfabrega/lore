@@ -154,7 +154,7 @@ from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 | `lore archive` | Additive mirror of `~/.claude` data → `~/.lore/archive`. Deleted sources stay preserved. |
 | `lore index` | Scan wells → parse JSONL → FTS5 index + spawns/workflows lanes. Incremental by mtime/size. |
 | `lore wells` | List wells: real path (de-slugged when needed), worktree/memory flags, sizes. |
-| `lore sessions` | A well's chronological arc spine; `--since` for delta windows, `--exact` for prefix wells. |
+| `lore sessions` | A well's chronological arc spine; `--since` for delta windows, `--exact` to pin one well (see below). |
 | `lore session <id-prefix>` | Dump one session's messages in order, by lane. |
 | `lore search <query>` | FTS5 across lanes; `--history` includes the prompt spine. Hyphenated terms fall back to literal match. |
 | `lore spawns` | The subagent observatory: **verified** per-spawn model vs requested (drift flag), boot cost, partial-telemetry honesty. |
@@ -173,6 +173,31 @@ from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 | `lore skills add` | Generate + install per-command skills (via incur) so Claude Code sessions discover the CLI. |
 
 Every command supports `--help`.
+
+### Picking a well: `--well` and `--exact`
+
+Nine verbs take `--well`: `sessions`, `session`, `trace`, `search`, `spawns`,
+`workflows`, `tools`, `polls`, `usage` (on `session` and `trace` it narrows an
+ambiguous id prefix rather than filtering a list). It is a **substring** match
+against the well dir *and* its de-slugged real path, so a short name is a
+filter, not a selector: `--well app` also answers for
+`-Users-you-code-app-admin`, and `--well code` answers for every well under
+`~/code`.
+
+`--exact` (same nine verbs) switches that to equality — and equality means the
+**whole** well dir or the **whole** absolute real path, never a fragment. This
+is the part that surprises: `--well app --exact` matches nothing and says so
+with a plausible `count: 0`. Copy the value out of `lore wells`:
+
+```sh
+lore wells                                          # dir + realPath for each
+lore sessions --well app                         # substring: app AND app-admin
+lore sessions --well /Users/you/app --exact      # by real path — one well
+lore sessions --well -Users-you-app --exact      # or by well dir — same well
+```
+
+The flag exists because the root `~/code` well is a prefix of every other well
+on the machine, and `LIKE` cannot isolate it.
 
 ## Using it from a Claude Code session
 

@@ -73,7 +73,7 @@ cli.command('sessions', {
     exact: z
       .boolean()
       .optional()
-      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     since: z
       .string()
       .optional()
@@ -110,7 +110,10 @@ cli.command('session', {
       .string()
       .optional()
       .describe('Narrow an ambiguous id prefix to wells whose dir or real path contains this substring'),
-    exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     limit: z.coerce.number().default(500).describe('Max messages'),
   }),
   alias: { lane: 'l', well: 'w', limit: 'n' },
@@ -135,7 +138,10 @@ cli.command('trace', {
   }),
   options: z.object({
     well: z.string().optional().describe('Narrow an ambiguous id prefix to wells whose dir or real path contains this substring'),
-    exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     steps: z.boolean().optional().describe('Expand each transaction\'s API requests'),
     head: z.coerce.number().default(160).describe('Characters kept of each prompt / input / result / reply'),
     limit: z.coerce.number().default(200).describe('Max transactions (totals cover the whole session)'),
@@ -219,7 +225,7 @@ cli.command('search', {
     exact: z
       .boolean()
       .optional()
-      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     limit: z.coerce.number().default(20).describe('Max results'),
     history: z.boolean().optional().describe('Also search history.jsonl (every prompt ever typed, survives retention)'),
   }),
@@ -241,7 +247,7 @@ cli.command('spawns', {
     exact: z
       .boolean()
       .optional()
-      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     agent: z.string().optional().describe('Filter to this agentType (e.g. lore-miner, general-purpose)'),
     since: z.string().optional().describe('Only spawns on/after this ISO date (e.g. 2026-07-15)'),
     workflow: z
@@ -318,7 +324,7 @@ cli.command('workflows', {
     exact: z
       .boolean()
       .optional()
-      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     name: z.string().optional().describe('Filter to runs whose workflow name contains this substring'),
     since: z.string().optional().describe('Only runs recorded on/after this ISO date (e.g. 2026-07-15)'),
     limit: z.coerce.number().default(25).describe('Max run rows (the rollup always covers all matches)'),
@@ -345,7 +351,7 @@ cli.command('tools', {
     exact: z
       .boolean()
       .optional()
-      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     since: z.string().optional().describe('Only invocations on/after this ISO date (e.g. 2026-06-17)'),
     prefix: z
       .string()
@@ -372,7 +378,10 @@ cli.command('polls', {
     'The waiting lint: every session in the window that waited expensively, worst first — `lore trace`\'s `polls` and `idle` over many sessions. TWO shapes, because waiting has two prices. **poll**: a per-turn `cat` of a task\'s output re-bills the whole context per read and buys nothing the harness would not deliver unprompted (`run_in_background` re-invokes the session when the task exits) — measured 2026-09-06 on one capture lane, 381 reads at 240k cache-read tokens each, median 4.6 s apart, 63 USD, 41% of the lane\'s spend against 2% for the captures it existed to run. `runs`/`longest`/`inRuns` count CONSECUTIVE reads of the same task file with nothing between (the live guard\'s shape — refuse the third; every honest check measured was a run of one or two), `rereads` every read past the first of each file however interleaved (a session alternating between two long jobs never hits three in a row); `pollRequests`/`pollUsd` price them. **idle**: a turn held open on NOTHING — `true`, `:`, `echo waiting` — while a notification the session is already owed is on its way. No information at the same price, so it is the cheapest-looking and most expensive thing a lane can do, and unlike a poll it reads no file, which is why the first version of this lint could not see it: lane-286 ran `true` 107 times in four minutes for 9.48 USD (38% of everything that session spent) and this verb ranked it best-in-class on a single 0.10 USD read; the lint\'s own first run then found a worse one nobody had caught — loop-258, thirteen hours earlier, 282 idle turns spelled `echo .` in an unbroken stretch of 187, 39.99 USD. The spellings are examples, not the definition: what is being detected is any command whose purpose is to yield the turn, which is why `echo .` counts and why enumerating spellings is how the next one gets through. `idles` counts them from the FIRST — there is no honest idle turn — `longestIdle` separates a loop from sloppiness, `medianIdleGapS` is the API round trip and nothing else (2.3 s measured); `idleRequests`/`idleUsd` price them. `wastedUsd` is the union of the two and the sort key. A session that neither read a task file nor idled is not a row. Populated by `lore index`.',
   options: z.object({
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
-    exact: z.boolean().optional().describe('Match --well exactly instead of by substring'),
+    exact: z
+      .boolean()
+      .optional()
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     since: z.string().optional().describe('Only sessions active on/after this ISO date (activity, not heartbeats)'),
     limit: z.coerce.number().default(50).describe('Max rows (totals cover every matching session)'),
   }),
@@ -392,7 +401,7 @@ cli.command('usage', {
     exact: z
       .boolean()
       .optional()
-      .describe('Match --well exactly instead of by substring (the ~/code root well is a prefix of every other well)'),
+      .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     session: z.string().optional().describe('Filter to one session id (or prefix) — the per-conversation profile'),
     model: z.string().optional().describe('Filter to models containing this substring (e.g. fable, opus-5, sonnet)'),
     since: z.string().optional().describe('Only requests on/after this ISO date (e.g. 2026-08-28)'),
