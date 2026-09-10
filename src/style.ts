@@ -338,9 +338,35 @@ details > summary { cursor: pointer; list-style: none; } summary::-webkit-detail
    keeps its line breaks and gets a measure rather than the full panel width. */
 p.msg { margin: 2px 0 10px; max-width: 92ch; white-space: pre-wrap; color: var(--ink); border-left: 2px solid var(--line-2); padding-left: 10px; }
 .spine .txn.relay p.msg { border-left-color: color-mix(in oklab, var(--series-2) 55%, transparent); }
-/* The reply is the closing message of a turn, so it reads like the opening
-   one: paragraphs kept, a measure rather than the panel's full width. */
-.reply { color: var(--ink-2); margin: 6px 0 2px; max-width: 92ch; white-space: pre-wrap; } .ann { margin: 2px 0 4px; }
+/* Assistant text is markdown (md.ts) and renders as it did in the terminal
+   it was written for: full ink, a measure, the terminal's own furniture —
+   code spans and fences on the raised surface, tables ruled. The reply is
+   the closing message of a turn and reads like the opening one; a note that
+   is really an answer (\`say\`) reads the same. */
+.md { color: var(--ink); max-width: 92ch; line-height: 1.5; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md p { margin: 6px 0; } .md p.plain { white-space: pre-wrap; } .md li { margin: 2px 0; } .md ul, .md ol { margin: 4px 0; padding-left: 22px; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { font: 600 var(--fs-13)/1.4 var(--sans); margin: 12px 0 4px; }
+.note code { font: normal var(--fs-12) var(--mono); color: var(--ink-2); }
+.md code { font: var(--fs-12) var(--mono); background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+.md pre { font: var(--fs-12)/1.45 var(--mono); background: var(--surface-2); padding: 7px 10px; border-radius: 6px; overflow-x: auto; margin: 6px 0; white-space: pre; overflow-wrap: normal; }
+.md pre code { background: none; padding: 0; }
+.md table { width: auto; display: block; overflow-x: auto; margin: 6px 0; font-size: var(--fs-125); }
+.md th { position: static; font: 600 var(--fs-125) var(--sans); color: var(--ink); background: none; } .md th, .md td { border: 1px solid var(--line); }
+.md blockquote { margin: 6px 0; padding-left: 10px; border-left: 2px solid var(--line-2); color: var(--ink-2); }
+.md hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+.md li.task-list-item { list-style: none; } .md li.task-list-item input { margin: 0 6px 0 -18px; vertical-align: middle; }
+.md.reply { margin: 10px 0 4px; } .md.say { margin: 8px 0 4px; } .ann { margin: 2px 0 4px; }
+.md.msg { margin: 2px 0 10px; padding-left: 10px; border-left: 2px solid color-mix(in oklab, var(--series-2) 55%, transparent); }
+.ix tr.recv .msgfull.md { white-space: normal; }
+/* A folded run of tool calls: what ran, then how much and how long. */
+.phase .mix { display: inline-flex; flex-wrap: wrap; gap: 0 10px; margin-right: 10px; color: var(--ink-2); }
+.phase .mix b { font-weight: 500; color: var(--ink-3); }
+/* The reply's lead under the folded prompt: the other half of the row. */
+.spine .row .p { flex-wrap: wrap; } .spine .row .p .ptext { flex: 1 1 0; }
+.spine .rline { flex: 0 0 100%; min-width: 0; color: var(--ink-3); font-size: var(--fs-125); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 1.5ch; }
+.spine .rline::before { content: '↳ '; }
+.spine .txn[open] .rline { display: none; }
 table.ix { margin: 4px 0; } table.ix th { position: static; } table.ix td { border-bottom: 0; } table.ix tr.step td { border-top: 1px solid var(--line); }
 table.ix td.t, table.ix td.fee, table.ix td.tool { white-space: nowrap; } table.ix td.in { width: 34%; overflow-wrap: anywhere; } table.ix td.res { width: 40%; overflow-wrap: anywhere; }
 tr.err td { color: var(--err); } tr.thought td { padding: 2px 8px; } tr.thought p { margin: 4px 0; }

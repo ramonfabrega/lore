@@ -496,6 +496,8 @@ closing **reply** gets the same treatment for the same reason; the assistant's
 **notes** do not, because a note is a HEADING for the phase it opens and
 belongs on one line. Raising both together turned a reply into 20,000
 characters flattened onto a single line — worse than the clipping it fixed.
+(Refined 2026-09-10, below: the heading stays one line, and a note that is
+MORE than a heading carries its whole text beside it as `body`.)
 
 Not everything uncaps. An instruction's input and result are capped at 2,000
 characters at INDEX time (`TOOL_TEXT_CAP`), so an outbound relay's body is
@@ -513,7 +515,49 @@ cursor; collapsed inline), and each instruction knows its `requestId`, so
 instruction rows group by step with the step's fee (out tokens, thinking,
 $) in the margin. Inputs render as the argument that names the call
 (Bash's command and description, a file tool's path, Grep's pattern in
-its path) rather than the JSON head.
+its path) rather than the JSON head — read out of a CUT input too, field by
+field, since any command long enough to matter fails the parse at 400
+characters and every multi-line ssh in golf 97de53c7 read `{"command":…`.
+
+**The conversation read (2026-09-10).** The page read as one side of a
+conversation: every row a prompt, every answer at the bottom of its fold
+under the tool tables, in muted ink, with its markdown showing as `**` and
+`##`. The user's note, fresh off a session in the CLI: "it looks like a 1
+sided convo". Same data, better format — nothing was removed:
+
+- **The row carries the answer's lead** — `↳ Where it stands — The daemon is
+  shipped and live…`, one muted line under the prompt, the reply's opening
+  heading and first prose line, gone once the turn is open.
+- **Open, a turn reads message → words → reply.** The assistant's notes are
+  always visible at reading size; each run of instructions under a note
+  folds to one line (`Bash ×2 · 2 instr · 12.4s`) and opens into the same
+  table as before. This inverts the old shape twice over: with several
+  notes it folded the WORDS into phase summaries (hiding what a person
+  reads), with one it showed every table open (burying the reply under
+  forty rows of ssh). A run that sent or received a message still opens
+  with the turn, and `?open=all` still opens everything for ⌘F.
+- **Assistant text is markdown** (`md.ts`) — reply, notes, a peer's relay —
+  because the harness says so, not because the text looks like it: the
+  terminal renders every assistant text block as GFM. What the user typed
+  stays pre-wrapped plain text; tool I/O stays mono. `Bun.markdown` (md4c,
+  in the runtime) with raw HTML escaped, links only over http(s)/mailto,
+  images as links. Its URL autolink is OFF: it took the closing `**` of
+  `**https://…**` into the href and left `<strong>` open, and an open
+  formatting element is reopened by the parser inside every element after
+  it — one reply set the rest of the page bold and unstyled 34 rows. Bare
+  URLs are linked after md4c with GFM's trailing-punctuation rule, and a
+  block whose tags do not balance renders plain rather than risk the page
+  (0 of 2,824 blocks across the 400 newest sessions, 4.9M chars, 75 ms).
+  The reply's cut is `cutMarkdown`, not `cutProse`: in markdown whitespace
+  is syntax, and collapsing it flattened a nested list into its parent.
+- **A note is not always a heading.** Note-or-reply is decided by position,
+  and when the model writes its answer and THEN commits, the answer is a
+  note and the reply is "Recorded and pushed." — 4 of 59 notes in golf
+  97de53c7 were over 400 characters, the longest 1,699, all cut to an
+  italic line. `notes[].body` carries the whole note (at `proseHead`, only
+  when there is more than the heading shows) and it renders as a block.
+  The row's lead is still the reply's: which text was the answer is not a
+  field, so the row does not guess.
 
 Rejected: a client-side tree viewer (Langfuse-style span tree + detail
 pane) — earns nothing over `<details>` at this size and costs a build

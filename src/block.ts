@@ -2,6 +2,7 @@ import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
 import { sentHead } from './envelope'
 import { cut, hm, hms, ms, tok, usd } from './fmt'
+import { mdBlock, mdInline, mdLead } from './md'
 import { modelDrift, modelLabel } from './model'
 import type { Annotations, Instruction, SpawnGroup, Trace, Transaction } from './trace'
 import { priceOf, rateFor } from './usage'
@@ -22,7 +23,9 @@ import { clockEl, type FeeSplit, feeBar, ibar, modelChip, spanEl } from './viz'
 //      the slow ones read without reading digits; each opens into its
 //      phases — the assistant's own between-instruction notes ("Now the
 //      tests…") heading the run of steps that followed — then the closing
-//      text.
+//      reply. Open, a turn reads as a conversation: the message, the
+//      assistant's words at reading size with each run of tool calls folded
+//      to one line under the words that announced it, and the reply last.
 //
 // No client code: <details> is the only interaction. Text wears text ink;
 // marks wear the series tokens; the lane label is the legend.
@@ -258,7 +261,7 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
   // muted.
   const chip = x.kind === 'relay' ? `@${x.tag ?? 'peer'}` : x.kind === 'meta' ? (x.tag ?? 'meta') : x.kind === 'command' ? 'command' : null
   const cells = html`<span class="n muted">${o.n ?? ''}</span><span class="at mono muted">${clockEl(x.ts, { sec: true })}</span>
-    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${receivedBadges(x.received)}${sentBadges(x.sent)}</span>
+    <span class="p">${chip ? html`<span class="kind ${x.kind} ${x.tag ?? ''}">${chip}</span> ` : ''}<span class="${x.kind === 'meta' ? 'ptext muted' : 'ptext'}">${x.prompt || raw('&nbsp;')}</span>${receivedBadges(x.received)}${sentBadges(x.sent)}${replyLead(x)}</span>
     ${o.mixed ? html`<span class="m">${modelChip(x.model)}</span>` : ''}
     <span class="num">${x.steps || ''}</span>
     <span class="num">${x.instructions.length || ''}</span>
@@ -272,10 +275,23 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
     <summary class="row">${cells}</summary>
     <div class="body">
       ${annotationLine(x.annotations)}
-      ${x.message ? html`<p class="msg">${x.message}</p>` : ''}
+      ${x.message ? (x.kind === 'relay' ? html`<div class="msg md">${raw(mdBlock(x.message))}</div>` : html`<p class="msg">${x.message}</p>`) : ''}
       ${txBody(x, o.openPhases)}
     </div>
   </details>`
+}
+
+// The other half of the conversation, on the folded row: the first thing the
+// reply says, one line, under the message it answers. Without it the spine
+// is every prompt and none of the answers — they were there, at the bottom
+// of each fold. It is the reply's lead and nothing else: when the answer went
+// out as a note before a final commit, the lead is the commit line, because
+// which text was the answer is not a field (trace.ts, Note). Hidden once the
+// turn is open, where the reply itself is.
+function replyLead(x: Transaction) {
+  if (!x.reply || x.kind === 'meta') return html``
+  const lead = mdLead(x.reply)
+  return lead ? html`<span class="rline" title="${cut(x.reply, 600)}">${lead}</span>` : html``
 }
 
 // One badge per recipient, with a count — never one per message. A turn that
@@ -343,7 +359,7 @@ function receivedRow(r: Transaction['received'][number]) {
   return html`<tr class="recv ${r.kind}">
     <td class="mono muted t">${clockEl(r.ts, { sec: true })}</td>
     <td class="mono tool"><i class="sw agent"></i>${r.kind === 'relay' ? 'message' : r.kind === 'prompt' ? 'you' : 'harness'}</td>
-    <td class="in" colspan="4">${who} <span class="msgline">${cut(r.text, RECV_PREVIEW)}</span>${long ? html`<details><summary class="muted small">full message</summary><p class="msgfull">${r.text}</p></details>` : ''}</td>
+    <td class="in" colspan="4">${who} <span class="msgline">${cut(r.text, RECV_PREVIEW)}</span>${long ? html`<details><summary class="muted small">full message</summary>${r.kind === 'relay' ? html`<div class="msgfull md">${raw(mdBlock(r.text))}</div>` : html`<p class="msgfull">${r.text}</p>`}</details>` : ''}</td>
   </tr>`
 }
 
@@ -359,16 +375,25 @@ function shortTo(to: string | null): string {
 }
 
 // Phases: each note heads the run of instructions up to the next note.
-// A transaction with no notes is one implicit phase, rendered bare.
-function txBody(x: Transaction, openPhases: boolean) {
+// A transaction with no notes is one implicit phase with no words above it.
+//
+// The words stay out; the tool calls fold. A note is the assistant talking
+// ("`SessionData` — that's exactly the tap RIG.md ranks first. Let me
+// look."), so it renders as markdown at reading size and is always visible;
+// the run of instructions under it is one line (`Bash ×2 · 2 instr · 9.0s`)
+// that opens into the table. A note that is really an answer (`body`) renders
+// whole. The old shape did the opposite twice over: with several notes it
+// folded the WORDS into phase summaries, hiding the part a person reads; with
+// one it showed every table, putting the reply under forty rows of ssh.
+// Nothing is gone — every table is one click, and `?open=all` opens them all.
+function txBody(x: Transaction, openTools: boolean) {
   const stepFee = new Map((x.requests ?? []).map((r) => [r.requestId, r]))
   const len = x.instructions.length
-  const phases: { note: { text: string; ts: string | null } | null; from: number; to: number }[] = []
+  const phases: { note: Transaction['notes'][number] | null; from: number; to: number }[] = []
   const firstAt = x.notes[0]?.at ?? len
   if (firstAt > 0) phases.push({ note: null, from: 0, to: firstAt })
   x.notes.forEach((n, k) => phases.push({ note: n, from: n.at, to: x.notes[k + 1]?.at ?? len }))
   if (phases.length === 0) phases.push({ note: null, from: 0, to: len })
-  const many = x.notes.length > 1
 
   return html`
     ${phases.map((p, k) => {
@@ -377,26 +402,36 @@ function txBody(x: Transaction, openPhases: boolean) {
       // belongs to the last phase.
       const last = k === phases.length - 1
       const recv = x.received.filter((r) => r.at >= p.from && (r.at < p.to || (last && r.at === p.to)))
-      const table = ix.length || recv.length ? ixTable(x, p.from, p.to, stepFee, last) : html``
-      if (!p.note) return table
+      const say = !p.note
+        ? ''
+        : p.note.body
+          ? html`<div class="md say">${raw(mdBlock(p.note.body))}</div>`
+          : html`<p class="note">${raw(mdInline(p.note.text))}</p>`
+      if (!ix.length && !recv.length) return say
       const errs = ix.filter((i) => i.error).length
       const t0 = ix[0]?.ts
-      const t1 = ix[ix.length - 1]?.ts
-      const span = t0 && t1 ? Date.parse(t1) - Date.parse(t0) : null
-      const meta = html`<span class="muted small">${ix.length ? `${ix.length} instr` : ''}${span ? ` · ${ms(span)}` : ''}${errs ? html` · <span class="err">${errs} err</span>` : ''}</span>`
+      const tail = ix[ix.length - 1]
+      const span = t0 && tail?.ts ? Date.parse(tail.ts) + (tail.ms ?? 0) - Date.parse(t0) : null
       // A fold must not hide what the row advertises. The badge promises
-      // `→ @ccc`; with several notes the phases close by default, and in the
-      // golden records EVERY outgoing message landed inside a closed one —
-      // instruction 8 of 8 here, 5 / 21 / 29 of 31 there. So a phase carrying
-      // a message opens with the turn, and only the rest stay folded.
+      // `→ @ccc`, and in the golden records EVERY outgoing message landed
+      // inside a folded phase — instruction 8 of 8 here, 5 / 21 / 29 of 31
+      // there. So a run carrying a message opens with the turn.
       const sends = ix.some((i) => i.tool === 'SendMessage') || recv.some((r) => r.kind !== 'meta')
-      return many
-        ? html`<details class="phase ${sends ? 'sends' : ''}" ${openPhases || sends ? 'open' : ''}><summary><span class="note">${p.note.text}</span> ${meta}${
-            sends ? html` <span class="kind sent">→ message</span>` : ''
-          }</summary>${table}</details>`
-        : html`<p class="note">${p.note.text} ${meta}</p>${table}`
+      return html`${say}<details class="phase ${sends ? 'sends' : ''}" ${openTools || sends ? 'open' : ''}><summary>${toolMix(ix)}<span class="muted small">${
+        ix.length ? `${ix.length} instr` : ''
+      }${span ? ` · ${ms(span)}` : ''}${errs ? html` · <span class="err">${errs} err</span>` : ''}</span>${
+        sends ? html` <span class="kind sent">→ message</span>` : ''
+      }</summary>${ixTable(x, p.from, p.to, stepFee, last)}</details>`
     })}
-    ${x.reply ? html`<p class="reply">${x.reply}</p>` : ''}`
+    ${x.reply ? html`<div class="md reply">${raw(mdBlock(x.reply))}</div>` : ''}`
+}
+
+// What a folded run of instructions did, by tool in the order first used —
+// `Bash ×3 Edit Read` — each wearing its lane's swatch.
+function toolMix(ix: Instruction[]) {
+  const n = new Map<string, number>()
+  for (const i of ix) n.set(i.tool, (n.get(i.tool) ?? 0) + 1)
+  return html`<span class="mix mono">${[...n].map(([t, c]) => html`<span><i class="sw ${family(t)}"></i>${t}${c > 1 ? html` <b>×${c}</b>` : ''}</span>`)}</span>`
 }
 
 function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>, tail = false) {
@@ -446,17 +481,42 @@ function inputHead(tool: string, input: string): H | string {
   try {
     j = JSON.parse(input)
   } catch {
-    return cut(input, 200)
+    j = null
   }
-  if (!j || typeof j !== 'object') return cut(input, 200)
-  const o = j as Record<string, unknown>
-  const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : null)
+  // The input arrives cut, so any command long enough to matter fails the
+  // parse — every multi-line ssh in golf 97de53c7 read `{"command":"ssh -o…`.
+  // A cut object still has its leading fields intact: read each one as far
+  // as it goes, a string that was cut mid-way decoding up to the cut.
+  const o = j && typeof j === 'object' ? (j as Record<string, unknown>) : null
+  if (!o && !input.startsWith('{')) return cut(input, 200)
+  const str = (k: string) => (o ? (typeof o[k] === 'string' ? (o[k] as string) : null) : cutField(input, k))
   const main =
     str('command') ?? str('file_path') ?? str('notebook_path') ?? str('pattern') ?? str('query') ?? str('url') ?? str('description') ?? str('prompt') ?? str('skill')
   if (main == null) return cut(input, 200)
   const path = tool === 'Grep' || tool === 'Glob' ? str('path') : null
   const desc = tool === 'Bash' ? str('description') : tool === 'Agent' ? str('subagent_type') : null
   return html`${cut(main, 200)}${path ? html` <span class="muted">in ${cut(path, 60)}</span>` : ''}${desc ? html` <span class="muted">— ${cut(desc, 80)}</span>` : ''}`
+}
+
+// One string field of a JSON object that may have been cut anywhere: the
+// value runs to its closing quote, or to the end of the text. A trailing
+// half escape is dropped before decoding, and the cut marker with it.
+function cutField(input: string, k: string): string | null {
+  const m = new RegExp(`"${k}":"((?:[^"\\\\]|\\\\.)*)(")?`).exec(input)
+  if (!m) return null
+  const closed = m[2] === '"'
+  const body = closed
+    ? m[1]!
+    : m[1]!
+        .replace(/…$/, '')
+        .replace(/\\u[0-9a-fA-F]{0,3}$/, '')
+        .replace(/(^|[^\\])((?:\\\\)*)\\$/, '$1$2')
+  try {
+    const v: unknown = JSON.parse(`"${body}"`)
+    return typeof v === 'string' ? (closed ? v : `${v}…`) : null
+  } catch {
+    return null
+  }
 }
 
 function thoughtRow(text: string) {

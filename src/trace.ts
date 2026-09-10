@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { ackHead, metaHead, relayHead, type Sent, sentHead } from './envelope'
 import { type ClassRow, type IdleShape, type PollShape, type ToolClass, classify, idleShape, pollShape, requestClass, rollup, taskRef } from './classes'
-import { cut, cutProse } from './fmt'
+import { cut, cutMarkdown, cutProse } from './fmt'
 import { JOB_KEY_SQL } from './job'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
@@ -96,7 +96,15 @@ export type Instruction = {
 // instruction after it, so notes segment a transaction into phases with
 // zero inference — the grind's single 298-step prompt reads as 14 phases
 // this way. The text after the LAST instruction is `reply`, not a note.
-export type Note = { at: number; ts: string | null; text: string }
+//
+// Position decides note-or-reply; nothing decides heading-or-answer, and a
+// note is not always a heading. When the model writes its answer and THEN
+// commits, the answer is a note and the reply is "Pushed." (golf 97de53c7:
+// 4 of 59 notes over 400 characters, the longest 1,699). `text` is the
+// one-line heading, cut to `head`; `body` is the whole note as markdown at
+// `proseHead`, present only when there is more of it than the heading shows
+// — a second line, or a cut — the way `message` is.
+export type Note = { at: number; ts: string | null; text: string; body?: string }
 // A thought is a thinking block, same cursor.
 export type Thought = { at: number; ts: string | null; text: string }
 // A message READ inside the turn, same cursor: what arrived while the
@@ -390,7 +398,9 @@ export function getTrace(
     const tag = relay ? (opener?.peer ?? relay.from) : kind === 'meta' ? (meta?.tag ?? null) : null
     const raw = relay ? relay.text : meta ? meta.text : opener?.text ?? ''
     const promptText = cut(raw, head)
-    const messageText = cutProse(raw, proseHead)
+    // A relay is another assistant's text, so markdown (md.ts); a prompt is
+    // what somebody typed, and keeps `cutProse`.
+    const messageText = relay ? cutMarkdown(raw, proseHead) : cutProse(raw, proseHead)
 
     // Instructions: tool_use rows (assistant, tool lane) paired to their result
     // row by tool_use_id. Latency is the timestamp pair.
@@ -413,13 +423,17 @@ export function getTrace(
           ts: r.ts,
           kind: r.lane,
           tag: rh ? (r.peer ?? rh.from) : (mh?.tag ?? null),
-          text: cutProse(rh ? rh.text : mh ? mh.text : r.text, proseHead),
+          text: rh ? cutMarkdown(rh.text, proseHead) : cutProse(mh ? mh.text : r.text, proseHead),
         })
         continue
       }
       if (r.type !== 'assistant') continue
       if (r.lane === 'text') {
-        texts.push({ at: instructions.length, ts: r.ts, text: cut(r.text, head), raw: r.text })
+        const text = cut(r.text, head)
+        // Only when prose is asked for at more than the heading's cap — the
+        // CLI's single `head` would carry every long note twice.
+        const more = proseHead > head && (text.endsWith('…') || r.text.trim().includes('\n'))
+        texts.push({ at: instructions.length, ts: r.ts, text, ...(more ? { body: cutMarkdown(r.text, proseHead) } : {}), raw: r.text })
         continue
       }
       if (r.lane === 'thinking') {
@@ -457,7 +471,7 @@ export function getTrace(
     // The closing text is the last text row when nothing was instructed
     // after it; a transaction cut off mid-flight has none.
     const lastText = texts[texts.length - 1]
-    const reply = lastText && lastText.at === instructions.length ? cutProse(lastText.raw, proseHead) : ''
+    const reply = lastText && lastText.at === instructions.length ? cutMarkdown(lastText.raw, proseHead) : ''
     // `raw` is scaffolding for the reply's prose cut — it never leaves here.
     const notes: Note[] = texts.filter((n) => n !== lastText || !reply).map(({ raw: _raw, ...n }) => n)
 

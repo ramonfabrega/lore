@@ -43,6 +43,16 @@ export function cutProse(s: string, n: number): string {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t
 }
 
+// `cut` for text an assistant wrote, which is markdown (md.ts): whitespace is
+// SYNTAX there — a nested list is its indentation and a fence keeps its
+// code's — so nothing inside a line collapses, only runs of blank lines. What
+// `cutProse` does to a wrapped brief would flatten a reply's sub-list into its
+// parent.
+export function cutMarkdown(s: string, n: number): string {
+  const t = plain(s).replace(/[^\S\n]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim()
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t
+}
+
 export function cut(s: string, n: number): string {
   const one = plain(s).replace(/\s+/g, ' ').trim()
   return one.length > n ? `${one.slice(0, n - 1)}…` : one
