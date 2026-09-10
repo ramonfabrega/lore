@@ -24,16 +24,24 @@ function result(ts: string, promptId: string, toolUseId: string, text: string) {
   return JSON.stringify({ type: 'user', timestamp: ts, promptId, sessionId: 'sess-1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: text }] } })
 }
 
+// The fixture is dated relative to NOW. The root page's panels are windows
+// on the real clock — "active this week" is the last 7 days, the day chart
+// the last 45 — so a fixed date ages out of them: 2026-09-01 left the week
+// on 09-09 and failed every run after, master included. Two days ago sits
+// inside every window, in every zone CI runs (UTC and UTC+14).
+const T0 = Math.floor((Date.now() - 2 * 86_400_000) / 1000) * 1000
+const at = (sec: number) => new Date(T0 + sec * 1000).toISOString()
+
 async function seededApp() {
   const dir = mkdtempSync(join(tmpdir(), 'lore-web-'))
   mkdirSync(join(dir, WELL), { recursive: true })
   writeFileSync(
     join(dir, WELL, 'sess-1.jsonl'),
     [
-      prompt('2026-09-01T10:00:00.000Z', 'p1', 'ship the explorer'),
-      assistant('2026-09-01T10:00:05.000Z', 'msg_1', [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'bun test' } }], 50),
-      result('2026-09-01T10:00:09.000Z', 'p1', 'tu_1', '91 pass'),
-      assistant('2026-09-01T10:00:20.000Z', 'msg_2', [{ type: 'text', text: 'Green.' }], 30, 'end_turn'),
+      prompt(at(0), 'p1', 'ship the explorer'),
+      assistant(at(5), 'msg_1', [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'bun test' } }], 50),
+      result(at(9), 'p1', 'tu_1', '91 pass'),
+      assistant(at(20), 'msg_2', [{ type: 'text', text: 'Green.' }], 30, 'end_turn'),
     ].join('\n') + '\n',
   )
   const db = openDb(':memory:')
@@ -111,7 +119,7 @@ describe('explorer routes', () => {
     // into an <input type="date">, and it has to read the same as what
     // `lore usage --by day` prints. It stays ISO while the stamps around it
     // went human.
-    expect(await res.text()).toContain(day('2026-09-01T10:00:00.000Z'))
+    expect(await res.text()).toContain(day(at(0)))
   })
 
   // The pages localized their text and left their own tooltips in UTC: hover
