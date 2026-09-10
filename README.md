@@ -295,6 +295,24 @@ All env vars, validated in one place (`src/config.ts`):
 | `LORE_DOCS_EXCLUDE` | — | Comma-separated `/`-bounded path suffixes to skip in the docs scan. |
 | `LORE_DOCS_ASSISTED` | — | Force-flag repos as assisted (someone else's project) when auto-detection misses. |
 
+## Standalone: what your sessions do when a tool call is denied
+
+`scripts/denials.py` needs none of the above — no index, no install, no
+dependencies. It reads `~/.claude/projects/**/*.jsonl` directly and reports every
+denied tool call, split by **why** (`toolDenialKind`: the auto-mode classifier, a
+human pressing no, a `settings.json` rule) and by **what the session did next** —
+continued on the independent work, reshaped the command, stopped and handed it
+back, or retried the same thing into the same wall.
+
+```bash
+python3 scripts/denials.py --since 2026-08-01
+```
+
+The counts are the easy half; which reshapes respected the *reason* for a block
+rather than only its *mechanism* takes a human read.
+[`docs/DENIALS-RUNBOOK.md`](docs/DENIALS-RUNBOOK.md) is that procedure, written
+to be pasted into a fresh Claude Code session on any machine.
+
 ## Status & non-goals
 
 v0, a personal tool published as-is: local only, no telemetry, no accounts, and
