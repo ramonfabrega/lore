@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { listJobs, repoOf, spawnEdges } from '../src/job'
+import { getTrace } from '../src/trace'
 import { fleetRows } from '../src/web'
 
 // The fleet tree: a commander that spawned a worker through `ccc spawn
@@ -89,7 +90,7 @@ describe('repoOf', () => {
 describe('the fleet tree', () => {
   test('the edge is read off the parent\'s spawn answer, and lands on the child job', async () => {
     const db = await corpus()
-    expect([...spawnEdges(db)]).toEqual([
+    expect([...spawnEdges(db)].map(([child, e]) => [child, e.key])).toEqual([
       ['deadbeef-root', 'CMD'],
       ['f1a7ce00-root', 'CMD'],
     ])
@@ -98,6 +99,9 @@ describe('the fleet tree', () => {
     expect(by.get('w1')?.parent).toEqual({ key: 'CMD', name: 'cmd' })
     expect(by.get('fix')?.parent).toEqual({ key: 'CMD', name: 'cmd' })
     expect(by.get('cmd')?.parent).toBeNull()
+    // `keys` narrows the listing to a set — a session's lanes.
+    expect(listJobs(db, { keys: ['deadbeef-root', 'f1a7ce00-root'], all: true, limit: 10 }).map((j) => j.name).sort()).toEqual(['fix', 'w1'])
+    expect(listJobs(db, { keys: [], all: true, limit: 10 })).toEqual([])
     expect(by.get('solo')?.parent).toBeNull()
     expect(jobs.map((j) => [j.name, j.repo]).sort()).toEqual([
       ['cmd', REPO],
@@ -105,6 +109,22 @@ describe('the fleet tree', () => {
       ['solo', '/u/code/fun/y'],
       ['w1', REPO],
     ])
+  })
+
+  test('a session carries the lanes it spawned, priced and stated like jobs rows; the worker carries none', async () => {
+    const db = await corpus()
+    const cmd = getTrace(db, 'cmd-1', { limit: 10 })
+    expect(cmd.lanes.map((l) => [l.name, l.key, l.state, l.spawnedAt, l.first, l.last, l.sessions, l.opener])).toEqual([
+      ['w1', 'deadbeef-root', 'done', '2026-09-07T04:07:00Z', '2026-09-07T04:07:20Z', '2026-09-07T04:20:00Z', 1, 'You are a worker in the loop'],
+      ['fix', 'f1a7ce00-root', 'done', '2026-09-07T04:08:00Z', '2026-09-07T04:08:05Z', '2026-09-07T04:08:09Z', 1, 'say hi'],
+    ])
+    expect(cmd.lanes[0]).toMatchObject({ ms: 760_000, requests: 1, output: 10, models: [{ model: 'claude-opus-5', requests: 1 }] })
+    // Priced (a known model), even when ten output tokens round to nothing.
+    expect(cmd.lanes[0]?.listUsd).not.toBeNull()
+    expect(cmd.totals.lanes).toBe(2)
+    expect(cmd.totals.laneUsd).toBe(Math.round(((cmd.lanes[0]?.listUsd ?? 0) + (cmd.lanes[1]?.listUsd ?? 0)) * 100) / 100)
+    // The worker spawned nothing: no lanes, and a zero fee for them, not null.
+    expect(getTrace(db, 'deadbeef-1111', { limit: 10 })).toMatchObject({ lanes: [], totals: { lanes: 0, laneUsd: 0 } })
   })
 
   test('the page groups by repo in order of appearance and hangs a child under its parent', async () => {

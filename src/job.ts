@@ -204,7 +204,7 @@ const GroupRow = z.object({
   latest: z.string(),
 })
 const SessionKey = z.object({ sessionId: z.string(), key: z.string() })
-const SpawnRow = z.object({ key: z.string(), result: z.string() })
+const SpawnRow = z.object({ key: z.string(), sessionId: z.string(), ts: z.string().nullable(), result: z.string() })
 
 // The repo a path belongs to: a worktree's checkout is its base repo's
 // (`<repo>/.claude/worktrees/<name>` → `<repo>`), so a commander in one
@@ -223,23 +223,36 @@ export function repoOf(p: string | null | undefined): string | null {
 // is the root session's first eight characters, so the child's job key is
 // read off its sessions. Exact from the ledger, no inference: a child whose
 // transcript is not indexed yet has no edge until it is.
+//
+// The candidate rows are picked on the RESULT's text, never the call's: the
+// index caps a tool call at TOOL_TEXT_CAP (parse.ts), and a commander's
+// spawn rides a long line — `ccc push … && ccc spawn … --brief …` — where
+// "spawn" sits past the cut (16 of the 20 lanes of a canonical run on
+// 2026-09-23 had no edge for exactly this). A result keeps its head, and
+// the ref is in the first 300 characters of every shape ccc answers with.
 const CHILD_ID = /"ref"\s*:\s*"([0-9a-f]{8})|backgrounded · ([0-9a-f]{8})/
-export function spawnEdges(db: Database): Map<string, string> {
+// An edge: the parent job's key, and the SESSION and instant of the spawn
+// call — a job spawns across many /clears, and a session page wants the
+// lanes this one drove, not every lane the job ever had.
+export type SpawnEdge = { key: string; sessionId: string; ts: string | null }
+export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map<string, SpawnEdge> {
   const rows = z.array(SpawnRow).parse(
     db
       .prepare(
-        `SELECT ${JOB_KEY_SQL} AS key, f2.text AS result
-         FROM messages m JOIN messages_fts f ON f.rowid = m.id
+        `SELECT ${JOB_KEY_SQL} AS key, m.session_id AS sessionId, m.ts, f2.text AS result
+         FROM messages m
          JOIN sessions s ON s.session_id = m.session_id
          JOIN messages m2 ON m2.tool_use_id = m.tool_use_id AND m2.session_id = m.session_id AND m2.type = 'user' AND m2.lane = 'tool'
          JOIN messages_fts f2 ON f2.rowid = m2.id
-         WHERE m.type = 'assistant' AND m.lane = 'tool' AND m.tool_name = 'Bash' AND f.text LIKE '%spawn%'
+         WHERE m.type = 'assistant' AND m.lane = 'tool' AND m.tool_name = 'Bash'
+           AND (f2.text LIKE '%backgrounded · %' OR f2.text LIKE '%"ref"%')
+           ${opts.sessionId ? 'AND m.session_id = ?' : ''}
          ORDER BY m.ts`,
       )
-      .all(),
+      .all(...(opts.sessionId ? [opts.sessionId] : [])),
   )
   const childKey = db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE substr(s.job_session_id, 1, 8) = ? OR substr(s.session_id, 1, 8) = ? LIMIT 1`)
-  const parentOf = new Map<string, string>()
+  const parentOf = new Map<string, SpawnEdge>()
   for (const r of rows) {
     const m = CHILD_ID.exec(r.result)
     const id = m?.[1] ?? m?.[2]
@@ -247,7 +260,7 @@ export function spawnEdges(db: Database): Map<string, string> {
     const child = z.object({ key: z.string() }).nullable().parse(childKey.get(id, id) ?? null)
     // The first spawn wins: a respawn of the same job by the same parent is
     // the same edge, and a different parent reusing a name is a new job.
-    if (child && child.key !== r.key && !parentOf.has(child.key)) parentOf.set(child.key, r.key)
+    if (child && child.key !== r.key && !parentOf.has(child.key)) parentOf.set(child.key, { key: r.key, sessionId: r.sessionId, ts: r.ts })
   }
   return parentOf
 }
@@ -290,13 +303,18 @@ export type JobRow = {
 }
 
 // The jobs, newest activity first. Background jobs by default; `all` adds
-// interactive sessions as one-session jobs. `key` narrows to one.
-export function listJobs(db: Database, opts: { all?: boolean; since?: string; limit: number; key?: string }): JobRow[] {
+// interactive sessions as one-session jobs. `key` narrows to one, `keys`
+// to a set (a session's lanes).
+export function listJobs(db: Database, opts: { all?: boolean; since?: string; limit: number; key?: string; keys?: string[] }): JobRow[] {
   const where: string[] = []
   const params: (string | number)[] = []
   if (opts.key) {
     where.push(`${JOB_KEY_SQL} = ?`)
     params.push(opts.key)
+  } else if (opts.keys) {
+    if (opts.keys.length === 0) return []
+    where.push(`${JOB_KEY_SQL} IN (${opts.keys.map(() => '?').join(',')})`)
+    params.push(...opts.keys)
   } else if (!opts.all) where.push('(s.bridge_key IS NOT NULL OR s.job_session_id IS NOT NULL)')
   const having = opts.since ? 'HAVING MAX(COALESCE(s.last_activity_ts, s.last_ts)) >= ?' : ''
   if (opts.since) params.push(opts.since)
@@ -375,7 +393,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     const j = idx.forKey(g.key, g.kind)
     const u = usage.get(g.key)
     const l = latest.get(g.latest)
-    const parentKey = parentOf.get(g.key) ?? null
+    const parentKey = parentOf.get(g.key)?.key ?? null
     return {
       key: g.key,
       kind: g.kind,
