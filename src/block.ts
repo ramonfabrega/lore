@@ -4,9 +4,9 @@ import { sentHead } from './envelope'
 import { cut, hm, hms, ms, tok, usd } from './fmt'
 import { mdBlock, mdInline, mdLead } from './md'
 import { modelDrift, modelLabel } from './model'
-import type { Annotations, Instruction, SpawnGroup, Trace, Transaction } from './trace'
+import type { Annotations, Instruction, Lane, SpawnGroup, Trace, Transaction } from './trace'
 import { priceOf, rateFor } from './usage'
-import { clockEl, type FeeSplit, feeBar, ibar, modelChip, spanEl } from './viz'
+import { clockEl, type FeeSplit, feeBar, ibar, modelChip, modelChips, spanEl } from './viz'
 
 // The block view (docs/EXPLORER.md, design pass 2026-09-01): one session
 // rendered from `getTrace` alone. Three reads, top to bottom —
@@ -109,10 +109,13 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
       ${tile('cache-read', tok(t.cacheRead))}
       ${tile('list $', usd(t.listUsd))}
       ${t.spawns ? tile('spawns', `${t.spawns} · ${tok(t.spawnOutput)} out`) : ''}
+      ${t.lanes ? tile(html`<span title="jobs this session spawned (ccc spawn) — their own sessions' list price">lanes</span>`, `${t.lanes} · ${usd(t.laneUsd)}`) : ''}
+      ${t.lanes ? tile(html`<span title="this session's list price plus its lanes' — what the run cost">run $</span>`, usd(t.listUsd == null || t.laneUsd == null ? null : t.listUsd + t.laneUsd)) : ''}
     </div>
     ${feeBar(fee, { unpriced: fee.unpriced })}
     ${fanout(trace.spawns)}
     ${timeline(trace, num)}
+    ${laneLedger(trace.lanes)}
     </div>
     <div class="panel"><div class="scroll">
     <section class="spine ${mixed ? 'mixed' : ''}">
@@ -135,6 +138,59 @@ function fanout(groups: SpawnGroup[]) {
       return html`<span class="g" title="${g.n} spawn${g.n === 1 ? '' : 's'} · ${g.model ?? 'model unknown'}${asked} · ${g.output.toLocaleString()} output tokens">
         <b>${g.n}×</b> ${g.agentType ?? '?'} ${modelChip(g.model)}${drift ? html` <span class="kind err">asked ${g.requestedModel}</span>` : ''} <span class="muted">· ${tok(g.output)} out</span></span>`
     })}</p>`
+}
+
+// The lane ledger: every job this session spawned, in spawn order — the
+// commander's fan-out, which the Agent-tool ledger above never sees. A row
+// is a job (`/job/<key>`): its state as of the last index (`gone` once
+// reaped), when it was spawned, its own span, model, requests, fee, and
+// what it was set on. Folded: the tile and the timeline band carry the
+// shape, the table is the drill-down.
+function laneLedger(lanes: Lane[]) {
+  if (lanes.length === 0) return html``
+  const states = new Map<string, number>()
+  for (const l of lanes) states.set(l.state ?? '?', (states.get(l.state ?? '?') ?? 0) + 1)
+  const total = lanes.every((l) => l.listUsd != null) ? lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0) : null
+  return html`<details class="lanes-ledger">
+    <summary class="fan small"><span class="muted">lanes</span> <span class="g"><b>${lanes.length}</b> · ${usd(total)}</span>
+      ${[...states].sort((a, b) => b[1] - a[1]).map(([st, n]) => html`<span class="g"><span class="kind st-${st}">${st}</span> <span class="muted">×${n}</span></span>`)}</summary>
+    <table class="ix lanes">
+      <thead><tr><th>lane</th><th>state</th><th>spawned</th><th>first → last</th><th class="num">wall</th><th>model</th><th class="num">req</th><th class="num">out</th><th class="num">list $</th><th>opener</th></tr></thead>
+      <tbody>${lanes.map(
+        (l) => html`<tr>
+        <td><a class="mono" href="/job/${encodeURIComponent(l.key)}" title="${l.key}">@${l.name ?? l.key.slice(0, 8)}</a></td>
+        <td><span class="kind st-${l.state ?? ''}">${l.state ?? '?'}</span></td>
+        <td class="mono muted">${clockEl(l.spawnedAt)}</td>
+        <td class="mono muted">${clockEl(l.first)} → ${clockEl(l.last)}</td>
+        <td class="num">${l.ms != null ? ms(l.ms) : ''}</td>
+        <td>${modelChips(l.models, { max: 2 })}</td>
+        <td class="num">${l.requests.toLocaleString()}</td>
+        <td class="num">${tok(l.output)}</td>
+        <td class="num">${usd(l.listUsd)}</td>
+        <td class="muted small">${cut(l.opener ?? '', 90)}</td>
+      </tr>`,
+      )}</tbody>
+    </table>
+  </details>`
+}
+
+// Lanes packed into rows for the timeline: a lane takes the first row whose
+// last lane ended before it began, so two lanes in flight are two rows and
+// twenty lanes run in sequence are one. Returns each lane's row and the
+// row count.
+function packLanes(lanes: Lane[]): { rows: Map<Lane, number>; n: number } {
+  const ends: number[] = []
+  const rows = new Map<Lane, number>()
+  for (const l of [...lanes].sort((a, b) => (a.first ?? '').localeCompare(b.first ?? ''))) {
+    if (!l.first || !l.last) continue
+    const a = Date.parse(l.first)
+    const b = Date.parse(l.last)
+    let r = ends.findIndex((e) => e <= a)
+    if (r < 0) r = ends.push(b) - 1
+    else ends[r] = b
+    rows.set(l, r)
+  }
+  return { rows, n: ends.length }
 }
 
 // ---- the fee bar ------------------------------------------------------
@@ -193,7 +249,13 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
   const lanes = LANES.filter((l) => present.has(l))
   if (lanes.length === 0) return html``
   const laneY = new Map(lanes.map((l, i) => [l, TOP + i * LH]))
-  const H = TOP + lanes.length * LH + AX
+  // The spawned lanes' band, under the families: one bar per job from its
+  // first activity to its last, clipped to this session's window, rows
+  // packed so concurrent lanes stack. What 8.6 hours of a commander WERE:
+  // twenty lanes of forty minutes, two in flight, a serialized gate between.
+  const packed = packLanes(trace.lanes)
+  const LY = TOP + lanes.length * LH
+  const H = LY + packed.n * LH + AX
 
   const bands: H[] = []
   const marks: H[] = []
@@ -226,6 +288,18 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
     }
   })
 
+  const laneBars: H[] = []
+  for (const [l, r] of packed.rows) {
+    const a = Math.max(Date.parse(l.first ?? ''), t0)
+    const b = Math.min(Date.parse(l.last ?? ''), t0 + span)
+    if (!(b > a)) continue
+    const lx = ((a - t0) / span) * PW
+    const lw = Math.max(1.5, ((b - a) / span) * PW)
+    const y = LY + r * LH
+    laneBars.push(html`<a href="/job/${encodeURIComponent(l.key)}"><rect class="ln st-${l.state ?? ''}" x="${lx.toFixed(2)}" y="${y + 2}" width="${lw.toFixed(2)}" height="${LH - 4}"><title>@${l.name ?? l.key.slice(0, 8)} · ${l.state ?? '?'} · spawned ${hms(l.spawnedAt)} · ${hms(l.first)} → ${hms(l.last)} · ${l.ms != null ? ms(l.ms) : ''} · ${usd(l.listUsd)}\n${cut(l.opener ?? '', 120)}</title></rect></a>`)
+  }
+  const laneLabels = Array.from({ length: packed.n }, (_, i) => (i === 0 ? 'lanes' : ''))
+
   // Axis: clock ticks at a nice step (≤ 12 across), labels HH:MM local.
   const stepMin = [1, 2, 5, 10, 15, 30, 60, 120, 240, 480].find((m) => span / (m * 60_000) <= 12) ?? 1440
   const ticks: H[] = []
@@ -238,13 +312,15 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
   }
 
   return html`<figure class="tl" role="img" aria-label="timeline of ${trace.totals.instructions} instructions over ${ms(trace.totals.ms)}">
-    <div class="lanes" style="padding-top:${TOP}px">${lanes.map((l) => html`<span>${l}</span>`)}</div>
+    <div class="lanes" style="padding-top:${TOP}px">${lanes.map((l) => html`<span>${l}</span>`)}${laneLabels.map((l) => html`<span class="ln">${l}</span>`)}</div>
     <div class="plot" style="height:${H}px">
       <svg viewBox="0 0 ${PW} ${H}" preserveAspectRatio="none">
         ${bands}
         ${ticks}
         ${lanes.map((l) => html`<line class="lanel" x1="0" x2="${PW}" y1="${(laneY.get(l) ?? 0) + LH}" y2="${(laneY.get(l) ?? 0) + LH}" />`)}
+        ${laneLabels.map((_, i) => html`<line class="lanel" x1="0" x2="${PW}" y1="${LY + (i + 1) * LH}" y2="${LY + (i + 1) * LH}" />`)}
         ${marks}
+        ${laneBars}
       </svg>
       ${labels}${axis}
     </div>

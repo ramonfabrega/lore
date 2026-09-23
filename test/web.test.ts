@@ -41,11 +41,28 @@ async function seededApp() {
       prompt(at(0), 'p1', 'ship the explorer'),
       assistant(at(5), 'msg_1', [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'bun test' } }], 50),
       result(at(9), 'p1', 'tu_1', '91 pass'),
+      // A lane: the session spawns a job, whose answer names the child's id.
+      assistant(at(10), 'msg_3', [{ type: 'tool_use', id: 'tu_2', name: 'Bash', input: { command: 'ccc spawn --name w1 --json - < brief.md' } }], 20),
+      result(at(12), 'p1', 'tu_2', '{"cwd":"/u/w1","ref":"abcd1234","said":"backgrounded · abcd1234 · w1"}'),
       assistant(at(20), 'msg_2', [{ type: 'text', text: 'Green.' }], 30, 'end_turn'),
+    ].join('\n') + '\n',
+  )
+  // The lane's own transcript, in its worktree well, inside the parent's window.
+  mkdirSync(join(dir, `${WELL}--claude-worktrees-w1`), { recursive: true })
+  writeFileSync(
+    join(dir, `${WELL}--claude-worktrees-w1`, 'abcd1234-5678.jsonl'),
+    [
+      JSON.stringify({ type: 'user', timestamp: at(14), promptId: 'w1', sessionId: 'abcd1234-5678', session_id: 'abcd1234-root', message: { role: 'user', content: 'You are a worker lane' } }),
+      JSON.stringify({
+        type: 'assistant', timestamp: at(18), sessionId: 'abcd1234-5678', session_id: 'abcd1234-root',
+        message: { id: 'msg_w1', model: 'claude-opus-5', role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'landed' }], usage: { input_tokens: 2, output_tokens: 40 } },
+      }),
     ].join('\n') + '\n',
   )
   const db = openDb(':memory:')
   await buildIndex(db, { projectsDir: dir, historyPath: join(dir, 'nope.jsonl') })
+  // The daemon reaped the lane: the row stays, its state says so.
+  db.prepare("INSERT INTO jobs(job_id, session_id, bridge_key, name, cwd, state) VALUES('abcd1234', 'abcd1234-root', NULL, 'w1', '/u/w1', 'gone')").run()
   // The root joins the live roster; keep the test hermetic.
   return createApp(() => db, { agents: async () => [] })
 }
@@ -67,7 +84,7 @@ describe('explorer routes', () => {
     const json = Any.parse(await (await app.request('/?json=1')).json())
     expect(json.active[0].key).toBe(WELL)
     expect(json.recent[0].sessionId).toBe('sess-1')
-    expect(json.recent[0].usage.requests).toBe(2)
+    expect(json.recent[0].usage.requests).toBe(3)
     expect(json.days[0].models[0].model).toBe('claude-opus-5')
     expect(json.days[0].usd.output).toBeGreaterThan(0)
     const viaAccept = await app.request('/', { headers: { accept: 'application/json' } })
@@ -85,8 +102,8 @@ describe('explorer routes', () => {
     expect(text).toContain('tile models')
     expect(text).toContain('<i class="sw m-opus"></i>opus-5</span>')
     const wjson = Any.parse(await (await app.request(`/well/${encodeURIComponent(WELL)}?json=1`)).json())
-    expect(wjson.models).toEqual([{ model: 'claude-opus-5', requests: 2 }])
-    expect(wjson.sessions[0].models).toEqual([{ model: 'claude-opus-5', requests: 2 }])
+    expect(wjson.models).toEqual([{ model: 'claude-opus-5', requests: 3 }])
+    expect(wjson.sessions[0].models).toEqual([{ model: 'claude-opus-5', requests: 3 }])
     expect((await app.request('/well/-nope')).status).toBe(404)
   })
 
@@ -100,12 +117,21 @@ describe('explorer routes', () => {
     expect(text).toContain('91 pass')
     expect(text).toContain('Green.')
     // one model, so it is named once in the header and the spine has no column
-    expect(text).toContain('<i class="sw m-opus"></i>opus-5</span> <span class="muted">×2</span>')
+    expect(text).toContain('<i class="sw m-opus"></i>opus-5</span> <span class="muted">×3</span>')
     expect(text).not.toContain('class="spine mixed"')
     const json = Any.parse(await (await app.request('/session/sess-1?json=1')).json())
-    expect(json.models).toEqual([{ model: 'claude-opus-5', requests: 2 }])
+    expect(json.models).toEqual([{ model: 'claude-opus-5', requests: 3 }])
     expect(json.transactions[0].model).toBe('claude-opus-5')
     expect(json.spawns).toEqual([])
+    // The lane the session spawned: a tile, a bar in the timeline's lanes band, a row in the ledger.
+    expect(json.totals.lanes).toBe(1)
+    expect(json.lanes.map((l: { name: string; state: string; spawnedAt: string }) => [l.name, l.state, l.spawnedAt])).toEqual([['w1', 'gone', at(10)]])
+    expect(text).toContain('>lanes</span></div>')
+    expect(text).toContain('<span class="ln">lanes</span>')
+    expect(text).toContain('class="ln st-gone"')
+    expect(text).toContain('href="/job/abcd1234-root"')
+    expect(text).toContain('<span class="kind st-gone">gone</span>')
+    expect(text).toContain('You are a worker lane')
     expect(json.totals.transactions).toBe(1)
     expect(json.transactions[0].instructions[0].ms).toBe(4000)
     expect((await app.request('/session/zzz')).status).toBe(404)

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ackHead, metaHead, relayHead, type Sent, sentHead } from './envelope'
 import { type ClassRow, type IdleShape, type PollShape, type ToolClass, classify, idleShape, pollShape, requestClass, rollup, taskRef } from './classes'
 import { cut, cutMarkdown, cutProse } from './fmt'
-import { JOB_KEY_SQL } from './job'
+import { JOB_KEY_SQL, listJobs, spawnEdges } from './job'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
 import { priceOf, rateFor } from './usage'
@@ -244,11 +244,24 @@ export type Trace = {
     listUsd: number | null
     spawns: number
     spawnOutput: number
+    // The lanes this session spawned as JOBS (below) and what they cost —
+    // the other half of a commander's bill, which `listUsd` never holds.
+    lanes: number
+    laneUsd: number | null
     ms: number | null
   }
   // What served the session, most requests first, and what its fan-out ran on.
   models: { model: string; requests: number }[]
   spawns: SpawnGroup[]
+  // The other fan-out: jobs this session spawned (`ccc spawn`, a
+  // backgrounded `claude`), read off the spawn call's answer in THIS
+  // session's transcript (job.ts spawnEdges) — a commander's worker lanes.
+  // Each is a job the way `lore jobs` lists it: its own sessions, model,
+  // fee and the daemon's state (`gone` once reaped). `spawns` above is the
+  // Agent-tool ledger, in-process subagents; a commander's fan-out is
+  // this one, and its session page said `spawns: 0` for twenty lanes and
+  // $532 until this existed (2026-09-23).
+  lanes: Lane[]
   // What the session's requests were SPENT ON (classes.ts): per tool class,
   // requests, output, list price and share. A request costs the same
   // whatever it does, so this is the lever a lane or a worker has.
@@ -262,6 +275,52 @@ export type Trace = {
   // see — a `true` reads no file, so it leaves the polling shape at zero.
   idle: IdleShape
   transactions: Transaction[]
+}
+
+export type Lane = {
+  key: string
+  name: string | null
+  // The daemon's state as of the last index; `gone` once it deleted the job.
+  state: string | null
+  // When this session spawned it, and the lane's own first → last activity.
+  spawnedAt: string | null
+  first: string | null
+  last: string | null
+  ms: number | null
+  sessions: number
+  models: { model: string; requests: number }[]
+  requests: number
+  output: number
+  listUsd: number | null
+  // What the lane was set to work on: its newest session's opener.
+  opener: string | null
+}
+
+// The lanes a session spawned, in spawn order, priced and stated like a
+// jobs row. Exact from the ledger: a lane whose transcript is not indexed
+// yet is not here, and one spawned by another session of the same job (a
+// previous /clear) belongs to that session's page.
+function lanesOf(db: Database, sessionId: string): Lane[] {
+  const edges = [...spawnEdges(db, { sessionId })].filter(([, e]) => e.sessionId === sessionId)
+  if (edges.length === 0) return []
+  const spawnedAt = new Map(edges.map(([key, e]) => [key, e.ts]))
+  return listJobs(db, { keys: edges.map(([key]) => key), all: true, limit: edges.length })
+    .map((j) => ({
+      key: j.key,
+      name: j.name,
+      state: j.state,
+      spawnedAt: spawnedAt.get(j.key) ?? null,
+      first: j.first,
+      last: j.last,
+      ms: j.first && j.last ? Date.parse(j.last) - Date.parse(j.first) : null,
+      sessions: j.sessions,
+      models: j.models,
+      requests: j.requests,
+      output: j.output,
+      listUsd: j.listUsd,
+      opener: j.latest?.firstPrompt ?? null,
+    }))
+    .sort((a, b) => (a.spawnedAt ?? '').localeCompare(b.spawnedAt ?? '') || a.key.localeCompare(b.key))
 }
 
 const HEAD = 160
@@ -335,6 +394,8 @@ export function getTrace(
       .all(sessionId),
   )
   const models = tallyModels([...reqs.values()].map((r) => r.model))
+  const lanes = lanesOf(db, sessionId)
+  const laneUsd = lanes.length && lanes.every((l) => l.listUsd != null) ? round2(lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0)) : lanes.length ? null : 0
 
   // The address book, from the harness's own words: every inbound relay
   // states `from="uds:…" from-name="lore"`, so a later SendMessage to that
@@ -542,6 +603,8 @@ export function getTrace(
       listUsd: t.listUsd == null || x.listUsd == null ? null : t.listUsd + x.listUsd,
       spawns: spawns.n,
       spawnOutput: spawns.output,
+      lanes: lanes.length,
+      laneUsd,
       ms: t.ms,
     }),
     {
@@ -557,6 +620,8 @@ export function getTrace(
       listUsd: 0 as number | null,
       spawns: spawns.n,
       spawnOutput: spawns.output,
+      lanes: lanes.length,
+      laneUsd,
       ms: session.first && session.last ? Date.parse(session.last) - Date.parse(session.first) : null,
     },
   )
@@ -566,6 +631,7 @@ export function getTrace(
     totals: { ...totals, listUsd: totals.listUsd == null ? null : round2(totals.listUsd) },
     models,
     spawns: spawnGroups,
+    lanes,
     classes: rollup(allSteps, new Map([...callClasses].map(([id, cs]) => [id, requestClass(cs)]))),
     polls: pollShape(pollSeq),
     idle: idleShape(pollSeq),

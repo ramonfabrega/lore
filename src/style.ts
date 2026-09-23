@@ -259,6 +259,11 @@ a .mchip, .row a .mchip { color: inherit; }
 .tl .lanel, .tl .tick { stroke: var(--line); stroke-width: 0.5; vector-effect: non-scaling-stroke; }
 .tl .m { fill: var(--ink-3); rx: 1; } .tl .m.read { fill: var(--series-1); } .tl .m.write { fill: var(--series-2); } .tl .m.run { fill: var(--series-3); }
 .tl .m.say { fill: var(--ink-2); } .tl .m.err { fill: var(--crit); }
+/* the spawned lanes' band: a bar per job, its state as its color — done and gone are quiet, live is the series, blocked is a warning */
+.tl .ln { fill: color-mix(in oklab, var(--series-4) 55%, var(--surface-2)); rx: 1.5; } .tl .ln.st-working { fill: var(--series-1); } .tl .ln.st-blocked { fill: var(--warn); } .tl .ln.st-failed { fill: var(--crit); }
+.tl a:hover .ln { fill: var(--ink); } .tl .lanes span.ln { color: var(--ink-2); }
+.lanes-ledger > summary { cursor: pointer; list-style: none; } .lanes-ledger > summary::-webkit-details-marker { display: none; } .lanes-ledger > summary::before { content: '▸ '; color: var(--ink-3); } .lanes-ledger[open] > summary::before { content: '▾ '; }
+.lanes-ledger table.ix { margin: 4px 0 6px; } .kind.st-gone, .kind.st-done { color: var(--ink-3); }
 .spine .row { display: grid; grid-template-columns: calc(30px * var(--z)) calc(64px * var(--z)) minmax(0, 1fr) calc(48px * var(--z)) calc(48px * var(--z)) calc(36px * var(--z)) calc(56px * var(--z)) calc(112px * var(--z)) calc(100px * var(--z)); gap: 0 8px; align-items: baseline; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .spine.mixed .row { grid-template-columns: calc(30px * var(--z)) calc(64px * var(--z)) minmax(0, 1fr) calc(80px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(36px * var(--z)) calc(56px * var(--z)) calc(112px * var(--z)) calc(100px * var(--z)); }
 .spine .row.head { position: sticky; top: 0; color: var(--ink-3); font: 500 var(--fs-115) var(--mono); background: var(--surface); z-index: 1; }
