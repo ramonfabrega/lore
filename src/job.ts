@@ -230,7 +230,13 @@ export function repoOf(p: string | null | undefined): string | null {
 // "spawn" sits past the cut (16 of the 20 lanes of a canonical run on
 // 2026-09-23 had no edge for exactly this). A result keeps its head, and
 // the ref is in the first 300 characters of every shape ccc answers with.
-const CHILD_ID = /"ref"\s*:\s*"([0-9a-f]{8})|backgrounded · ([0-9a-f]{8})/
+//
+// EVERY ref in the answer is an edge, not the first: a commander spawns two
+// lanes on one line (`ccc spawn … 573 …; ccc spawn … 567 …`, twice on the
+// canonical run) and the answer carries both refs — read the first alone
+// and the second lane of each pair is a peer in the header and absent from
+// the tile, `18 lanes` under a thread with twenty (2026-09-23).
+const CHILD_ID = /"ref"\s*:\s*"([0-9a-f]{8})|backgrounded · ([0-9a-f]{8})/g
 // An edge: the parent job's key, and the SESSION and instant of the spawn
 // call — a job spawns across many /clears, and a session page wants the
 // lanes this one drove, not every lane the job ever had.
@@ -254,13 +260,15 @@ export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map
   const childKey = db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE substr(s.job_session_id, 1, 8) = ? OR substr(s.session_id, 1, 8) = ? LIMIT 1`)
   const parentOf = new Map<string, SpawnEdge>()
   for (const r of rows) {
-    const m = CHILD_ID.exec(r.result)
-    const id = m?.[1] ?? m?.[2]
-    if (!id) continue
-    const child = z.object({ key: z.string() }).nullable().parse(childKey.get(id, id) ?? null)
-    // The first spawn wins: a respawn of the same job by the same parent is
-    // the same edge, and a different parent reusing a name is a new job.
-    if (child && child.key !== r.key && !parentOf.has(child.key)) parentOf.set(child.key, { key: r.key, sessionId: r.sessionId, ts: r.ts })
+    // `said` repeats the ref of its own answer (`backgrounded · <ref>`); the
+    // set folds the echo, and keeps two lanes spawned by one call apart.
+    const ids = new Set([...r.result.matchAll(CHILD_ID)].map((m) => m[1] ?? m[2]).filter((id): id is string => id != null))
+    for (const id of ids) {
+      const child = z.object({ key: z.string() }).nullable().parse(childKey.get(id, id) ?? null)
+      // The first spawn wins: a respawn of the same job by the same parent is
+      // the same edge, and a different parent reusing a name is a new job.
+      if (child && child.key !== r.key && !parentOf.has(child.key)) parentOf.set(child.key, { key: r.key, sessionId: r.sessionId, ts: r.ts })
+    }
   }
   return parentOf
 }

@@ -178,7 +178,17 @@ describe('spawnEdges', () => {
           // A result that mentions a ref-shaped thing but is no spawn: nothing to parent.
           bash('cmd-1', '2026-09-23T10:30:00Z', 'tu_c', 'git log -1'),
           result('cmd-1', '2026-09-23T10:30:01Z', 'P1', 'tu_c', 'abc1234 a commit about "ref" counting'),
+          // Two lanes on one line, the answers cut to their ref and branch
+          // the way the canonical commander wrote it: both are edges.
+          bash('cmd-1', '2026-09-23T10:52:00Z', 'tu_d', `ccc spawn --name att-576 --json - < b576.md | grep -E '"ref"|"branch"'; ccc spawn --name att-569 --json - < b569.md | grep -E '"ref"|"branch"'`),
+          result('cmd-1', '2026-09-23T10:52:03Z', 'P1', 'tu_d', '  "ref" : "e322c0d0",\n    "branch" : "worktree-att-576",\n  "ref" : "4575981a",\n    "branch" : "worktree-att-569",'),
         ],
+      },
+      '-u-code-fun-x--claude-worktrees-att-576': {
+        'e322c0d0-1111-4d8e-84e5-a40dd25b3401': [bridge('e322c0d0-1111-4d8e-84e5-a40dd25b3401', 'cse_L576'), prompt('e322c0d0-1111-4d8e-84e5-a40dd25b3401', '2026-09-23T10:52:10Z', 'W3', 'You are a worker lane', 'e322c0d0-1111-4d8e-84e5-a40dd25b3401')],
+      },
+      '-u-code-fun-x--claude-worktrees-att-569': {
+        '4575981a-2222-4d8e-84e5-a40dd25b3401': [bridge('4575981a-2222-4d8e-84e5-a40dd25b3401', 'cse_L569'), prompt('4575981a-2222-4d8e-84e5-a40dd25b3401', '2026-09-23T10:52:11Z', 'W4', 'You are a worker lane', '4575981a-2222-4d8e-84e5-a40dd25b3401')],
       },
       '-u-code-fun-x--claude-worktrees-att-573': {
         '16467cda-cc87-4698-a1ee-1eedf5204a1a': [bridge('16467cda-cc87-4698-a1ee-1eedf5204a1a', 'cse_L573'), prompt('16467cda-cc87-4698-a1ee-1eedf5204a1a', '2026-09-23T08:07:10Z', 'W1', 'You are a worker lane', '16467cda-cc87-4698-a1ee-1eedf5204a1a')],
@@ -191,9 +201,11 @@ describe('spawnEdges', () => {
     expect([...spawnEdges(db)]).toEqual([
       ['L573', { key: 'CMD', sessionId: 'cmd-1', ts: '2026-09-23T08:07:00Z' }],
       ['L588', { key: 'CMD', sessionId: 'cmd-1', ts: '2026-09-23T10:28:00Z' }],
+      ['L576', { key: 'CMD', sessionId: 'cmd-1', ts: '2026-09-23T10:52:00Z' }],
+      ['L569', { key: 'CMD', sessionId: 'cmd-1', ts: '2026-09-23T10:52:00Z' }],
     ])
     // Narrowed to a session: the same edges when it is the spawner, none otherwise.
-    expect([...spawnEdges(db, { sessionId: 'cmd-1' }).keys()]).toEqual(['L573', 'L588'])
+    expect([...spawnEdges(db, { sessionId: 'cmd-1' }).keys()]).toEqual(['L573', 'L588', 'L576', 'L569'])
     expect(spawnEdges(db, { sessionId: 'd4f01fcd-b673-4d8e-84e5-a40dd25b3401' }).size).toBe(0)
     const jobs = listJobs(db, { limit: 10 })
     expect(jobs.find((j) => j.key === 'L588')?.parent).toEqual({ key: 'CMD', name: null })
