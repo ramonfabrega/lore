@@ -94,8 +94,17 @@ HTML rather than on what a browser would have done to it.
   the `sessions` verb plus `usage --by session`. The well is the "where"
   facet — a column and a filter — not the front door (the Job section).
 - `/session/:id` — the block: header (well, branch, job, first/last, fee,
-  spawns, links), then transactions, each expandable to steps and
+  spawns, lanes, links), then transactions, each expandable to steps and
   instructions; instruction logs collapsed by default; thinking collapsed.
+  A commander's page carries its LANES — the jobs it spawned (`ccc spawn`),
+  read off the spawn answers in its own transcript: a `lanes` tile and a
+  `run $` tile (its fee plus theirs), a `lanes` band on the timeline (one
+  bar per job, first → last activity, packed so concurrent lanes stack,
+  colored by state), and a folded ledger (state as of the last index,
+  `gone` once reaped, spawn instant, span, model, fee, opener), each row a
+  link to `/job/<key>`. The Agent-tool ledger (`spawns`) never saw these:
+  the canonical run of 2026-09-23 read `spawns: 0` beside twenty lanes
+  and $532. `lore trace` carries the same `lanes[]`.
 - `/job/<key>` — one job: the agent over time, across /clears and respawns,
   with its threads; takes a name, a bridge id, a daemon id, a root or a
   session id (the Job section).
@@ -222,7 +231,8 @@ sides and the job page resolve a name to a key and carry the key.
 spelling (`session_X`, `cse_X`, bare), the daemon's id, a root (older links
 hold), a session id or prefix, the agent's name — and renders the same
 page: the name chip and key, what kind of key, the daemon's state as of the
-last index, first → last, the wells it lived in, the models, the peers
+last index (`gone` once the daemon has deleted the job — the row keeps the
+name and ids, never a stale `working`), first → last, the wells it lived in, the models, the peers
 (each a link into the thread), the tiles (sessions, incarnations, requests,
 output, list $, lines), then its sessions bucketed by local day, newest
 first, each with the well, the model, the opener and the fee, and a

@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
-import { backfillJobNames, listJobs, resolveJob } from '../src/job'
+import { backfillJobNames, listJobs, resolveJob, spawnEdges } from '../src/job'
+import { indexJobs } from '../src/jobs'
 import { resolveSide } from '../src/thread'
 
 // Four jobs, one of each shape the corpus has (job.ts): a bridge-keyed job
@@ -144,6 +145,87 @@ describe('listJobs', () => {
     expect(listJobs(db, { since: '2026-09-01', limit: 10 }).map((j) => j.key)).toEqual(['LORE', 'CCC'])
     expect(listJobs(db, { key: 'CCC', limit: 10 }).map((j) => j.key)).toEqual(['CCC'])
     expect(listJobs(db, { key: 'solo-1', limit: 10 }).map((j) => j.kind)).toEqual(['session'])
+  })
+})
+
+const bash = (s: string, ts: string, id: string, command: string) =>
+  line({
+    type: 'assistant', timestamp: ts, sessionId: s,
+    message: { id: `m_${id}`, model: 'claude-opus-5', role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }], usage: { input_tokens: 1, output_tokens: 1 } },
+  })
+const result = (s: string, ts: string, promptId: string, id: string, content: string) =>
+  line({ type: 'user', timestamp: ts, promptId, sessionId: s, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } })
+
+describe('spawnEdges', () => {
+  test('the edge is read off the RESULT: a spawn past the call text cap still parents its lane', async () => {
+    const db = openDb(':memory:')
+    // The commander's line, as a canonical run writes it: a push, a reap and
+    // the spawn on one command with the brief inline, so "spawn" sits well
+    // past the 2000 characters the index keeps of a call.
+    const brief = `--brief '${'You are a worker lane on item 588. '.repeat(70)}'`
+    const long = `cd /u/code/fun/x && ccc push att-579 --base main ${brief} && ccc spawn --name att-588 --json - < brief.md`
+    expect(long.indexOf('spawn')).toBeGreaterThan(2000)
+    const short = `ccc spawn --name att-573 --json - < brief.md`
+    const projectsDir = seed({
+      '-u-code-fun-x': {
+        'cmd-1': [
+          bridge('cmd-1', 'cse_CMD'),
+          prompt('cmd-1', '2026-09-23T08:04:55Z', 'P1', 'continue', 'cmd-root'),
+          bash('cmd-1', '2026-09-23T08:07:00Z', 'tu_a', short),
+          result('cmd-1', '2026-09-23T08:07:02Z', 'P1', 'tu_a', '{\n  "cwd" : "/u/code/fun/x/.claude/worktrees/att-573",\n  "ref" : "16467cda",\n  "said" : "backgrounded · 16467cda · att-573"\n}'),
+          bash('cmd-1', '2026-09-23T10:28:00Z', 'tu_b', long),
+          result('cmd-1', '2026-09-23T10:28:03Z', 'P1', 'tu_b', 'pushed main → origin (7 commits)\nremoved 79861292; removed the worktree att-579\n{\n  "cwd" : "/u/code/fun/x/.claude/worktrees/att-588",\n  "ref" : "d4f01fcd",\n  "said" : "backgrounded · d4f01fcd · att-588"\n}'),
+          // A result that mentions a ref-shaped thing but is no spawn: nothing to parent.
+          bash('cmd-1', '2026-09-23T10:30:00Z', 'tu_c', 'git log -1'),
+          result('cmd-1', '2026-09-23T10:30:01Z', 'P1', 'tu_c', 'abc1234 a commit about "ref" counting'),
+        ],
+      },
+      '-u-code-fun-x--claude-worktrees-att-573': {
+        '16467cda-cc87-4698-a1ee-1eedf5204a1a': [bridge('16467cda-cc87-4698-a1ee-1eedf5204a1a', 'cse_L573'), prompt('16467cda-cc87-4698-a1ee-1eedf5204a1a', '2026-09-23T08:07:10Z', 'W1', 'You are a worker lane', '16467cda-cc87-4698-a1ee-1eedf5204a1a')],
+      },
+      '-u-code-fun-x--claude-worktrees-att-588': {
+        'd4f01fcd-b673-4d8e-84e5-a40dd25b3401': [bridge('d4f01fcd-b673-4d8e-84e5-a40dd25b3401', 'cse_L588'), prompt('d4f01fcd-b673-4d8e-84e5-a40dd25b3401', '2026-09-23T10:28:10Z', 'W2', 'You are a worker lane', 'd4f01fcd-b673-4d8e-84e5-a40dd25b3401')],
+      },
+    })
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    expect([...spawnEdges(db)]).toEqual([
+      ['L573', { key: 'CMD', sessionId: 'cmd-1', ts: '2026-09-23T08:07:00Z' }],
+      ['L588', { key: 'CMD', sessionId: 'cmd-1', ts: '2026-09-23T10:28:00Z' }],
+    ])
+    // Narrowed to a session: the same edges when it is the spawner, none otherwise.
+    expect([...spawnEdges(db, { sessionId: 'cmd-1' }).keys()]).toEqual(['L573', 'L588'])
+    expect(spawnEdges(db, { sessionId: 'd4f01fcd-b673-4d8e-84e5-a40dd25b3401' }).size).toBe(0)
+    const jobs = listJobs(db, { limit: 10 })
+    expect(jobs.find((j) => j.key === 'L588')?.parent).toEqual({ key: 'CMD', name: null })
+    expect(jobs.find((j) => j.key === 'CMD')?.parent).toBeNull()
+  })
+})
+
+describe('indexJobs', () => {
+  test('a job the daemon no longer lists reads gone; one that comes back wins its state back', async () => {
+    const db = openDb(':memory:')
+    const claudeDir = mkdtempSync(join(tmpdir(), 'lore-claude-'))
+    const state = (id: string, s: Record<string, unknown>) => {
+      mkdirSync(join(claudeDir, 'jobs', id), { recursive: true })
+      writeFileSync(join(claudeDir, 'jobs', id, 'state.json'), JSON.stringify(s))
+    }
+    state('3c382923', { sessionId: 'cmd-root', bridgeSessionId: 'cse_CMD', name: 'attrition', state: 'working' })
+    state('d4f01fcd', { sessionId: 'd4f01fcd-b673', bridgeSessionId: 'cse_L588', name: 'att-588', state: 'working' })
+    expect(await indexJobs(db, { claudeDir })).toMatchObject({ jobs: 2, withBridge: 2, gone: 0 })
+    const states = () => Object.fromEntries(db.prepare('SELECT job_id, state FROM jobs ORDER BY job_id').all().map((r: any) => [r.job_id, r.state]))
+    expect(states()).toEqual({ '3c382923': 'working', d4f01fcd: 'working' })
+    // The commander reaped the lane: its dir is gone, the row stays, the state says so.
+    rmSync(join(claudeDir, 'jobs', 'd4f01fcd'), { recursive: true })
+    expect(await indexJobs(db, { claudeDir })).toMatchObject({ jobs: 1, gone: 1 })
+    expect(states()).toEqual({ '3c382923': 'working', d4f01fcd: 'gone' })
+    // Already gone is not counted again; a peer-named row is never touched.
+    db.prepare("INSERT INTO jobs(job_id, bridge_key, name, source) VALUES('peer:CCC', 'CCC', 'ccc', 'peer')").run()
+    expect(await indexJobs(db, { claudeDir })).toMatchObject({ gone: 0 })
+    expect(states()).toEqual({ '3c382923': 'working', d4f01fcd: 'gone', 'peer:CCC': null })
+    // Respawned under the same id: the file's word wins the row back.
+    state('d4f01fcd', { sessionId: 'd4f01fcd-b673', bridgeSessionId: 'cse_L588', name: 'att-588', state: 'blocked' })
+    await indexJobs(db, { claudeDir })
+    expect(states().d4f01fcd).toBe('blocked')
   })
 })
 

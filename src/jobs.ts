@@ -27,7 +27,7 @@ export const State = z
   })
   .loose()
 
-export type JobIndexStats = { jobs: number; withBridge: number; durationMs: number }
+export type JobIndexStats = { jobs: number; withBridge: number; gone: number; durationMs: number }
 
 function iso(v: string | number | null | undefined): string | null {
   if (v == null) return null
@@ -52,7 +52,9 @@ export async function indexJobs(db: Database, opts: { claudeDir: string }): Prom
   )
   let jobs = 0
   let withBridge = 0
+  let gone = 0
   if (existsSync(dir)) {
+    const seen: string[] = []
     for (const id of readdirSync(dir)) {
       const p = join(dir, id, 'state.json')
       if (!existsSync(p)) continue
@@ -64,11 +66,24 @@ export async function indexJobs(db: Database, opts: { claudeDir: string }): Prom
       }
       const key = s.bridgeSessionId ? bridgeKey(s.bridgeSessionId) : null
       upsert.run(id, s.sessionId ?? null, key, s.name ?? null, s.cwd ?? null, s.state ?? null, iso(s.createdAt), iso(s.updatedAt))
+      seen.push(id)
       jobs++
       if (key) withBridge++
     }
+    // The index outlives its sources (CLAUDE.md), so a job the daemon has
+    // deleted keeps its row — and kept its last state too: a reaped lane
+    // read `working` for good, and a run summary counted blocked lanes that
+    // did not exist (20 lanes, 4 phantoms, 2026-09-23). The daemon's word is
+    // only good while the daemon still holds the job; after that the state
+    // is `gone`, and the name, cwd and ids stay.
+    gone = db
+      .prepare(
+        `UPDATE jobs SET state = 'gone' WHERE source = 'state' AND state IS NOT 'gone'
+         ${seen.length ? `AND job_id NOT IN (${seen.map(() => '?').join(',')})` : ''}`,
+      )
+      .run(...seen).changes
   }
-  return { jobs, withBridge, durationMs: Math.round(performance.now() - started) }
+  return { jobs, withBridge, gone, durationMs: Math.round(performance.now() - started) }
 }
 
 const Resolved = z.object({ session_id: z.string() })
