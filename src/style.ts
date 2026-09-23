@@ -150,7 +150,7 @@ main.layout-usage { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-t
 .tiles { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
 .tile { background: var(--surface-2); border-radius: 6px; padding: 4px 10px; min-width: 84px; }
 .tile.models .v { font: 500 var(--fs-125) var(--mono); display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 2px 0 1px; }
-.tile .v { font: 500 var(--fs-15) var(--mono); } .tile .l { font: var(--fs-105) var(--mono); color: var(--ink-3); } .tile .l .warn { color: var(--warn); }
+.tile .v { font: 500 var(--fs-15) var(--mono); } .tile .l { font: var(--fs-105) var(--mono); color: var(--ink-3); white-space: nowrap; } .tile .l .relay { color: var(--series-2); } .tile .l .warn { color: var(--warn); }
 .tile.warn .v { color: var(--warn); } .tile.good .v { color: var(--good); }
 .footnote { font: var(--fs-115) var(--mono); color: var(--ink-3); padding: 4px 10px; }
 

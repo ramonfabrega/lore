@@ -96,6 +96,13 @@ HTML rather than on what a browser would have done to it.
 - `/session/:id` — the block: header (well, branch, job, first/last, fee,
   spawns, lanes, links), then transactions, each expandable to steps and
   instructions; instruction logs collapsed by default; thinking collapsed.
+  The `transactions` tile says WHO opened them — `1 you · 44 relay · 1 cmd`,
+  and `+19 task` muted for the injections the spine leaves unnumbered — and
+  a `sent` tile counts the messages the session sent back (with `lost` for
+  the ones the ack refused): the canonical commander run read `46
+  transactions` as if someone had held a 46-message conversation, when the
+  user typed one word. `lore trace` carries the same `totals.turns` and
+  `totals.sent`/`lost`.
   A commander's page carries its LANES — the jobs it spawned (`ccc spawn`),
   read off the spawn answers in its own transcript: a `lanes` tile and a
   `run $` tile (its fee plus theirs), a `lanes` band on the timeline (one

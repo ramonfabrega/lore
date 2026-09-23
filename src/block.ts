@@ -101,7 +101,8 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
         peers.length ? html` · thread with ${peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(s.name ?? s.sessionId)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
       }</p>
     <div class="tiles">
-      ${tile('transactions', String(t.transactions))}
+      ${tile(whoOpened(t.turns, txs), String(t.transactions))}
+      ${t.sent ? tile(html`<span title="messages this session sent with SendMessage — to peer sessions and to its own spawns${t.lost ? '; a lost one is a send the ack refused (a stale socket after the peer restarted), which the harness never marks an error' : ''}">sent</span>`, t.lost ? `${t.sent} · ${t.lost} lost` : String(t.sent), t.lost ? 'warn' : '') : ''}
       ${tile('steps', String(t.steps))}
       ${tile('instructions', String(t.instructions))}
       ${tile('errors', String(t.errors), t.errors > 0 ? 'warn' : '')}
@@ -123,6 +124,26 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
       ${txs.map((x, i) => txRow(x, i, { n: num.get(x) ?? null, open: (openAll || o.open === true) && x.kind !== 'meta', openPhases: o.open === true, maxUsd, maxMs, mixed }))}
     </section>
     </div></div>`
+}
+
+// The transactions tile's label: who opened the turns. The count alone
+// flattens the one fact a commander's page needs first — that the user typed
+// once and the other 44 turns were lanes reporting in — so the label carries
+// the split, in the spine's own words (`relay`, `command`, the unmarked user
+// turn is `you`), and the injections the spine leaves unnumbered ride after a
+// `+`, muted, so 46 counted plus 19 uncounted reconciles with 65 rows.
+function whoOpened(turns: Trace['totals']['turns'], txs: Transaction[]) {
+  const peers = new Set(txs.filter((x) => x.kind === 'relay' && x.tag).map((x) => x.tag))
+  const meta = new Map<string, number>()
+  for (const x of txs) if (x.kind === 'meta') meta.set(x.tag ?? 'meta', (meta.get(x.tag ?? 'meta') ?? 0) + 1)
+  const parts: H[] = []
+  if (turns.prompt) parts.push(html`<span title="turns the user opened by typing">${turns.prompt} you</span>`)
+  if (turns.relay) parts.push(html`<span class="relay" title="turns another session opened by sending a message — from ${peers.size} peer${peers.size === 1 ? '' : 's'}">${turns.relay} relay</span>`)
+  if (turns.command) parts.push(html`<span title="slash commands">${turns.command} cmd</span>`)
+  const injected = [...meta].sort((a, b) => b[1] - a[1]).map(([tag, n]) => `${n} ${tag}`).join(' · ')
+  return html`transactions${parts.map((p) => html` · ${p}`)}${
+    injected ? html` <span class="muted" title="harness injections — opened nothing, unnumbered on the spine, not counted">+${injected}</span>` : ''
+  }`
 }
 
 // The fan-out ledger: agent type × verified model, heaviest first. The

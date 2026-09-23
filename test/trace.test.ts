@@ -132,6 +132,9 @@ describe('getTrace', () => {
     // opus-5, per request (2×5 + 1000×6.25 + 100000×0.5 + out×25) µ$: 3×56260 + 25×250 = 175,030 → 0.18
     expect(first.listUsd).toBe(0.18)
     expect(t.totals.transactions).toBe(3)
+    // …and who opened them: the split sums to the count.
+    expect(t.totals.turns).toEqual({ prompt: 2, command: 1, relay: 0, meta: 0 })
+    expect(t.totals.sent).toBe(0)
     expect(t.totals.steps).toBe(4)
     expect(t.totals.instructions).toBe(2)
     expect(t.totals.errors).toBe(1)
@@ -189,8 +192,10 @@ describe('getTrace', () => {
       ['relay', 'lore', 'Corpus is at ~/.lore/wells-corpus.jsonl.'],
       ['meta', 'task', 'Agent "glyph atlas" finished'],
     ])
-    // A turn is what somebody OPENED. The notification opened nothing.
+    // A turn is what somebody OPENED. The notification opened nothing — it
+    // is counted in its own slot, so the tile and the spine's rows reconcile.
     expect(t.totals.transactions).toBe(2)
+    expect(t.totals.turns).toEqual({ prompt: 1, command: 0, relay: 1, meta: 1 })
   })
 
   // The row is a preview and the body is the message. Carrying the full text
@@ -279,6 +284,7 @@ describe('getTrace', () => {
     ])
     // The follow-up went to the session's own spawn, not to a peer.
     expect(x.sent).toEqual([{ to: 'af80d234d489e766f', name: null, agent: 'Metal cell-grid renderer + glyph atlas', summary: 'Fix bold glyph drop', delivered: true }])
+    expect([t.totals.sent, t.totals.lost]).toEqual([1, 0])
     expect(x.instructions[2]!.toAgent).toBe('Metal cell-grid renderer + glyph atlas')
     expect(x.reply).toBe('v1 pane is live.')
   })

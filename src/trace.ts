@@ -233,6 +233,19 @@ export type Trace = {
     // Turns — what somebody opened: a prompt, a slash command, a relay from
     // another session. Harness injections (`kind: meta`) are excluded.
     transactions: number
+    // …and WHO opened them, which the count alone flattens: the canonical
+    // commander run of 2026-09-23 read `46 transactions` as if someone had
+    // held a 46-message conversation, when the user typed one word and 44
+    // of the turns were lanes reporting in. `prompt + command + relay ===
+    // transactions`; `meta` is the injections the spine shows unnumbered,
+    // so the tile and the spine's row count reconcile (46 + 19 = 65 rows).
+    turns: { prompt: number; command: number; relay: number; meta: number }
+    // The outbound half: SendMessage calls this session made (to peers and
+    // to its own spawns — `sent[].agent` tells them apart per turn), and
+    // how many the ack refused. A refused send is not a tool error in the
+    // harness's eyes; without this the page advertised messages nobody got.
+    sent: number
+    lost: number
     steps: number
     instructions: number
     errors: number
@@ -606,6 +619,9 @@ export function getTrace(
       // Turns, not buckets: a harness injection opened nothing, so it is not
       // one — the header tile and the spine's numbers count the same set.
       transactions: t.transactions + (x.kind === 'meta' ? 0 : 1),
+      turns: { ...t.turns, [x.kind]: t.turns[x.kind] + 1 },
+      sent: t.sent + x.sent.length,
+      lost: t.lost + x.sent.filter((s) => s.delivered === false).length,
       steps: t.steps + x.steps,
       instructions: t.instructions + x.instructions.length,
       errors: t.errors + x.errors,
@@ -623,6 +639,9 @@ export function getTrace(
     }),
     {
       transactions: 0,
+      turns: { prompt: 0, command: 0, relay: 0, meta: 0 },
+      sent: 0,
+      lost: 0,
       steps: 0,
       instructions: 0,
       errors: 0,

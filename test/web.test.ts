@@ -133,6 +133,8 @@ describe('explorer routes', () => {
     expect(text).toContain('<span class="kind st-gone">gone</span>')
     expect(text).toContain('You are a worker lane')
     expect(json.totals.transactions).toBe(1)
+    // The transactions tile says who opened them, in the spine's words.
+    expect(text).toContain('transactions · <span title="turns the user opened by typing">1 you</span>')
     expect(json.transactions[0].instructions[0].ms).toBe(4000)
     expect((await app.request('/session/zzz')).status).toBe(404)
   })
