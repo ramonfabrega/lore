@@ -45,8 +45,14 @@ function seedDb(): Database {
     [4, 's-new', '2026-07-12T10:00:00Z', 'prompt', 'user', null, null],
     // s-demo was opened by a PEER, not by the user: no prompt-lane row at all.
     [5, 's-demo', '2026-07-11T10:00:00Z', 'relay', 'user', null, 'lore'],
+    // The harness's auto-mode record (parse.ts): s-old on the relaxed arm,
+    // s-new with the steer off, s-demo carrying none.
+    [6, 's-old', '2026-07-09T10:00:01Z', 'event', 'attachment', null, null],
+    [7, 's-new', '2026-07-12T10:00:01Z', 'event', 'attachment', null, null],
   ]
   const texts: Record<number, string> = {
+    6: 'auto_mode: {"bashFirst":true,"bashFirstSteer":"relaxed","steerOnly":true,"bypass":false}',
+    7: 'auto_mode: {"bashFirst":false,"bashFirstSteer":null,"steerOnly":true,"bypass":false}',
     1: 'i want to make a  scan\nutil tool',
     2: 'sure, here is a plan',
     3: 'now add dupes',
@@ -88,6 +94,12 @@ describe('listSessions', () => {
     expect(rows.find((r) => r.sessionId === 's-new')!.models).toEqual([{ model: 'claude-sonnet-5', requests: 1 }])
     // a session with no requests answers an empty mix, never a guess
     expect(rows.find((r) => r.sessionId === 's-demo')!.models).toEqual([])
+    // the harness's bash-first arm, off the auto_mode record; none → null
+    expect(rows.map((r) => [r.sessionId, r.steer])).toEqual([
+      ['s-old', 'relaxed'],
+      ['s-demo', null],
+      ['s-new', 'off'],
+    ])
   })
 
   test('well substring filter matches dir or real path', () => {

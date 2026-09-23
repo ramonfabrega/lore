@@ -32,6 +32,13 @@ export type SessionRow = Omit<z.infer<typeof Row>, 'openerId' | 'openerLane' | '
   // then that message, not the user's. Null for a session the user opened.
   openedBy: string | null
   models: { model: string; requests: number }[]
+  // The harness's bash-first steer for this session (parse.ts, the
+  // `auto_mode` record): `strict` (edit through the shell; Edit only when
+  // Bash cannot), `relaxed` (Edit when a shell edit would be fragile), `off`
+  // (the steer not on), or null when the transcript carries no record — an
+  // A/B arm assigned by remote config, and the lever that moved the fleet
+  // from bulk-python edits to Edit calls on 2026-09-22 with no model change.
+  steer: string | null
 }
 
 // The arc spine of a well: its sessions in order, each headed by the prompt
@@ -117,6 +124,7 @@ export function listSessions(
   params.push(opts.limit)
   const picked = z.array(Row).parse(db.prepare(outer).all(...params))
   const models = modelsFor(db, picked.map((r) => r.sessionId))
+  const steer = steerFor(db, picked.map((r) => r.sessionId))
   return picked.map(({ openerId: _id, openerLane, openerPeer, ...r }) => {
     // A session can be OPENED by a peer — an agent standing by that a relay
     // set to work has no prompt-lane row at all, and headed the arc with a
@@ -135,8 +143,42 @@ export function listSessions(
       openedBy,
       firstPrompt: flat && flat.length > 140 ? `${flat.slice(0, 140)}…` : flat,
       models: models.get(r.sessionId) ?? [],
+      steer: steer.get(r.sessionId) ?? null,
     }
   })
+}
+
+const SteerRow = z.object({ sessionId: z.string(), text: z.string() })
+const AutoMode = z.object({ bashFirst: z.boolean().nullable(), bashFirstSteer: z.string().nullable() })
+
+// The bash-first steer of a set of sessions, off the `auto_mode` event row
+// each transcript carries (parse.ts). One grouped query over the picked
+// ids; the first record wins (a session writes it once, at start).
+export function steerFor(db: Database, sessionIds: string[]): Map<string, string> {
+  const out = new Map<string, string>()
+  if (sessionIds.length === 0) return out
+  const rows = z.array(SteerRow).parse(
+    db
+      .prepare(
+        `SELECT m.session_id AS sessionId, f.text FROM messages m JOIN messages_fts f ON f.rowid = m.id
+         WHERE m.lane = 'event' AND f.text LIKE 'auto_mode: %' AND m.session_id IN (${sessionIds.map(() => '?').join(',')})
+         ORDER BY m.id`,
+      )
+      .all(...sessionIds),
+  )
+  for (const r of rows) {
+    if (out.has(r.sessionId)) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(r.text.slice('auto_mode: '.length))
+    } catch {
+      continue
+    }
+    const a = AutoMode.safeParse(parsed)
+    if (!a.success) continue
+    out.set(r.sessionId, a.data.bashFirst ? (a.data.bashFirstSteer ?? 'strict') : 'off')
+  }
+  return out
 }
 
 // The served models of a set of sessions, most requests first. One grouped

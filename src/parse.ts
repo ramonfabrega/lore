@@ -202,6 +202,24 @@ export function parseLine(line: string): Parsed | null {
     // "read inside the turn" rather than "opened it".
     case 'attachment': {
       const a = r.attachment
+      // The harness's auto-mode levers for THIS session, written once at
+      // start: `bashFirst` + `bashFirstSteer` (an A/B-assigned paragraph —
+      // `strict` edits files through the shell and reaches for Edit only
+      // when Bash cannot; `relaxed` prefers Edit when a shell edit would be
+      // fragile), `steerOnly`, `bypass`. Remote config picks the arm per
+      // session, and 2.1.280 flipped the whole fleet strict → relaxed on
+      // 2026-09-22 — a behavior shift that read as "did the model change"
+      // until this record answered it (wiki: harness-bash-first-steer). It
+      // rides the event lane as JSON; `lore sessions` reads `steer` off it.
+      if (a?.type === 'auto_mode') {
+        const AutoMode = z.object({ bashFirst: z.boolean().nullish(), bashFirstSteer: z.string().nullish(), steerOnly: z.boolean().nullish(), bypass: z.boolean().nullish() }).loose()
+        const m = AutoMode.safeParse(a)
+        if (m.success) {
+          const { bashFirst, bashFirstSteer, steerOnly, bypass } = m.data
+          p.entries.push({ lane: 'event', text: `auto_mode: ${JSON.stringify({ bashFirst: bashFirst ?? null, bashFirstSteer: bashFirstSteer ?? null, steerOnly: steerOnly ?? null, bypass: bypass ?? null })}` })
+        }
+        break
+      }
       if (a?.type !== 'queued_command' || typeof a.prompt !== 'string' || !a.prompt.trim()) break
       const who = Authorship.safeParse(a).data ?? {}
       p.entries.push(userTextEntry(a.prompt, who))

@@ -192,6 +192,24 @@ describe('parseLine: messages read mid-turn (attachment / queued_command)', () =
     }
   })
 
+  // The harness's auto-mode levers, written once at session start (shape
+  // verbatim from 2.1.280, 2026-09-23): the bash-first steer's A/B arm is
+  // the field that explained the fleet's edit-style shift of 09-22.
+  test('auto_mode → the event lane as JSON, the four levers and nothing else', () => {
+    const p = parseLine(
+      env({
+        type: 'attachment',
+        attachment: { type: 'auto_mode', autoModeConsentFlow: false, bashFirst: true, bashFirstSteer: 'relaxed', steerOnly: true, bypass: false },
+        rendered: [{ content: '<system-reminder>\nWhile auto mode is active: …</system-reminder>' }],
+      }),
+    )!
+    expect(p.type).toBe('attachment')
+    expect(p.entries).toEqual([{ lane: 'event', text: 'auto_mode: {"bashFirst":true,"bashFirstSteer":"relaxed","steerOnly":true,"bypass":false}' }])
+    // An older harness (2.1.236) wrote no arm: the fields it lacks are null, not absent.
+    const old = parseLine(env({ type: 'attachment', attachment: { type: 'auto_mode', bashFirst: false, steerOnly: true, bypass: false } }))!
+    expect(old.entries).toEqual([{ lane: 'event', text: 'auto_mode: {"bashFirst":false,"bashFirstSteer":null,"steerOnly":true,"bypass":false}' }])
+  })
+
   test('a bridge-session record names the claude.ai session behind the job', () => {
     const p = parseLine(env({ type: 'bridge-session', bridgeSessionId: 'cse_01RGFNuvyhAq1Mzs6ZcVX7r2', lastSequenceNum: 0 }))!
     expect(p.bridgeSessionId).toBe('cse_01RGFNuvyhAq1Mzs6ZcVX7r2')
