@@ -381,6 +381,11 @@ export function getTrace(
       )
       .map((r) => [r.messageId, r] as const),
   )
+  // When each response finished streaming: the newest stamp among its
+  // blocks (one row per block, sharing the request id). An instruction's
+  // latency starts there — see the pairing below.
+  const requestEnd = new Map<string, string>()
+  for (const r of rows) if (r.type === 'assistant' && r.requestId && r.ts && (requestEnd.get(r.requestId) ?? '') < r.ts) requestEnd.set(r.requestId, r.ts)
   const spawns = SpawnRow.parse(
     db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(output_tokens), 0) AS output FROM spawns WHERE session_id = ?').get(sessionId),
   )
@@ -513,12 +518,21 @@ export function getTrace(
         sent.push(out)
       }
       const error = res ? res.isError === 1 : false
+      // Latency runs from the END of the response, not from this block's
+      // own stamp: a response with three Edit blocks streams them one at a
+      // time, nothing runs until the last has landed, and the first block's
+      // stamp is when it streamed — measured from there an Edit read 2980 ms
+      // (p50) against 41 ms, and the difference was its siblings streaming
+      // (2026-09-23, the relaxed-steer sessions). The results of one response
+      // then land together, so the instructions of a multi-tool response
+      // share one clock; that is the transcript's resolution, not a guess.
+      const from = (r.requestId && requestEnd.get(r.requestId)) || r.ts
       instructions.push({
         tool,
         input: cut(inputFull, head),
         ...(out ? { to: out.to, toName: out.name, toAgent: out.agent, delivered: out.delivered } : {}),
         ts: r.ts,
-        ms: res?.ts && r.ts ? Date.parse(res.ts) - Date.parse(r.ts) : null,
+        ms: res?.ts && from ? Math.max(0, Date.parse(res.ts) - Date.parse(from)) : null,
         error,
         result: res ? cut(res.text, head) : '',
         requestId: r.requestId,

@@ -110,7 +110,8 @@ describe('getTrace', () => {
     ])
     const first = t.transactions[0]!
     expect(first.steps).toBe(3)
-    // Latency runs from the tool_use block's own line (10:00:05.5).
+    // Latency runs from the response's LAST block (10:00:05.5, the tool_use
+    // line — msg_1's text block streamed half a second earlier).
     expect(first.instructions.map((i) => [i.tool, i.ms, i.error])).toEqual([
       ['Bash', 29500, true],
       ['Edit', 1000, false],
@@ -141,6 +142,33 @@ describe('getTrace', () => {
   // Two agents in one session: a peer relaying in, and the harness reporting
   // a finished background agent. Both arrive as `user` records, and both
   // wear an envelope longer than a spine row — the block view takes it off.
+  // A response with three Edit blocks streams them one at a time and runs
+  // nothing until the last has landed; measured from each block's own stamp
+  // the first Edit read 20 s, and the difference was its siblings streaming
+  // (2026-09-23). Latency runs from the response's end, and the results of
+  // one response land together — one clock for its instructions.
+  test('the instructions of a multi-block response are timed from its last block, not their own', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seed([
+      prompt('2026-09-23T17:00:00.000Z', 'p1', 'apply the three edits'),
+      assistant('2026-09-23T17:00:43.340Z', 'msg_1', [{ type: 'tool_use', id: 'tu_a', name: 'Edit', input: { file_path: '/u/a.rs' } }], 50),
+      assistant('2026-09-23T17:01:00.594Z', 'msg_1', [{ type: 'tool_use', id: 'tu_b', name: 'Edit', input: { file_path: '/u/b.rs' } }], 50),
+      assistant('2026-09-23T17:01:01.786Z', 'msg_1', [{ type: 'tool_use', id: 'tu_c', name: 'Edit', input: { file_path: '/u/c.rs' } }], 50),
+      result('2026-09-23T17:01:03.559Z', 'p1', 'tu_a', 'ok'),
+      result('2026-09-23T17:01:03.559Z', 'p1', 'tu_b', 'ok'),
+      result('2026-09-23T17:01:03.559Z', 'p1', 'tu_c', 'ok'),
+      assistant('2026-09-23T17:01:10.000Z', 'msg_2', [{ type: 'text', text: 'Applied.' }], 10, 'end_turn'),
+    ])
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    const t = getTrace(db, 'sess', { limit: 10 })
+    // 17:01:01.786 → 17:01:03.559 for all three, never 20219 / 2965 / 1773.
+    expect(t.transactions[0]!.instructions.map((i) => [i.tool, i.ms])).toEqual([
+      ['Edit', 1773],
+      ['Edit', 1773],
+      ['Edit', 1773],
+    ])
+  })
+
   test('a relay is a turn with its sender; a harness injection is neither numbered nor counted', async () => {
     const db = openDb(':memory:')
     const projectsDir = seed([
