@@ -33,6 +33,13 @@ const RATES: Record<string, Rate[]> = {
   'claude-mythos-5-1': [{ from: '2026-09-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50 }],
   'claude-fable-5': [{ from: '2026-01-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, output: 50 }],
   'claude-mythos-5': [{ from: '2026-01-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, output: 50 }],
+  // A point release is its OWN row even at the same price: the prefix match
+  // hands `claude-opus-5-5` to `claude-opus-5` without a word, and 5.5 is
+  // cheaper in every class — from 09-22 to 09-29 the ledger priced 39k Opus
+  // 5.5 requests at the 5 rate and read $6597 where the list price was
+  // about $3210. Rates as the harness changelog announced them (2.1.280,
+  // 2.1.284); `lore harness changelog --grep "^Added Claude"` finds the next.
+  'claude-opus-5-5': [{ from: '2026-09-22', input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20 }],
   'claude-opus-5': [{ from: '2026-01-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
   'claude-opus-4-8': [{ from: '2026-01-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
   'claude-opus-4-7': [{ from: '2026-01-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
@@ -40,6 +47,7 @@ const RATES: Record<string, Rate[]> = {
   'claude-opus-4-5': [{ from: '2025-11-01', input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 }],
   'claude-opus-4-1': [{ from: '2025-01-01', input: 15, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5, output: 75 }],
   'claude-opus-4': [{ from: '2025-01-01', input: 15, cacheWrite5m: 18.75, cacheWrite1h: 30, cacheRead: 1.5, output: 75 }],
+  'claude-sonnet-5-5': [{ from: '2026-09-28', input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.2, output: 10 }],
   'claude-sonnet-5': [{ from: '2026-01-01', input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.2, output: 10 }],
   'claude-sonnet-4': [{ from: '2025-01-01', input: 3, cacheWrite5m: 3.75, cacheWrite1h: 6, cacheRead: 0.3, output: 15 }],
   'claude-haiku-4-5': [{ from: '2025-01-01', input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.1, output: 5 }],

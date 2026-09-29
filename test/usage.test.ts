@@ -140,8 +140,16 @@ describe('rateFor', () => {
     expect(rateFor(null, '2026-09-01')).toBeNull()
   })
 
+  // The prefix match is silent: before its own row existed, Opus 5.5 priced
+  // as Opus 5 — every class too high, cache reads 2.5x — and nothing said so.
+  test('a point release has its own row and does not fall through to its base model', () => {
+    expect(rateFor('claude-opus-5-5', '2026-09-25')).toMatchObject({ input: 4, cacheRead: 0.2, output: 20 })
+    expect(rateFor('claude-opus-5', '2026-09-25')).toMatchObject({ input: 5, cacheRead: 0.5, output: 25 })
+    expect(rateFor('claude-sonnet-5-5', '2026-09-29')).toMatchObject({ input: 2, cacheRead: 0.2, output: 10 })
+  })
+
   test('a cache write has two prices: 1.25x input at 5m, 2x at 1h', () => {
-    for (const id of ['claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5']) {
+    for (const id of ['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5']) {
       const r = rateFor(id, '2026-09-02')!
       expect(r.cacheWrite5m).toBeCloseTo(r.input * 1.25, 10)
       expect(r.cacheWrite1h).toBeCloseTo(r.input * 2, 10)
