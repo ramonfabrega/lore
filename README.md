@@ -164,6 +164,7 @@ from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 | `lore usage` | The token profile: four billed classes + thinking, by well/session/model/day/week/month, dated list-price equivalent. |
 | `lore trace <id-prefix>` | One session as a block: transactions → steps (fee) + instructions (tool, latency, error) + annotations. `--steps` expands requests. |
 | `lore agents` | The live roster (`claude agents` + background-job state) joined to the index: live tokens beside indexed requests. |
+| `lore harness status / changelog` | Claude Code itself: installed vs the release channels vs what is **running** (the daemon and each worker keep the binary they started with), and the changelog between, tagged by surface, kind and topic. Reads only — updates are manual (docs/DESIGN.md). |
 | `lore serve` / `lore api` | The explorer in the foreground / its pages as JSON commands. |
 | `lore server up\|down\|restart\|status\|logs` | The explorer always-on as a launchd user agent (macOS); `status` says "restart owed" after a reinstall. |
 | `lore docs index / search / list` | The canon corpus: git-committed .md across your repos, read from **git objects, never working trees**. |

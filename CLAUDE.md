@@ -234,7 +234,14 @@ true, it is a design change, not a bug fix.
   test re-checks the scrub), and `test/harness-corpus.test.ts` parses
   every version with every schema and asserts the invariants above. A
   moved field fails a test the day it is snapshotted, not a page a week
-  later.
+  later. **Updates are manual and lore owns the flow** (DESIGN.md,
+  2026-09-29): `lore harness status` / `lore harness changelog` are the
+  reading, the install is typed in a plain terminal at a rest point (an
+  update bounces the daemon under every live agent — never run it from a
+  background session), and the snapshot plus a rate row for any new model
+  close it. Rates match on the longest model-id PREFIX, so a point release
+  without its own row prices as its base model in silence: Opus 5.5 read
+  2x high for a week that way.
 - **A message that arrives mid-turn is not a user record.** When a session is
   idle, a peer's message or the user's words become a `user` record and open
   a turn. When it is busy, the harness enqueues it (`queue-operation`) and

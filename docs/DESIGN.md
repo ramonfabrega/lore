@@ -507,6 +507,58 @@ Also stated in EXPLORER.md as "not built, on purpose": a root-page aggregate cac
 fff-style palette, MCP (incur already serves every verb over `--mcp`). Core complete
 by the user's definition; next is a design pass, block view first, in a fresh session.
 
+### 2026-09-29 — Harness updates are manual, and lore owns the flow (`lore harness`)
+
+Auto-update went off on 09-03 for the permissions tax (every version is a new path,
+every new path revokes the macOS grants). attrition's `RonDriver.app` ended that for
+attrition — it held through the 09-22 update to 2.1.280 — but the question "turn it
+back on?" got a no for three reasons that are not about permissions. **An update
+bounces the daemon**: the running daemon's start (09-22 20:10:19Z) is sixteen seconds
+after the 2.1.280 binary was written, and a bounce is new roots, new sockets, and a
+send to the old socket that fails without a tool error (CLAUDE.md, the three ids).
+**Releases land near-daily** — 25 versions in 28 days — so auto-update is a bounce at
+an hour nobody chose under a commander that runs around the clock. **The daemon's
+shapes are a corpus** lore re-snapshots per version, which is only a discipline if an
+update is an event: the 09-22 update was taken by hand and the snapshot was still
+missed, which is the argument for a flow rather than a memory.
+
+So the binary is updated by hand, at a rest point, and lore is where the decision is
+read: `lore harness status` (installed, the two channels with dates, what is RUNNING —
+the daemon and each worker keep the binary they started with — and one row per pending
+release) and `lore harness changelog` (the entries between, tagged by surface, kind and
+fleet topic). Both are layer 1: three GETs and four local files, no model. The flow:
+
+1. `lore harness status` — is there one, and who would it bounce.
+2. `lore harness changelog --kind changed`, `--kind removed`, then `--topic daemon`,
+   `spawn`, `messaging`, `permissions` — behaviour that moves under a running fleet
+   first, then the fixes for what the fleet works around. The reading is the
+   session's; the tags only order it.
+3. Wait for the rest point (`lore agents`). The owner of a running commander says
+   when that is, not lore.
+4. `claude install <version>` **in a plain terminal**. Never from a background
+   session: it lives under the daemon the install restarts.
+5. `lore harness status` again — the daemon and workers on the new version — then one
+   throwaway spawn into a fresh worktree and the fleet's permission checks.
+6. `bun scripts/harness-corpus.ts`, `TZ=UTC bun test`: the new version's shapes against
+   every schema lore has.
+7. A new model in the range (`lore harness changelog --grep "^Added Claude"`) is a new
+   row in `usage.ts`'s rates — see below — and a wiki log entry closes the update.
+
+The rate step is not a formality. Rates match on the longest model-id PREFIX, so a
+point release with no row of its own prices as its base model and says nothing:
+`claude-opus-5-5` ($4/$20, cache reads $0.20) was priced as `claude-opus-5` ($5/$25,
+$0.50) from 09-22 until this entry, and `usage --by model` read $6597 for it where the
+list price was about $3210. `unpriced` catches a model lore has never heard of; it
+cannot catch one it mistakes for another.
+
+Rejected: a `lore harness update` verb that runs the install (the session running it
+is under the daemon being bounced, and the step that needs a human present is exactly
+this one); auto-update with a pinned `stable` channel (stable was 2.1.277 when the
+installed binary was already 2.1.280 — past it — and it lacked the model the update
+was wanted for); a cached changelog for offline reads (the decision is made online;
+each source fails alone into `warnings` instead); exposing the verbs under `/cli/` on
+the explorer (they make outbound requests, which no page does).
+
 ## Privacy redline
 
 Transcripts span work/client repos and personal projects. Graduation must be loud

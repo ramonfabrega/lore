@@ -4,6 +4,7 @@ import { archive } from './archive'
 import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
+import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
 import { buildIndex } from './indexer'
 import { backfillJobNames, listJobs } from './job'
 import { indexJobs } from './jobs'
@@ -523,6 +524,54 @@ cli.command('agents', {
     return { count: agents.length, active: agents.filter((a) => a.state === 'working' || a.state === 'blocked').length, agents }
   },
 })
+
+const harness = Cli.create('harness', {
+  description:
+    'Claude Code itself, as a thing lore watches: the installed version, what is RUNNING, what the release channels offer, and the changelog between. Updates are manual here (docs/DESIGN.md): this reads, it installs nothing.',
+})
+
+const KINDS = ['added', 'fixed', 'improved', 'changed', 'removed', 'other'] as const
+
+harness.command('status', {
+  description:
+    'Is there a new Claude Code, and what would taking it disturb. `installed` is read off the `claude` symlink (the native install links to `versions/<version>`); `channels` are the two the native installer reads, each with its release date; `behind` counts the releases between installed and latest, and `pending` is one row per such release — entries, how many apply to the terminal CLI (`cli`), their `kinds` (added/fixed/improved/changed/removed) and the fleet `topics` they touch, so you know where to read before reading. `daemon` and `workers` are what is RUNNING: both keep the binary they started with, so a version there that differs from `installed` is an agent still on the old one, and the worker rows (name, state, tempo) are who an install would bounce — an update restarts the daemon under all of them. `onDisk` is what `claude install <version>` can roll back to without a download. `autoUpdate` reads settings.json `env.DISABLE_AUTOUPDATER`. Each remote source fails alone into `warnings`. The install itself is typed in a plain terminal at a rest point (`claude install <version>`), never from a background session: that session lives under the daemon the install restarts.',
+  run: async (c) => {
+    const [here, there] = await Promise.all([readHere({ claudeDir: CLAUDE_DIR, bin: Bun.which('claude') }), readThere()])
+    const status = harnessStatus(here, there)
+    return c.ok(status, {
+      cta: status.behind
+        ? {
+            description: `${status.behind} release(s) behind:`,
+            commands: [
+              { command: 'harness changelog', description: 'What they change for the terminal CLI' },
+              { command: 'harness changelog --kind changed', description: 'Behaviour that moved — read these first' },
+              { command: 'agents', description: 'Who is working: update at a rest point' },
+            ],
+          }
+        : undefined,
+    })
+  },
+})
+
+harness.command('changelog', {
+  description:
+    `The changelog between two versions, as entries: by default from the installed version (exclusive) to the latest channel (inclusive) — exactly what an update brings. Each entry carries the \`version\` it shipped in, its \`surface\` (\`cli\` is the terminal binary and its daemon, and the default filter; vscode, claude tag, code review, gateway, windows… are the others — \`surfaces\` counts what the filter hides and \`--surface all\` lifts it), its \`kind\` from the leading verb, and the fleet \`topics\` it touches (${TOPIC_NAMES.join(', ')}). Topics are deterministic tags that say where to read first, not a verdict. Reading order for a decision: \`--kind changed\` and \`--kind removed\` (behaviour that moves under a running fleet), then \`--topic daemon\`, \`spawn\`, \`messaging\`, \`permissions\`, then the fixes for anything the fleet works around. \`--from\`/\`--to\` read any range, e.g. what a past update brought.`,
+  options: z.object({
+    from: z.string().optional().describe('Version to read from, exclusive (default: installed)'),
+    to: z.string().optional().describe('Version to read to, inclusive (default: the latest channel)'),
+    surface: z.string().optional().describe('Surface to keep (default: cli); `all` keeps every surface'),
+    kind: z.enum(KINDS).optional().describe('Only entries of this kind'),
+    topic: z.enum(TOPIC_NAMES as [string, ...string[]]).optional().describe('Only entries touching this topic'),
+    grep: z.string().optional().describe('Only entries matching this regex (case-insensitive)'),
+  }),
+  alias: { kind: 'k', topic: 't', grep: 'g' },
+  run: async ({ options }) => {
+    const [here, there] = await Promise.all([readHere({ claudeDir: CLAUDE_DIR, bin: Bun.which('claude') }), readThere()])
+    return harnessChangelog(here, there, options)
+  },
+})
+
+cli.command(harness)
 
 cli.command('jobs', {
   description:
