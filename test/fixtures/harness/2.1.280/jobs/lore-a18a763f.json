@@ -1,6 +1,6 @@
 {
   "state": "working",
-  "detail": "installed b124 at a602811, restarted server; checking job record schema",
+  "detail": "checking binary version API; building version check into lore",
   "tempo": "active",
   "inFlight": {
     "tasks": 0,
@@ -276,10 +276,33 @@
       "href": "https://example.invalid/link",
       "kind": "frame",
       "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "33",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
     }
   ],
-  "linkScanOffset": 1706021,
-  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-lore--claude-worktrees-tool-class/3669a9fc-3143-4bf3-9990-f7e66be3439d.jsonl",
+  "linkScanOffset": 1698964,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-lore--claude-worktrees-harness-verb/3e3d6b2f-86a4-494c-9f62-e202ec526ec2.jsonl",
   "template": "bg",
   "respawnFlags": [
     "--rc",
@@ -294,17 +317,17 @@
   "name": "lore",
   "nameSource": "user",
   "sessionId": "a18a763f-e9a6-4024-aeae-c29132dfc351",
-  "resumeSessionId": "3669a9fc-3143-4bf3-9990-f7e66be3439d",
+  "resumeSessionId": "3e3d6b2f-86a4-494c-9f62-e202ec526ec2",
   "daemonShort": "a18a763f",
-  "cliVersion": "2.1.260",
+  "cliVersion": "2.1.280",
   "cwd": "/Users/u/code/fun/lore",
-  "worktreePath": "/Users/u/code/fun/lore/.claude/worktrees/tool-class",
-  "worktreeBranch": "worktree-tool-class",
+  "worktreePath": "/Users/u/code/fun/lore/.claude/worktrees/harness-verb",
+  "worktreeBranch": "worktree-harness-verb",
   "bridgeSessionId": "cse_0145QxeqUnB3uGTCNBWmAHea",
   "bridgeOutboundOnly": false,
-  "bridgeSessionSeq": 30768,
+  "bridgeSessionSeq": 52511,
   "backend": "daemon",
   "createdAt": "2026-07-17T06:52:37.020Z",
-  "updatedAt": "2026-09-07T05:28:42.422Z",
-  "firstTerminalAt": "2026-09-01T05:47:20.498Z"
+  "updatedAt": "2026-09-29T16:44:55.458Z",
+  "firstTerminalAt": "2026-09-29T16:06:47.877Z"
 }

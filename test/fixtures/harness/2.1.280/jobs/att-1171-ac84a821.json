@@ -1,0 +1,40 @@
+{
+  "state": "blocked",
+  "detail": "item 1171: two commander's-line test failures to book",
+  "tempo": "blocked",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 77602,
+  "needs": "book the two failing tests (rondata::diff::floors::tests::the_handoff_s_third_ma…",
+  "children": null,
+  "linkScanOffset": 2280320,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-att-1171/ac84a821-5402-4afa-ac92-0ebeba7d5c83.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "att-1171",
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "claude-opus-5-5[1m]"
+  ],
+  "intent": "You are a worker lane on the attrition repo, run…",
+  "name": "att-1171",
+  "nameSource": "user",
+  "sessionId": "ac84a821-5402-4afa-ac92-0ebeba7d5c83",
+  "resumeSessionId": "ac84a821-5402-4afa-ac92-0ebeba7d5c83",
+  "daemonShort": "ac84a821",
+  "cliVersion": "2.1.280",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1171",
+  "bridgeSessionId": "cse_01KTGh3DMirQnYaHhS46zdqL",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon",
+  "createdAt": "2026-09-29T15:25:12.758Z",
+  "updatedAt": "2026-09-29T16:43:59.970Z",
+  "firstTerminalAt": null
+}

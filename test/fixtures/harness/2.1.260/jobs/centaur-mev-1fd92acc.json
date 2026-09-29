@@ -10,10 +10,10 @@
   "tokens": 298537,
   "children": [
     {
-      "id": "atlas-body.html",
+      "id": "frame.html",
       "href": "https://example.invalid/link",
       "kind": "frame",
-      "title": "Studio Centaur"
+      "title": "frame"
     },
     {
       "id": "3",

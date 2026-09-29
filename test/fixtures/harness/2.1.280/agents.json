@@ -1,0 +1,84 @@
+[
+  {
+    "id": "b87b7169",
+    "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+    "kind": "background",
+    "startedAt": 1788741495840,
+    "sessionId": "b87b7169-7608-4b8d-afd0-c070ed3610cb",
+    "name": "ccc",
+    "state": "done"
+  },
+  {
+    "pid": 17731,
+    "id": "3c382923",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+    "kind": "background",
+    "startedAt": 1790112372601,
+    "sessionId": "011a86cc-8470-4786-9c52-66565e57c279",
+    "name": "attrition",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "id": "60a64b5d",
+    "cwd": "/Users/u/code/fun/fantasy",
+    "kind": "background",
+    "startedAt": 1790180192064,
+    "sessionId": "60a64b5d-2fe1-42ea-9c9f-8a3b7c501d3d",
+    "name": "fantasy",
+    "state": "done"
+  },
+  {
+    "id": "c8f34388",
+    "cwd": "/Users/u/code/fun/nfl",
+    "kind": "background",
+    "startedAt": 1790180201025,
+    "sessionId": "c8f34388-23d5-4ada-b2de-c66dc610ff4e",
+    "name": "pickem",
+    "state": "done"
+  },
+  {
+    "pid": 99540,
+    "id": "4a4009a2",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1167",
+    "kind": "background",
+    "startedAt": 1790694107275,
+    "sessionId": "4a4009a2-46c4-47a1-b359-f147d18d5cba",
+    "name": "att-1167",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 69164,
+    "id": "ac84a821",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1171",
+    "kind": "background",
+    "startedAt": 1790695513236,
+    "sessionId": "ac84a821-5402-4afa-ac92-0ebeba7d5c83",
+    "name": "att-1171",
+    "status": "idle",
+    "state": "blocked"
+  },
+  {
+    "pid": 20368,
+    "id": "c812e7df",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1174",
+    "kind": "background",
+    "startedAt": 1790696510577,
+    "sessionId": "c812e7df-1d34-4d14-8393-d40c3a63fe52",
+    "name": "att-1174",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 7085,
+    "id": "a18a763f",
+    "cwd": "/Users/u/code/fun/lore/.claude/worktrees/harness-verb",
+    "kind": "background",
+    "startedAt": 1790697732932,
+    "sessionId": "3e3d6b2f-86a4-494c-9f62-e202ec526ec2",
+    "name": "lore",
+    "status": "busy",
+    "state": "working"
+  }
+]

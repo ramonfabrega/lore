@@ -1,0 +1,330 @@
+{
+  "proto": 1,
+  "supervisorPid": 17682,
+  "updatedAt": 1790698620173,
+  "workers": {
+    "3c382923": {
+      "pid": 17722,
+      "procStart": "Tue Sep 22 20:10:20 2026",
+      "sessionId": "550a9e35-6652-4ded-9668-1d4c7f513bc3",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/3c382923.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/c87ab1d6.pty.sock",
+      "cliVersion": "2.1.280",
+      "startedAt": 1790112372324,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition",
+      "dispatch": {
+        "proto": 1,
+        "short": "3c382923",
+        "nonce": "e5911cbf",
+        "sessionId": "550a9e35-6652-4ded-9668-1d4c7f513bc3",
+        "createdAt": 1790112372317,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/attrition",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "550a9e35-6652-4ded-9668-1d4c7f513bc3",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/550a9e35-6652-4ded-9668-1d4c7f513bc3.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--rc",
+            "--name",
+            "attrition",
+            "--model",
+            "opus[1m]"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--rc",
+          "--name",
+          "attrition",
+          "--model",
+          "opus[1m]"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "attrition"
+        },
+        "cols": 182,
+        "rows": 52
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 3,
+          "msgsInJsonl": 3,
+          "msgsRenderedAtFirstPaint": 3
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 17731,
+      "replProcStart": "Tue Sep 22 20:10:20 2026"
+    },
+    "4a4009a2": {
+      "pid": 99529,
+      "procStart": "Tue Sep 29 14:13:59 2026",
+      "sessionId": "4a4009a2-46c4-47a1-b359-f147d18d5cba",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/4a4009a2.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/d67fb60f.pty.sock",
+      "cliVersion": "2.1.280",
+      "startedAt": 1790694106889,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1167",
+      "dispatch": {
+        "proto": 1,
+        "short": "4a4009a2",
+        "nonce": "0b841000",
+        "sessionId": "4a4009a2-46c4-47a1-b359-f147d18d5cba",
+        "createdAt": 1790694106860,
+        "source": "shell",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1167",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "4a4009a2-46c4-47a1-b359-f147d18d5cba",
+            "--name",
+            "att-1167",
+            "--model",
+            "claude-opus-5-5[1m]",
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "You are a worker lane on the attrition repo, run…"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "att-1167",
+          "--model",
+          "claude-opus-5-5[1m]",
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "You are a worker lane on the attrition repo, run…"
+        ],
+        "seed": {
+          "intent": "You are a worker lane on the attrition repo, run…",
+          "name": "att-1167"
+        }
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "replPid": 99540,
+      "replProcStart": "Tue Sep 29 14:13:59 2026"
+    },
+    "ac84a821": {
+      "pid": 69153,
+      "procStart": "Tue Sep 29 15:01:46 2026",
+      "sessionId": "ac84a821-5402-4afa-ac92-0ebeba7d5c83",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/ac84a821.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/262cf433.pty.sock",
+      "cliVersion": "2.1.280",
+      "startedAt": 1790695512831,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1171",
+      "dispatch": {
+        "proto": 1,
+        "short": "ac84a821",
+        "nonce": "c58140ae",
+        "sessionId": "ac84a821-5402-4afa-ac92-0ebeba7d5c83",
+        "createdAt": 1790695512758,
+        "source": "shell",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1171",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "ac84a821-5402-4afa-ac92-0ebeba7d5c83",
+            "--name",
+            "att-1171",
+            "--model",
+            "claude-opus-5-5[1m]",
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "You are a worker lane on the attrition repo, run…"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "att-1171",
+          "--model",
+          "claude-opus-5-5[1m]",
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "You are a worker lane on the attrition repo, run…"
+        ],
+        "seed": {
+          "intent": "You are a worker lane on the attrition repo, run…",
+          "name": "att-1171"
+        }
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "replPid": 69164,
+      "replProcStart": "Tue Sep 29 15:01:46 2026"
+    },
+    "c812e7df": {
+      "pid": 20356,
+      "procStart": "Tue Sep 29 15:25:12 2026",
+      "sessionId": "c812e7df-1d34-4d14-8393-d40c3a63fe52",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/c812e7df.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/65d1bb93.pty.sock",
+      "cliVersion": "2.1.280",
+      "startedAt": 1790696510185,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1174",
+      "dispatch": {
+        "proto": 1,
+        "short": "c812e7df",
+        "nonce": "01f1fea9",
+        "sessionId": "c812e7df-1d34-4d14-8393-d40c3a63fe52",
+        "createdAt": 1790696510085,
+        "source": "shell",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1174",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "c812e7df-1d34-4d14-8393-d40c3a63fe52",
+            "--name",
+            "att-1174",
+            "--model",
+            "claude-opus-5-5[1m]",
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "You are a worker lane on the attrition repo, run…"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "att-1174",
+          "--model",
+          "claude-opus-5-5[1m]",
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "You are a worker lane on the attrition repo, run…"
+        ],
+        "seed": {
+          "intent": "You are a worker lane on the attrition repo, run…",
+          "name": "att-1174"
+        }
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "replPid": 20368,
+      "replProcStart": "Tue Sep 29 15:25:12 2026"
+    },
+    "a18a763f": {
+      "pid": 7073,
+      "procStart": "Tue Sep 29 16:00:53 2026",
+      "sessionId": "3e3d6b2f-86a4-494c-9f62-e202ec526ec2",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/a18a763f.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/54817590.pty.sock",
+      "cliVersion": "2.1.280",
+      "startedAt": 1790697732610,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/lore",
+      "dispatch": {
+        "proto": 1,
+        "short": "a18a763f",
+        "nonce": "1f71bbdb",
+        "sessionId": "3e3d6b2f-86a4-494c-9f62-e202ec526ec2",
+        "createdAt": 1790697732608,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/lore",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "3e3d6b2f-86a4-494c-9f62-e202ec526ec2",
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "--name",
+            "lore",
+            "--model",
+            "claude-fable-5-1[1m]"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "--name",
+          "lore",
+          "--model",
+          "claude-fable-5-1[1m]"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "lore"
+        },
+        "cols": 182,
+        "rows": 50
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "replPid": 7085,
+      "replProcStart": "Tue Sep 29 16:00:53 2026"
+    }
+  }
+}

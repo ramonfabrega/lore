@@ -1,0 +1,39 @@
+{
+  "state": "done",
+  "detail": "worktree-v2 pushed (705ab65); 5 features shipped, clean",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": []
+  },
+  "tokens": 244922,
+  "children": null,
+  "linkScanOffset": 0,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-ccc--claude-worktrees-v2/6eac79bf-f0bf-41a9-9e9f-8e0b78dfb659.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "ccc",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "opus"
+  ],
+  "intent": "Relaunch after the Friday 09-04 crash, from lore…",
+  "name": "ccc",
+  "nameSource": "user",
+  "sessionId": "b87b7169-7608-4b8d-afd0-c070ed3610cb",
+  "resumeSessionId": "6eac79bf-f0bf-41a9-9e9f-8e0b78dfb659",
+  "daemonShort": "b87b7169",
+  "cliVersion": "2.1.260",
+  "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+  "createdAt": "2026-09-07T00:38:15.840Z",
+  "updatedAt": "2026-09-23T17:37:10.976Z",
+  "firstTerminalAt": "2026-09-07T01:40:39.520Z",
+  "lastTerminalAt": "2026-09-17T18:12:15.087Z",
+  "bridgeSessionId": "cse_01YYPbMRFLoY82q9xYDcFJjk",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 5624,
+  "backend": "daemon"
+}

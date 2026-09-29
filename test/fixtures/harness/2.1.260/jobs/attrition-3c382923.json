@@ -45,10 +45,10 @@
       "kind": "pr"
     },
     {
-      "id": "atlas.html",
+      "id": "frame.html",
       "href": "https://example.invalid/link",
       "kind": "frame",
-      "title": "Attrition Atlas"
+      "title": "frame"
     }
   ],
   "linkScanOffset": 2419964,

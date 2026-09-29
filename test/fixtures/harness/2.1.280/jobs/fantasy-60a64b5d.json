@@ -1,0 +1,39 @@
+{
+  "state": "done",
+  "detail": "Evans active (no snap limit), Flowers active but pitch-capped 20–30 snaps; recom…",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 22830,
+  "children": null,
+  "linkScanOffset": 483765,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-fantasy/aac47bdf-a5c7-4ef8-90ca-bf022ec7bb2f.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--name",
+    "fantasy",
+    "--model",
+    "opus[1m]"
+  ],
+  "intent": "",
+  "name": "fantasy",
+  "nameSource": "user",
+  "sessionId": "60a64b5d-2fe1-42ea-9c9f-8a3b7c501d3d",
+  "resumeSessionId": "aac47bdf-a5c7-4ef8-90ca-bf022ec7bb2f",
+  "daemonShort": "60a64b5d",
+  "cliVersion": "2.1.280",
+  "cwd": "/Users/u/code/fun/fantasy",
+  "createdAt": "2026-09-23T16:16:32.064Z",
+  "updatedAt": "2026-09-28T03:10:31.758Z",
+  "firstTerminalAt": "2026-09-23T16:18:53.394Z",
+  "lastTerminalAt": "2026-09-27T19:09:57.019Z",
+  "bridgeSessionId": "cse_01JnA14WVTHRGm2f9DHpYvtV",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon",
+  "bridgeSessionSeq": 230
+}

@@ -1,0 +1,48 @@
+{
+  "state": "working",
+  "detail": "5 mutations running against long trace + unit tests",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 1,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "fan": [
+    {
+      "id": "b29qdwn8x",
+      "kind": "shell",
+      "label": "cat > $CLAUDE_JOB_DIR/tmp/mut.py <<'PYEOF' import subprocess…",
+      "startedAt": 1790700152424,
+      "doneAt": 1790700299116
+    }
+  ],
+  "tokens": 104869,
+  "children": null,
+  "linkScanOffset": 2940327,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-att-1174/c812e7df-1d34-4d14-8393-d40c3a63fe52.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "att-1174",
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "claude-opus-5-5[1m]"
+  ],
+  "intent": "You are a worker lane on the attrition repo, run…",
+  "name": "att-1174",
+  "nameSource": "user",
+  "sessionId": "c812e7df-1d34-4d14-8393-d40c3a63fe52",
+  "resumeSessionId": "c812e7df-1d34-4d14-8393-d40c3a63fe52",
+  "daemonShort": "c812e7df",
+  "cliVersion": "2.1.280",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/att-1174",
+  "createdAt": "2026-09-29T15:41:50.084Z",
+  "updatedAt": "2026-09-29T16:44:59.168Z",
+  "firstTerminalAt": null,
+  "bridgeSessionId": "cse_019hCnT6AZfxcvWjjyWqRFFq",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon"
+}

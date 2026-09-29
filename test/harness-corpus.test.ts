@@ -64,8 +64,24 @@ describe('harness corpus', () => {
           expect(s).not.toMatch(/-Users-(?!u-)[A-Za-z0-9]+-/)
           expect(s).not.toContain('/code/work/')
           expect(s).not.toContain('-code-work-')
+          // Prose is cut to a fragment wherever it hides — the roster keeps
+          // the opener whole inside the launch argv. The longest honest
+          // string is a transcript path in a worktree well.
+          expect(s.length).toBeLessThanOrEqual(200)
         }
         for (const k of keys(all)) expect(k).not.toMatch(/auth$|^bridgeOwner|^providerEnv$|^token$|secret|password/i)
+      })
+
+      // An artifact's name says what the work was about, and the cwd rule
+      // cannot vouch for it: a session in a personal well published a plan
+      // for a work project, and the 2.1.280 snapshot carried its title
+      // until this test existed.
+      test('the scrub held: a frame keeps its shape and loses its name', () => {
+        const frames = jobs.flatMap(([, j]) => RosterState.parse(j).children ?? []).filter((c) => c.kind === 'frame')
+        for (const c of frames) {
+          expect(c.id).toBe('frame.html')
+          if ('title' in c) expect(c.title).toBe('frame')
+        }
       })
 
       test('the listing parses with the roster schema; a background row carries a job id and a session id', () => {

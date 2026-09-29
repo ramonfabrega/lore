@@ -40,21 +40,34 @@ const eligible = (cwd: unknown) => typeof cwd === 'string' && ELIGIBLE.some((p) 
 
 // `tokens` (the live counter) stays: it is a shape the roster parses.
 const DROP_KEY = /auth$|^bridgeOwner|^providerEnv$|^output$|^token$|secret|password/i
+const FRAME_ID = 'frame.html'
+const FRAME_TITLE = 'frame'
+const ARG_MAX = 200
 const cutTo = (s: unknown, n: number) => (typeof s === 'string' && s.length > n ? `${s.slice(0, n)}…` : s)
 
 function scrub(v: unknown, key = ''): unknown {
   if (Array.isArray(v)) return v.map((x) => scrub(x, key))
   if (v && typeof v === 'object') {
     const out: Record<string, unknown> = {}
+    // A frame is an artifact the session published. Its title and its id
+    // (the file name — the title, slugged) name what the work was ABOUT,
+    // and the eligible-cwd rule cannot vouch for that: a session in a
+    // personal well publishes a plan for a work project. The shape is the
+    // fixture; the name never is.
+    const frame = 'kind' in v && v.kind === 'frame'
     for (const [k, x] of Object.entries(v)) {
       if (DROP_KEY.test(k)) continue
       if (k === 'href') {
         out[k] = 'https://example.invalid/link'
         continue
       }
+      if (frame && (k === 'title' || k === 'id')) {
+        out[k] = k === 'id' ? FRAME_ID : FRAME_TITLE
+        continue
+      }
       // Cut first, then scrub — a fragment still carries a path.
       if (k === 'intent') out[k] = scrub(cutTo(x, 48))
-      else if (k === 'detail' || k === 'title') out[k] = scrub(cutTo(x, 80))
+      else if (k === 'detail' || k === 'title' || k === 'needs') out[k] = scrub(cutTo(x, 80))
       else if (k === 'label') out[k] = scrub(cutTo(x, 60))
       else out[k] = scrub(x, k)
     }
@@ -62,7 +75,14 @@ function scrub(v: unknown, key = ''): unknown {
   }
   // The home dir appears twice: as a path, and SLUGGED inside a well dir
   // (`-Users-rf-…-code-fun-x`, CLAUDE.md `slugWellDir`) in transcript paths.
-  if (typeof v === 'string') return v.split(HOME).join('/Users/u').split(HOME_SLUG).join('-Users-u')
+  if (typeof v === 'string') {
+    // The opener is also an ARGUMENT: the roster records the launch argv
+    // (`dispatch.launch.args`, `respawnFlags`) and the positional prompt
+    // rides in it whole — a commander's 4 KB brief to a lane, three lanes
+    // deep, under a key named for flags. No flag or path is this long.
+    const s = (key === 'args' || key === 'respawnFlags') && v.length > ARG_MAX ? `${v.slice(0, 48)}…` : v
+    return s.split(HOME).join('/Users/u').split(HOME_SLUG).join('-Users-u')
+  }
   return v
 }
 

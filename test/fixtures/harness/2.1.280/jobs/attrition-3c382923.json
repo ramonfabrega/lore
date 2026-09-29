@@ -1,0 +1,63 @@
+{
+  "state": "working",
+  "detail": "Applying the 1171 booking and running guards",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 1824025,
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "3",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 2613843,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/011a86cc-8470-4786-9c52-66565e57c279.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--name",
+    "attrition",
+    "--model",
+    "claude-fable-5-1[1m]"
+  ],
+  "intent": "",
+  "name": "attrition",
+  "nameSource": "user",
+  "sessionId": "3c382923-412a-449d-9060-d72d5fd3cea2",
+  "resumeSessionId": "011a86cc-8470-4786-9c52-66565e57c279",
+  "daemonShort": "3c382923",
+  "cliVersion": "2.1.280",
+  "cwd": "/Users/u/code/fun/attrition",
+  "createdAt": "2026-08-19T22:28:39.680Z",
+  "updatedAt": "2026-09-29T16:44:35.938Z",
+  "firstTerminalAt": "2026-08-19T23:50:40.430Z",
+  "bridgeSessionId": "cse_015gugL5nLaA1s9eKtEjQxBs",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 155532,
+  "backend": "daemon",
+  "fan": [
+    {
+      "id": "bxecqc33k",
+      "kind": "shell",
+      "label": "python3 /Users/u/.claude/jobs/3c382923/tmp/book1171.…",
+      "startedAt": 1790700275931
+    }
+  ]
+}
