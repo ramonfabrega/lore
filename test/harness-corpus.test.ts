@@ -38,6 +38,18 @@ function strings(v: unknown, out: string[] = []): string[] {
   else if (v && typeof v === 'object') for (const x of Object.values(v)) strings(x, out)
   return out
 }
+function entries(v: unknown, out: [string, unknown][] = []): [string, unknown][] {
+  if (Array.isArray(v)) for (const x of v) entries(x, out)
+  else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) (out.push([k, x]), entries(x, out))
+  return out
+}
+const PROSE = new Set(['intent', 'detail', 'needs', 'label', 'question', 'header', 'description'])
+// The rule arrived with 2.1.285; versions compare numerically, part by part.
+const proseScrubbed = (v: string) => {
+  const [a, b] = [v, '2.1.285'].map((s) => s.split('.').map(Number))
+  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
+  return true
+}
 function keys(v: unknown, out: string[] = []): string[] {
   if (Array.isArray(v)) for (const x of v) keys(x, out)
   else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) (out.push(k), keys(x, out))
@@ -82,6 +94,17 @@ describe('harness corpus', () => {
           expect(c.id).toBe('frame.html')
           if ('title' in c) expect(c.title).toBe('frame')
         }
+      })
+
+      // The third free-text field to name a work project from inside a
+      // personal well, after artifact titles and launch argv: the 2.1.285
+      // snapshot was taken mid-ingest and carried the fan-out's labels.
+      // Fixtures older than the rule keep their fragments — they were read
+      // by hand before they shipped.
+      test('the scrub held: prose a session wrote keeps its shape and loses its words', () => {
+        if (!proseScrubbed(v)) return
+        const all = [listing, ...jobs.map(([, j]) => j), existsSync(join(ROOT, v, 'roster.json')) ? read(v, 'roster.json') : null]
+        for (const [k, x] of entries(all)) if (PROSE.has(k) && typeof x === 'string') expect(x === '' || x === k).toBe(true)
       })
 
       test('the listing parses with the roster schema; a background row carries a job id and a session id', () => {

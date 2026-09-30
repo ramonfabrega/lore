@@ -22,8 +22,8 @@
 // The repo is public, so the snapshot is SCRUBBED, not copied: only jobs
 // whose cwd is under a personal tree (never ~/code/work); $HOME rewritten;
 // auth tokens, owner uuids and provider env dropped; the opener (`intent`),
-// `detail` and fan labels cut to a fragment; `output` dropped; link hrefs
-// replaced. The test re-checks the scrub — a fixture is the one file that
+// `detail`, `needs` and fan labels replaced by their own key name; `output`
+// dropped; link hrefs replaced. The test re-checks the scrub — a fixture is the one file that
 // must never carry what the live record carries.
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -43,6 +43,7 @@ const DROP_KEY = /auth$|^bridgeOwner|^providerEnv$|^output$|^token$|secret|passw
 const FRAME_ID = 'frame.html'
 const FRAME_TITLE = 'frame'
 const ARG_MAX = 200
+const PROSE = new Set(['intent', 'detail', 'needs', 'label', 'question', 'header', 'description'])
 const cutTo = (s: unknown, n: number) => (typeof s === 'string' && s.length > n ? `${s.slice(0, n)}…` : s)
 
 function scrub(v: unknown, key = ''): unknown {
@@ -65,10 +66,18 @@ function scrub(v: unknown, key = ''): unknown {
         out[k] = k === 'id' ? FRAME_ID : FRAME_TITLE
         continue
       }
+      // Prose a session wrote about its work names the work, and a
+      // fragment of it still does: lore's own job sat in a personal well
+      // with ten fan labels reading "Mine <a work repo> …", cut to 60
+      // characters and whole. Same rule as the frame — the shape is the
+      // fixture (a string, and whether it is EMPTY, which the pages read),
+      // the words never are. A job blocked on a question carries the whole
+      // question (`block.questions[]`: question, header, and each option's
+      // label and description), which is the same prose at four times the
+      // length.
+      if (PROSE.has(k) && typeof x === 'string') out[k] = x === '' ? '' : k
       // Cut first, then scrub — a fragment still carries a path.
-      if (k === 'intent') out[k] = scrub(cutTo(x, 48))
-      else if (k === 'detail' || k === 'title' || k === 'needs') out[k] = scrub(cutTo(x, 80))
-      else if (k === 'label') out[k] = scrub(cutTo(x, 60))
+      else if (k === 'title') out[k] = scrub(cutTo(x, 80))
       else out[k] = scrub(x, k)
     }
     return out
