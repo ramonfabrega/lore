@@ -136,6 +136,7 @@ describe('getTrace', () => {
     expect(t.totals.turns).toEqual({ prompt: 2, command: 1, relay: 0, meta: 0 })
     expect(t.totals.sent).toBe(0)
     expect(t.totals.steps).toBe(4)
+    expect(t.totals.requests).toBe(4) // the same count under the fleet-wide name
     expect(t.totals.instructions).toBe(2)
     expect(t.totals.errors).toBe(1)
     expect(t.totals.listUsd).toBe(0.23) // + msg_4: 56,510 µ$

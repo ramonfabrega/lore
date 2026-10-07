@@ -98,7 +98,16 @@ import { z } from 'zod'
 // pairs the two halves. A job is keyed on its bridge id (jobs.ts): the root
 // changes on a respawn, the daemon id dies with the job, the bridge id is in
 // every transcript and every commit trailer.
-const SCHEMA_VERSION = 19
+// v19: requests.cache_write_1h_tokens — the TTL split of a cache write (see
+// the column).
+// v20: spawns.open_requests — the per-request half of telemetry honesty. v10
+// read the LAST record's stop_reason; harness 2.1.285 drops the completion
+// record of every tool_use-ended request in a subagent file, so a spawn can
+// end cleanly and still carry no output for most of its requests (10 of 10
+// on a Sonnet sweep, 2026-10-07: 379 output tokens indexed against a
+// 2,600-char handback alone). The count of requests whose last record has
+// no stop_reason is the floor's size, and keeps the row partial.
+const SCHEMA_VERSION = 20
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
@@ -204,7 +213,14 @@ CREATE TABLE IF NOT EXISTS spawns(
   -- a FLOOR, not a measurement: 'tool_use' = ended mid-tool with no final
   -- answer (interrupted/killed), NULL = the terminal usage row never landed
   -- (seen 2026-07-24: a final record held 22k chars but output_tokens 6).
-  last_stop_reason TEXT
+  last_stop_reason TEXT,
+  -- Requests whose LAST record carries no stop_reason (schema v20): the
+  -- completion record — the one that holds the request's real usage — never
+  -- landed, so output_tokens is missing that request's output entirely.
+  -- Harness 2.1.285 writes it for NO tool_use-ended request in a subagent
+  -- file (main transcripts keep theirs), so on that version every spawn
+  -- that ran a tool is a floor whatever its last stop_reason says.
+  open_requests INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_spawns_session ON spawns(session_id);
 CREATE INDEX IF NOT EXISTS idx_spawns_workflow ON spawns(workflow_run_id) WHERE workflow_run_id IS NOT NULL;

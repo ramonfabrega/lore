@@ -247,6 +247,10 @@ export type Trace = {
     sent: number
     lost: number
     steps: number
+    // The same count under the name every other verb uses (`usage.totals`,
+    // `jobs`, `models[]`): a step IS an API request, and a reader pricing a
+    // session off this envelope reached for `requests` and found nothing.
+    requests: number
     instructions: number
     errors: number
     input: number
@@ -623,6 +627,7 @@ export function getTrace(
       sent: t.sent + x.sent.length,
       lost: t.lost + x.sent.filter((s) => s.delivered === false).length,
       steps: t.steps + x.steps,
+      requests: t.requests + x.steps,
       instructions: t.instructions + x.instructions.length,
       errors: t.errors + x.errors,
       input: t.input + x.input,
@@ -643,6 +648,7 @@ export function getTrace(
       sent: 0,
       lost: 0,
       steps: 0,
+      requests: 0,
       instructions: 0,
       errors: 0,
       input: 0,

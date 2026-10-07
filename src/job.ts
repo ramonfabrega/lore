@@ -33,10 +33,17 @@ export type JobKind = 'bridge' | 'root' | 'session'
 // job's state.json holds for its root. The second clause is what keeps a
 // job's pre-bridge sessions in it — lore's first three transcripts (July
 // 17) carry no bridge record, and keyed on their root alone they were a
-// second "lore" that claimed the same daemon id. `s` is the sessions alias.
+// second "lore" that claimed the same daemon id. The root is the session
+// itself when nothing points past it: a job's FIRST session has no
+// `session_id` pointer (parse.ts sets one only when it differs) and, for
+// every long-lived `--rc` job, no bridge record either — so it matched
+// nothing and the job's price and peers read from its /clear successors
+// only (66 jobs on 2026-10-07; the attrition commander showed `sessions: 1`
+// after a day of ten landings in its first). `s` is the sessions alias.
 const JOB_BRIDGE_SQL = `COALESCE(s.bridge_key,
-  (SELECT j.bridge_key FROM jobs j WHERE j.bridge_key IS NOT NULL AND s.job_session_id IS NOT NULL
-     AND (j.session_id = s.job_session_id OR j.job_id = substr(s.job_session_id, 1, 8)) LIMIT 1))`
+  (SELECT j.bridge_key FROM jobs j WHERE j.bridge_key IS NOT NULL
+     AND (j.session_id = COALESCE(s.job_session_id, s.session_id)
+          OR j.job_id = substr(COALESCE(s.job_session_id, s.session_id), 1, 8)) LIMIT 1))`
 export const JOB_KEY_SQL = `COALESCE(${JOB_BRIDGE_SQL}, s.job_session_id, s.session_id)`
 const JOB_KIND_SQL = `CASE WHEN ${JOB_BRIDGE_SQL} IS NOT NULL THEN 'bridge' WHEN s.job_session_id IS NOT NULL THEN 'root' ELSE 'session' END`
 
@@ -323,7 +330,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     if (opts.keys.length === 0) return []
     where.push(`${JOB_KEY_SQL} IN (${opts.keys.map(() => '?').join(',')})`)
     params.push(...opts.keys)
-  } else if (!opts.all) where.push('(s.bridge_key IS NOT NULL OR s.job_session_id IS NOT NULL)')
+  } else if (!opts.all) where.push(`${JOB_KIND_SQL} != 'session'`)
   const having = opts.since ? 'HAVING MAX(COALESCE(s.last_activity_ts, s.last_ts)) >= ?' : ''
   if (opts.since) params.push(opts.since)
   params.push(opts.limit)
@@ -331,7 +338,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     db
       .prepare(
         `SELECT ${JOB_KEY_SQL} AS key, ${JOB_KIND_SQL} AS kind,
-                COUNT(*) AS sessions, COUNT(DISTINCT s.job_session_id) AS incarnations,
+                COUNT(*) AS sessions, COUNT(DISTINCT COALESCE(s.job_session_id, s.session_id)) AS incarnations,
                 MIN(s.first_ts) AS first, MAX(COALESCE(s.last_activity_ts, s.last_ts)) AS last,
                 SUM(s.lines) AS lines, GROUP_CONCAT(DISTINCT w.dir) AS wells, GROUP_CONCAT(DISTINCT COALESCE(w.real_path, w.dir)) AS paths,
                 (SELECT s2.session_id FROM sessions s2 WHERE COALESCE(s2.bridge_key, s2.job_session_id, s2.session_id) = ${JOB_KEY_SQL}

@@ -40,7 +40,7 @@ const AssistantRecord = z.object({
     usage: Usage.nullish(),
     stop_reason: z.string().nullish(),
     content: z
-      .array(z.object({ type: z.string() }).loose())
+      .array(z.object({ type: z.string(), name: z.string().nullish() }).loose())
       .nullish(),
   }),
 })
@@ -51,7 +51,16 @@ const AssistantRecord = z.object({
 // output_tokens 6 and stop_reason null — the harness reported ~71.7k for the
 // same spawn). Either way the token totals are a floor, not a measurement, and
 // silently reporting them as fact corrupts the fan-out ledger.
-const TERMINAL_STOP = new Set(['end_turn', 'stop_sequence', 'max_tokens'])
+//
+// `handback` is lore's own word for the fourth ending (harness 2.1.285, auto
+// mode): the spawn's last act is a `SubagentHandback` tool call — its report
+// goes to the caller as a tool, not as a closing text — and the harness
+// writes no completion record for a tool_use-ended request in a subagent
+// file. So the spawn FINISHED (not in flight, not killed), yet its last
+// request has only streaming snapshots: `open_requests` says how many of its
+// requests are in that state, and the row stays partial on that count.
+const TERMINAL_STOP = new Set(['end_turn', 'stop_sequence', 'max_tokens', 'handback'])
+const HANDBACK = 'SubagentHandback'
 
 type SpawnFile = {
   wellDir: string
@@ -127,14 +136,14 @@ export async function indexSpawns(
   const upsert = db.prepare(
     `INSERT INTO spawns(well_dir, session_id, agent_id, agent_type, description, spawn_depth, requested_model,
        model, boot_tokens, boot_cached, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms, workflow_run_id,
-       last_stop_reason)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       last_stop_reason, open_requests)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(agent_id) DO UPDATE SET well_dir=excluded.well_dir, session_id=excluded.session_id, agent_type=excluded.agent_type,
        description=excluded.description, spawn_depth=excluded.spawn_depth, requested_model=excluded.requested_model,
        model=excluded.model, boot_tokens=excluded.boot_tokens, boot_cached=excluded.boot_cached, requests=excluded.requests,
        output_tokens=excluded.output_tokens, tool_uses=excluded.tool_uses, first_ts=excluded.first_ts,
        last_ts=excluded.last_ts, size=excluded.size, mtime_ms=excluded.mtime_ms, workflow_run_id=excluded.workflow_run_id,
-       last_stop_reason=excluded.last_stop_reason`,
+       last_stop_reason=excluded.last_stop_reason, open_requests=excluded.open_requests`,
   )
 
   let spawnsIndexed = 0
@@ -164,8 +173,12 @@ export async function indexSpawns(
     let toolUses = 0
     let lastStopReason: string | null = null
     // Per-request bookkeeping: streaming snapshots repeat usage, so keep the
-    // max output_tokens seen per message.id and sum at the end.
+    // max output_tokens seen per message.id and sum at the end — and the
+    // stop_reason of each request's LAST record, because a request whose
+    // completion record never landed contributes a snapshot, not its output.
     const outputByRequest = new Map<string, number>()
+    const stopByRequest = new Map<string, string | null>()
+    let lastBlockName: string | null = null
 
     for (const line of (await Bun.file(f.path).text()).split('\n')) {
       if (!line.trim()) continue
@@ -199,11 +212,17 @@ export async function indexSpawns(
       const out = msg.usage?.output_tokens ?? 0
       if (out > (outputByRequest.get(reqId) ?? 0)) outputByRequest.set(reqId, out)
       lastStopReason = msg.stop_reason ?? null
+      stopByRequest.set(reqId, lastStopReason)
       for (const block of msg.content ?? []) if (block.type === 'tool_use') toolUses++
+      const last = msg.content?.at(-1)
+      lastBlockName = last?.type === 'tool_use' ? (last.name ?? null) : null
     }
 
     let outputTokens = 0
     for (const v of outputByRequest.values()) outputTokens += v
+    let openRequests = 0
+    for (const v of stopByRequest.values()) if (v == null) openRequests++
+    if (lastStopReason == null && lastBlockName === HANDBACK) lastStopReason = 'handback'
 
     upsert.run(
       f.wellDir,
@@ -225,6 +244,7 @@ export async function indexSpawns(
       f.mtimeMs,
       f.workflowRunId,
       lastStopReason,
+      openRequests,
     )
     spawnsIndexed++
   }
@@ -254,11 +274,13 @@ const Row = z.object({
   durationMs: z.number().nullable(),
   workflowRunId: z.string().nullable(),
   lastStopReason: z.string().nullable(),
+  openRequests: z.number(),
 })
-export type SpawnRow = Omit<z.infer<typeof Row>, 'lastStopReason'> & {
+export type SpawnRow = Omit<z.infer<typeof Row>, 'lastStopReason' | 'openRequests'> & {
   drift?: boolean
   telemetryPartial?: true
   lastStopReason?: string | null
+  openRequests?: number
 }
 
 export type SpawnSummary = {
@@ -390,20 +412,21 @@ export function listSpawns(
            p.boot_cached AS bootCached,
            p.requests, p.output_tokens AS outputTokens, p.tool_uses AS toolUses, p.first_ts AS first,
            CAST(ROUND((julianday(p.last_ts) - julianday(p.first_ts)) * 86400000) AS INTEGER) AS durationMs,
-           p.workflow_run_id AS workflowRunId, p.last_stop_reason AS lastStopReason
+           p.workflow_run_id AS workflowRunId, p.last_stop_reason AS lastStopReason, p.open_requests AS openRequests
     ${base}
     ORDER BY p.first_ts DESC LIMIT ?`
   const spawns = z
     .array(Row)
     .parse(db.prepare(sql).all(...params, opts.limit))
-    .map(({ lastStopReason, ...r }) => ({
+    .map(({ lastStopReason, openRequests, ...r }) => ({
       ...r,
       ...(r.requestedModel && r.model ? { drift: modelDrift(r.requestedModel, r.model) === true } : {}),
-      // Surfaced only when the run didn't end cleanly — a floor-not-measurement
-      // warning plus the reason ('tool_use' = interrupted mid-tool, null = the
-      // terminal usage row never landed), not fields to skim past on every
-      // healthy row.
-      ...(TERMINAL_STOP.has(lastStopReason ?? '') ? {} : { telemetryPartial: true as const, lastStopReason }),
+      // Surfaced only when the totals are a floor — a warning plus the reason
+      // (`lastStopReason` 'tool_use' = interrupted mid-tool, null = the
+      // terminal usage row never landed; `openRequests` = how many requests
+      // have no completion record, each missing its whole output), not
+      // fields to skim past on every healthy row.
+      ...(TERMINAL_STOP.has(lastStopReason ?? '') && openRequests === 0 ? {} : { telemetryPartial: true as const, lastStopReason, openRequests }),
     }))
   // Counted over ALL matches, not just the limited page: a ledger reader needs
   // to know unreliable rows exist even when they fall past the row limit.
@@ -414,7 +437,7 @@ export function listSpawns(
       db
         .prepare(
           `SELECT COUNT(*) AS n ${base} ${whereClause ? 'AND' : 'WHERE'}
-             (p.last_stop_reason IS NULL OR p.last_stop_reason NOT IN (${terminalList}))`,
+             (p.last_stop_reason IS NULL OR p.last_stop_reason NOT IN (${terminalList}) OR p.open_requests > 0)`,
         )
         .get(...params),
     ).n

@@ -11,7 +11,10 @@ function assistantLine(opts: {
   msgId: string
   model: string
   usage: { i: number; cc: number; cr: number; o: number }
-  toolUse?: boolean
+  toolUse?: boolean | string
+  // The request's stop_reason as the harness writes it: on a COMPLETION
+  // record (the one with the real usage); null on a streaming snapshot.
+  stop?: string | null
 }): string {
   return JSON.stringify({
     type: 'assistant',
@@ -19,13 +22,14 @@ function assistantLine(opts: {
     message: {
       id: opts.msgId,
       model: opts.model,
+      stop_reason: opts.stop === undefined ? 'end_turn' : opts.stop,
       usage: {
         input_tokens: opts.usage.i,
         cache_creation_input_tokens: opts.usage.cc,
         cache_read_input_tokens: opts.usage.cr,
         output_tokens: opts.usage.o,
       },
-      content: opts.toolUse ? [{ type: 'tool_use', name: 'Bash' }] : [{ type: 'text', text: 'hi' }],
+      content: opts.toolUse ? [{ type: 'tool_use', name: typeof opts.toolUse === 'string' ? opts.toolUse : 'Bash' }] : [{ type: 'text', text: 'hi' }],
     },
   })
 }
@@ -97,6 +101,41 @@ describe('indexSpawns + listSpawns', () => {
     expect(minerSummary.bootReusePct).toBe(0)
     expect(minerSummary.models).toBe('claude-sonnet-5')
     expect(byAgentType.find((r) => r.agentType === 'general-purpose')!.bootReusePct).toBe(75) // 30000/40002
+  })
+
+  test('telemetry honesty: a handback is finished, a request without its completion record is a hole', async () => {
+    const db = openDb(':memory:')
+    const dir = mkdtempSync(join(tmpdir(), 'lore-spawns-285-'))
+    const sub = join(dir, '-u-code-fun-app--claude-worktrees-y', 'sess-2', 'subagents')
+    mkdirSync(sub, { recursive: true })
+    const line = (o: Omit<Parameters<typeof assistantLine>[0], 'model'>) => assistantLine({ model: 'claude-sonnet-5-5', ...o })
+    // Harness 2.1.285, auto mode: every tool_use-ended request has only its
+    // streaming snapshots (stop_reason null, output a few tokens); the last
+    // act is a SubagentHandback; one text turn in the middle did complete.
+    writeFileSync(
+      join(sub, 'agent-hb.jsonl'),
+      [
+        line({ ts: '2026-10-07T18:35:18Z', msgId: 'q1', usage: { i: 2, cc: 46000, cr: 0, o: 3 }, stop: null }),
+        line({ ts: '2026-10-07T18:35:20Z', msgId: 'q1', usage: { i: 2, cc: 46000, cr: 0, o: 3 }, toolUse: true, stop: null }),
+        line({ ts: '2026-10-07T18:36:00Z', msgId: 'q2', usage: { i: 2, cc: 400, cr: 46000, o: 48 }, stop: 'end_turn' }),
+        line({ ts: '2026-10-07T18:37:00Z', msgId: 'q3', usage: { i: 2, cc: 413, cr: 46400, o: 26 }, toolUse: 'SubagentHandback', stop: null }),
+      ].join('\n'),
+    )
+    // The same shape cut off mid-tool, no handback: still in flight / killed.
+    writeFileSync(join(sub, 'agent-cut.jsonl'), [line({ ts: '2026-10-07T18:40:00Z', msgId: 'q9', usage: { i: 2, cc: 46000, cr: 0, o: 5 }, toolUse: true, stop: null })].join('\n'))
+    // A clean pre-2.1.285 run: every request completed.
+    writeFileSync(join(sub, 'agent-ok.jsonl'), [line({ ts: '2026-10-07T18:41:00Z', msgId: 'q8', usage: { i: 2, cc: 46000, cr: 0, o: 500 } })].join('\n'))
+    await indexSpawns(db, { projectsDir: dir })
+    const { spawns, partialTelemetry } = listSpawns(db, { limit: 50 })
+    const hb = spawns.find((s) => s.agentId === 'hb')!
+    // Finished — the handback is the ending — but two of three requests
+    // never got their completion record, so the output is a floor.
+    expect(hb).toMatchObject({ requests: 3, outputTokens: 77, telemetryPartial: true, lastStopReason: 'handback', openRequests: 2 })
+    expect(spawns.find((s) => s.agentId === 'cut')).toMatchObject({ telemetryPartial: true, lastStopReason: null, openRequests: 1 })
+    const ok = spawns.find((s) => s.agentId === 'ok')!
+    expect(ok.telemetryPartial).toBeUndefined()
+    expect(ok.openRequests).toBeUndefined()
+    expect(partialTelemetry).toBe(2)
   })
 
   test('byWeek trend groups boot cost by ISO week and agentType', async () => {

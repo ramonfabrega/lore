@@ -51,6 +51,12 @@ async function corpus() {
   const db = openDb(':memory:')
   const projectsDir = seed({
     '-u-code-fun-lore': {
+      // The job's FIRST session: it is its own root (no `session_id` pointer —
+      // parse.ts sets one only when it differs) and, like every long-lived
+      // `--rc` job's, carries no bridge record. Only the state.json row ties
+      // it to the job, and it did not until v20 — the whole first incarnation
+      // of every commander priced and peered as a separate interactive session.
+      'lore-root-1': [prompt('lore-root-1', '2026-07-17T08:00:00Z', 'L00', 'kickoff'), reply('lore-root-1', '2026-07-17T08:00:10Z', 'r00', 'on it')],
       // Pre-bridge: the first incarnation's root, no bridge record. The
       // state.json row ties that root to the bridge, so this is the same job.
       'lore-0': [prompt('lore-0', '2026-07-17T09:00:00Z', 'L0', 'first light', 'lore-root-1'), reply('lore-0', '2026-07-17T09:00:10Z', 'r0', 'hello', 'lore-root-1')],
@@ -121,11 +127,12 @@ describe('listJobs', () => {
       ['old-root', 'root', null, null],
     ])
     const lore = jobs[0]!
-    // Three sessions: the pre-bridge one rides on the state row's root.
-    expect(lore).toMatchObject({ jobId: 'a18a763f', state: 'working', sessions: 3, incarnations: 2, first: '2026-07-17T09:00:00Z', last: '2026-09-02T07:20:10Z' })
+    // Four sessions: the pre-bridge ones ride on the state row's root — the
+    // root session itself included, which has no pointer at all.
+    expect(lore).toMatchObject({ jobId: 'a18a763f', state: 'working', sessions: 4, incarnations: 2, first: '2026-07-17T08:00:00Z', last: '2026-09-02T07:20:10Z' })
     expect(lore.wells.sort()).toEqual(['-u-code-fun-lore', '-u-code-fun-lore--claude-worktrees-jobs'])
-    expect(lore.models).toEqual([{ model: 'claude-opus-5', requests: 4 }])
-    expect(lore.requests).toBe(4)
+    expect(lore.models).toEqual([{ model: 'claude-opus-5', requests: 5 }])
+    expect(lore.requests).toBe(5)
     expect(lore.peers).toEqual(['ccc'])
     expect(lore.latest).toEqual({ sessionId: 'lore-2', firstPrompt: 'sync', openedBy: null })
     const ccc = jobs[1]!
@@ -141,7 +148,8 @@ describe('listJobs', () => {
     expect(listJobs(db, { limit: 10 }).some((j) => j.kind === 'session')).toBe(false)
     const all = listJobs(db, { all: true, limit: 10 })
     const solo = all.find((j) => j.key === 'solo-1')
-    expect(solo).toMatchObject({ kind: 'session', name: null, sessions: 1, incarnations: 0, latest: { sessionId: 'solo-1', firstPrompt: 'quick question', openedBy: null } })
+    // One incarnation, not zero: a session with no root IS its root.
+    expect(solo).toMatchObject({ kind: 'session', name: null, sessions: 1, incarnations: 1, latest: { sessionId: 'solo-1', firstPrompt: 'quick question', openedBy: null } })
     expect(listJobs(db, { since: '2026-09-01', limit: 10 }).map((j) => j.key)).toEqual(['LORE', 'CCC'])
     expect(listJobs(db, { key: 'CCC', limit: 10 }).map((j) => j.key)).toEqual(['CCC'])
     expect(listJobs(db, { key: 'solo-1', limit: 10 }).map((j) => j.kind)).toEqual(['session'])

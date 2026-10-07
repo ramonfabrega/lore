@@ -354,7 +354,18 @@ mid-tool — interrupted/killed, no final answer), 108 `null` (usage never final
 reason** only when the run didn't end cleanly (zero noise on healthy rows), and
 `partialTelemetry` counts them over ALL matches, not the `--limit` page — a ledger
 reader must know unreliable rows exist even when they fall off the page. Chose the
-reason over a bare boolean: `tool_use` and `null` are different diagnoses. Also
+reason over a bare boolean: `tool_use` and `null` are different diagnoses.
+Revisited 2026-10-07 (v20), when attrition's steer found 30 of 30 swarm spawns
+partial: harness 2.1.285 ends an auto-mode subagent on a `SubagentHandback` tool
+call and writes NO completion record for any tool_use-ended request in the
+subagent file — main transcripts keep theirs — so the last-record test both
+over-flagged (a finished handback read as "in flight") and under-measured (a spawn
+ending in `end_turn` was a floor too, with every tool request's output missing).
+`handback` is now a terminal reason of lore's own, and `open_requests` (requests
+whose last record carries no stop_reason) is the size of the hole; the row stays
+partial while it is above zero. What the parent's task notification carries
+(`subagent_tokens`) is not the missing figure: on both spawns checked it is the
+final request's whole envelope, input plus cache plus output — a context size. Also
 killed a sibling silent-zero: `lore stats` now emits `warnings[]` when a corpus reads
 empty, after the v9 bump's drop-and-rebuild left the docs corpus at 0 for days
 (`lore docs index` is a separate command `lore index` does not chain) — canon lint
