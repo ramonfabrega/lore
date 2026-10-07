@@ -1,0 +1,277 @@
+{
+  "proto": 1,
+  "supervisorPid": 90556,
+  "updatedAt": 1791411562173,
+  "workers": {
+    "c8f34388": {
+      "pid": 88110,
+      "procStart": "Sun Oct  4 02:13:59 2026",
+      "sessionId": "02bc54ca-d06f-4f07-bda7-20182be3badf",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/c8f34388.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/a70baeb3.pty.sock",
+      "cliVersion": "2.1.285",
+      "startedAt": 1791132795327,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/nfl",
+      "dispatch": {
+        "proto": 1,
+        "short": "c8f34388",
+        "nonce": "9342e314",
+        "sessionId": "02bc54ca-d06f-4f07-bda7-20182be3badf",
+        "createdAt": 1791132795324,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/nfl",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "02bc54ca-d06f-4f07-bda7-20182be3badf",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-nfl--claude-worktrees-standings-phone-open-gate/02bc54ca-d06f-4f07-bda7-20182be3badf.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--rc",
+            "--name",
+            "pickem",
+            "--model",
+            "opus[1m]"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--rc",
+          "--name",
+          "pickem",
+          "--model",
+          "opus[1m]"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "pickem"
+        },
+        "cols": 238,
+        "rows": 59
+      },
+      "decModes": [
+        2004,
+        2031,
+        1004,
+        1000,
+        1002,
+        1003,
+        1006
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 194,
+          "msgsInJsonl": 194,
+          "msgsRenderedAtFirstPaint": 194
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 88121,
+      "replProcStart": "Sun Oct  4 02:14:00 2026"
+    },
+    "a18a763f": {
+      "pid": 45083,
+      "procStart": "Wed Oct  7 15:34:44 2026",
+      "sessionId": "9122b7e6-a082-48cb-9daa-a11b71baa4b0",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/a18a763f.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/2b3fac41.pty.sock",
+      "cliVersion": "2.1.285",
+      "startedAt": 1791388000465,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/lore",
+      "dispatch": {
+        "proto": 1,
+        "short": "a18a763f",
+        "nonce": "f2a18757",
+        "sessionId": "9122b7e6-a082-48cb-9daa-a11b71baa4b0",
+        "createdAt": 1791388000463,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/lore",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "9122b7e6-a082-48cb-9daa-a11b71baa4b0",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-lore/9122b7e6-a082-48cb-9daa-a11b71baa4b0.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "--name",
+            "lore",
+            "--model",
+            "claude-fable-5-1[1m]"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "--name",
+          "lore",
+          "--model",
+          "claude-fable-5-1[1m]"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "lore"
+        },
+        "cols": 182,
+        "rows": 52
+      },
+      "decModes": [
+        2004,
+        2031,
+        1004,
+        1000,
+        1002,
+        1003,
+        1006
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 489,
+          "msgsInJsonl": 489,
+          "msgsRenderedAtFirstPaint": 489
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 45095,
+      "replProcStart": "Wed Oct  7 15:34:44 2026"
+    },
+    "d388900a": {
+      "pid": 66659,
+      "procStart": "Wed Oct  7 20:30:50 2026",
+      "sessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/d388900a.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/5bfc68c6.pty.sock",
+      "cliVersion": "2.1.285",
+      "startedAt": 1791407557959,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+      "dispatch": {
+        "proto": 1,
+        "short": "d388900a",
+        "nonce": "8437e07e",
+        "sessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",
+        "createdAt": 1791407557896,
+        "source": "shell",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "d388900a-ea99-4527-9e70-93efb3766e9f",
+            "--name",
+            "steer",
+            "--model",
+            "claude-fable-5-1",
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "Read docs/QUEUE.md's opener and run it: the twen…"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "steer",
+          "--model",
+          "claude-fable-5-1",
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "Read docs/QUEUE.md's opener and run it: the twen…"
+        ],
+        "seed": {
+          "intent": "Read docs/QUEUE.md's opener and run it: the twen…",
+          "name": "steer"
+        }
+      },
+      "decModes": [
+        2004,
+        2031,
+        1004,
+        1000,
+        1002,
+        1003,
+        1006
+      ],
+      "replPid": 66670,
+      "replProcStart": "Wed Oct  7 20:30:50 2026"
+    },
+    "b87b7169": {
+      "pid": 76677,
+      "procStart": "Wed Oct  7 21:12:37 2026",
+      "sessionId": "289c4228-4ed5-4403-b5c5-6199c6d55a81",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/b87b7169.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/d5774a2b.pty.sock",
+      "cliVersion": "2.1.285",
+      "startedAt": 1791409761457,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+      "dispatch": {
+        "proto": 1,
+        "short": "b87b7169",
+        "nonce": "82d96752",
+        "sessionId": "289c4228-4ed5-4403-b5c5-6199c6d55a81",
+        "createdAt": 1791409761455,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+        "launch": {
+          "mode": "prompt",
+          "args": [
+            "--session-id",
+            "289c4228-4ed5-4403-b5c5-6199c6d55a81",
+            "--name",
+            "ccc",
+            "--permission-mode",
+            "auto",
+            "--model",
+            "opus"
+          ],
+          "restoresTranscript": false
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "ccc",
+          "--permission-mode",
+          "auto",
+          "--model",
+          "opus"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "ccc"
+        },
+        "cols": 182,
+        "rows": 50
+      },
+      "decModes": [
+        2004,
+        2031,
+        1004,
+        1000,
+        1002,
+        1003,
+        1006
+      ],
+      "replPid": 76693,
+      "replProcStart": "Wed Oct  7 21:12:38 2026"
+    }
+  }
+}

@@ -11,6 +11,16 @@
 // on the day it is snapshotted, not a page a week later.
 //
 // Usage: bun scripts/harness-corpus.ts   → test/fixtures/harness/<cliVersion>/
+//        bun scripts/harness-corpus.ts --subagent <agent-*.jsonl>
+//          → subagent-<agentId>.jsonl (+ .meta.json) under the version the FILE
+//            records, as a skeleton: every record keeps its type, timestamp
+//            and ids, an assistant record its message id, model, stop_reason
+//            and usage, and every content block its type, tool name and
+//            length in chars — never the text, the input or the result. The
+//            spawn observatory (spawns.ts) reads exactly these fields, and
+//            2.1.280 → 2.1.285 moved them: the completion record of a
+//            tool_use-ended request (the one with the real usage) stopped
+//            being written, and nothing but a page read wrong said so.
 //        bun scripts/harness-corpus.ts --probe <jobId> [--note "…"] -- <the argv as typed>
 //          → jobs/probe-<name>-<id>.json (the state.json, scrubbed) beside
 //            jobs/probe-<name>-<id>.launch.json ({ typed, note }): a PROBE is a
@@ -29,6 +39,7 @@ import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { z } from 'zod'
 
 const HOME = homedir()
 const HOME_SLUG = HOME.replace(/[^A-Za-z0-9]/g, '-')
@@ -86,6 +97,81 @@ function scrub(v: unknown, key = ''): unknown {
   return v
 }
 
+const argv = process.argv.slice(2)
+
+// --subagent: one subagent transcript, as a skeleton, under the version it
+// records. A record's shape is the fixture; its words never are.
+const subAt = argv.indexOf('--subagent')
+if (subAt >= 0) {
+  const path = argv[subAt + 1]
+  if (!path) {
+    console.error('usage: harness-corpus.ts --subagent <agent-*.jsonl>')
+    process.exit(2)
+  }
+  const Rec = z.object({ type: z.string(), timestamp: z.string().optional(), version: z.string().optional(), cwd: z.string().optional() }).loose()
+  const records: z.infer<typeof Rec>[] = []
+  for (const line of (await Bun.file(path).text()).split('\n')) {
+    if (!line.trim()) continue
+    const parsed = Rec.safeParse(JSON.parse(line))
+    if (parsed.success) records.push(parsed.data)
+  }
+  const fileVersion = records.find((r) => r.version)?.version
+  if (!fileVersion) {
+    console.error(`${path}: no record carries a version`)
+    process.exit(2)
+  }
+  const cwds = new Set(records.map((r) => r.cwd).filter((c): c is string => typeof c === 'string'))
+  for (const c of cwds)
+    if (!eligible(c)) {
+      console.error(`${path}: cwd ${c} is not under a personal tree — refusing`)
+      process.exit(2)
+    }
+  const chars = (b: Record<string, unknown>): number => {
+    if (typeof b.text === 'string') return b.text.length
+    if (typeof b.thinking === 'string') return b.thinking.length
+    if ('input' in b) return JSON.stringify(b.input).length
+    if (typeof b.content === 'string') return b.content.length
+    if (Array.isArray(b.content)) return JSON.stringify(b.content).length
+    return 0
+  }
+  const block = (b: unknown): unknown => {
+    if (!b || typeof b !== 'object') return { type: typeof b, chars: typeof b === 'string' ? b.length : 0 }
+    const o = b as Record<string, unknown>
+    return { type: o.type, ...(typeof o.name === 'string' ? { name: o.name } : {}), chars: chars(o) }
+  }
+  const skeleton = (r: z.infer<typeof Rec>): unknown => {
+    const out: Record<string, unknown> = { type: r.type }
+    for (const k of ['timestamp', 'version', 'agentId', 'sessionId', 'isSidechain', 'cwd', 'gitBranch', 'sessionKind', 'entrypoint'] as const)
+      if (k in r) out[k] = scrub(r[k])
+    const m = r.message
+    if (m && typeof m === 'object') {
+      const msg = m as Record<string, unknown>
+      const content = Array.isArray(msg.content) ? msg.content.map(block) : typeof msg.content === 'string' ? [block({ type: 'text', text: msg.content })] : undefined
+      out.message =
+        r.type === 'assistant'
+          ? { id: msg.id, model: msg.model, role: msg.role, stop_reason: msg.stop_reason ?? null, usage: msg.usage ?? null, content }
+          : { role: msg.role, content }
+    }
+    if (r.type === 'attachment') {
+      const a = r.attachment
+      out.attachment = { type: a && typeof a === 'object' && 'type' in a ? (a as { type: unknown }).type : null }
+    }
+    return out
+  }
+  const agentId = path.replace(/^.*agent-/, '').replace(/\.jsonl$/, '')
+  const vdir = join(root, 'test', 'fixtures', 'harness', fileVersion)
+  mkdirSync(vdir, { recursive: true })
+  writeFileSync(join(vdir, `subagent-${agentId}.jsonl`), `${records.map((r) => JSON.stringify(skeleton(r))).join('\n')}\n`)
+  const metaFile = Bun.file(path.replace(/\.jsonl$/, '.meta.json'))
+  if (await metaFile.exists()) {
+    const meta = JSON.parse(await metaFile.text()) as Record<string, unknown>
+    // `description` is the opener of the spawn: a fragment, like `intent`.
+    writeFileSync(join(vdir, `subagent-${agentId}.meta.json`), `${JSON.stringify(scrub({ ...meta, description: cutTo(meta.description, 48) }), null, 2)}\n`)
+  }
+  console.error(`harness corpus: claude ${fileVersion} subagent ${agentId} → ${records.length} records, ${cwds.size} cwd`)
+  process.exit(0)
+}
+
 const version = (await Bun.$`claude --version`.text()).trim().split(/\s+/)[0] ?? 'unknown'
 const dir = join(root, 'test', 'fixtures', 'harness', version)
 mkdirSync(join(dir, 'jobs'), { recursive: true })
@@ -93,7 +179,6 @@ const write = (rel: string, v: unknown) => writeFileSync(join(dir, rel), `${JSON
 const slug = (name: unknown) => (typeof name === 'string' ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : '') || 'unnamed'
 
 // --probe: one job, snapshotted with the line that launched it.
-const argv = process.argv.slice(2)
 const probeAt = argv.indexOf('--probe')
 if (probeAt >= 0) {
   const id = argv[probeAt + 1]
@@ -118,7 +203,7 @@ if (probeAt >= 0) {
 }
 
 // A full snapshot replaces everything it produces and keeps the probes.
-for (const f of readdirSync(dir)) if (f.endsWith('.json')) rmSync(join(dir, f))
+for (const f of readdirSync(dir)) if (f.endsWith('.json') && !f.startsWith('subagent-')) rmSync(join(dir, f))
 for (const f of readdirSync(join(dir, 'jobs'))) if (!f.startsWith('probe-')) rmSync(join(dir, 'jobs', f))
 
 // The listing: rows for eligible cwds only.

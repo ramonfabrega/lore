@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { Listed, State as RosterState } from '../src/agents'
+import { openDb } from '../src/db'
 import { State as IndexState } from '../src/jobs'
+import { indexSpawns, listSpawns } from '../src/spawns'
 
 // The harness fixture corpus (scripts/harness-corpus.ts): the daemon's
 // listing, roster and job files as one Claude Code version wrote them,
@@ -14,6 +17,15 @@ import { State as IndexState } from '../src/jobs'
 
 const ROOT = join(import.meta.dir, 'fixtures', 'harness')
 const versions = existsSync(ROOT) ? readdirSync(ROOT).filter((v) => existsSync(join(ROOT, v, 'agents.json'))) : []
+// Subagent transcripts (skeletons, `--subagent`): a version dir may hold one
+// without the daemon files, so they are scanned on their own.
+const subagents = existsSync(ROOT)
+  ? readdirSync(ROOT).flatMap((v) =>
+      readdirSync(join(ROOT, v))
+        .filter((f) => f.startsWith('subagent-') && f.endsWith('.jsonl'))
+        .map((f) => ({ version: v, file: f, agentId: f.slice('subagent-'.length, -'.jsonl'.length) })),
+    )
+  : []
 const read = (...p: string[]) => JSON.parse(readFileSync(join(ROOT, ...p), 'utf8')) as unknown
 
 const Worker = z
@@ -44,9 +56,78 @@ function keys(v: unknown, out: string[] = []): string[] {
   return out
 }
 
+// What each version's subagent file says about its own requests, as the
+// spawn observatory reads it (spawns.ts). `open` is the number of requests
+// whose LAST record carries no stop_reason — no completion record, so the
+// request's real output never reached the file and the spawn's total is a
+// floor. 2.1.260 wrote one for every request; 2.1.280 started dropping it
+// on tool_use-ended requests (2 of 6 here, the Bash and the handback) and
+// still closed on a text turn; 2.1.285 drops it on EVERY tool_use-ended
+// request but the first (20 of 21) and ends on the `SubagentHandback` tool
+// call — the ending lore names `handback`. A new version lands here WITHOUT
+// a row and fails: say how it records completions, then add the row. Both
+// the sweep-trial pricing (attrition, 2026-10-07) and `lore spawns` lean on
+// this, and nothing but a page read wrong said so for a week.
+const COMPLETIONS: Record<string, { requests: number; open: number; last: string | null; partial: boolean }> = {
+  '2.1.260': { requests: 11, open: 0, last: 'end_turn', partial: false },
+  '2.1.280': { requests: 6, open: 2, last: 'end_turn', partial: true },
+  '2.1.285': { requests: 21, open: 20, last: 'handback', partial: true },
+}
+
 describe('harness corpus', () => {
   test('at least one Claude Code version is snapshotted', () => {
     expect(versions.length).toBeGreaterThan(0)
+  })
+
+  describe('subagent transcripts', () => {
+    test('at least one is snapshotted', () => {
+      expect(subagents.length).toBeGreaterThan(0)
+    })
+    for (const { version, file, agentId } of subagents) {
+      test(`claude ${version}: the skeleton held — ids and shapes, never words; home and work trees scrubbed`, () => {
+        const lines = readFileSync(join(ROOT, version, file), 'utf8').trim().split('\n')
+        expect(lines.length).toBeGreaterThan(0)
+        for (const line of lines) {
+          const r = JSON.parse(line) as unknown
+          for (const k of keys(r)) expect(k).not.toMatch(/^(text|input|thinking|result|toolUseResult|output)$/)
+          for (const s of strings(r)) {
+            expect(s).not.toMatch(/\/Users\/(?!u\/)[^/]+\//)
+            expect(s).not.toMatch(/-Users-(?!u-)[A-Za-z0-9]+-/)
+            expect(s).not.toContain('/code/work/')
+            expect(s.length).toBeLessThanOrEqual(200)
+          }
+          const rec = z.object({ type: z.string(), version: z.string().optional() }).loose().parse(r)
+          if (rec.version) expect(rec.version).toBe(version)
+        }
+      })
+
+      test(`claude ${version}: the spawn observatory reads it the way the table says`, async () => {
+        const expected = COMPLETIONS[version]
+        expect(expected, `${version}: no COMPLETIONS row — say how this version records subagent completions`).toBeDefined()
+        if (!expected) return
+        // Lay the skeleton out the way the harness does: <well>/<session>/subagents/agent-<id>.jsonl.
+        const projectsDir = mkdtempSync(join(tmpdir(), 'lore-harness-sub-'))
+        const sub = join(projectsDir, '-u-code-fun-x', 'sess', 'subagents')
+        mkdirSync(sub, { recursive: true })
+        copyFileSync(join(ROOT, version, file), join(sub, `agent-${agentId}.jsonl`))
+        const meta = join(ROOT, version, `subagent-${agentId}.meta.json`)
+        if (existsSync(meta)) copyFileSync(meta, join(sub, `agent-${agentId}.meta.json`))
+        const db = openDb(':memory:')
+        await indexSpawns(db, { projectsDir })
+        const { spawns } = listSpawns(db, { limit: 10 })
+        expect(spawns).toHaveLength(1)
+        const row = spawns[0]!
+        // The verified model is a full id off the first request, never the alias.
+        expect(row.model).toMatch(/^claude-/)
+        expect(row.requests).toBe(expected.requests)
+        if (expected.partial) {
+          expect(row).toMatchObject({ telemetryPartial: true, lastStopReason: expected.last, openRequests: expected.open })
+        } else {
+          expect(row.telemetryPartial).toBeUndefined()
+          expect(row.openRequests).toBeUndefined()
+        }
+      })
+    }
   })
 
   for (const v of versions) {

@@ -1,0 +1,47 @@
+{
+  "state": "done",
+  "detail": "session complete; workflow saved to memory",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 14522,
+  "children": [
+    {
+      "id": "6",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 385202,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-nfl--claude-worktrees-standings-phone-open-gate/bb1cbcdd-4c5f-4f5a-afcb-33d8abb6ebdc.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--name",
+    "pickem",
+    "--model",
+    "opus[1m]"
+  ],
+  "intent": "",
+  "name": "pickem",
+  "nameSource": "user",
+  "sessionId": "c8f34388-23d5-4ada-b2de-c66dc610ff4e",
+  "resumeSessionId": "bb1cbcdd-4c5f-4f5a-afcb-33d8abb6ebdc",
+  "daemonShort": "c8f34388",
+  "cliVersion": "2.1.285",
+  "cwd": "/Users/u/code/fun/nfl",
+  "worktreePath": "/Users/u/code/fun/nfl/.claude/worktrees/standings-phone-open-gate",
+  "worktreeBranch": "worktree-standings-phone-open-gate",
+  "bridgeSessionId": "cse_01GvF4T2sWCA5YiJHPdpFGwQ",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 388,
+  "backend": "daemon",
+  "createdAt": "2026-09-23T16:16:41.025Z",
+  "updatedAt": "2026-10-04T16:56:51.375Z",
+  "firstTerminalAt": "2026-09-23T16:18:17.536Z",
+  "lastTerminalAt": "2026-10-04T16:56:51.375Z"
+}

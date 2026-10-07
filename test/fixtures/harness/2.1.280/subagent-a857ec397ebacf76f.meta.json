@@ -1,0 +1,10 @@
+{
+  "agentType": "lean",
+  "description": "Extract claims batch 4 (haiku)",
+  "toolUseId": "toolu_01PCsoWFqtXnL5XTUrdjAdMm",
+  "parentAgentId": "a88eaafda54b25084",
+  "spawnDepth": 2,
+  "requestShape": "background",
+  "requestNonInteractive": true,
+  "model": "haiku"
+}

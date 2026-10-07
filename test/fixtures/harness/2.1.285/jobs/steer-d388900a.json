@@ -1,0 +1,49 @@
+{
+  "state": "working",
+  "detail": "waiting on gate exit for verdict commit + push",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 1,
+    "queued": 0,
+    "kinds": [
+      "local_bash"
+    ],
+    "drainableMonitors": 0
+  },
+  "fan": [
+    {
+      "id": "bxeiwuls0",
+      "kind": "shell",
+      "label": "python3 tools/release_gate.py /Users/u/code/fun/attr…",
+      "startedAt": 1791411216823
+    }
+  ],
+  "tokens": 162446,
+  "children": null,
+  "linkScanOffset": 3185582,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/d388900a-ea99-4527-9e70-93efb3766e9f.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "steer",
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "claude-fable-5-1"
+  ],
+  "intent": "Read docs/QUEUE.md's opener and run it: the twen…",
+  "name": "steer",
+  "nameSource": "user",
+  "sessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",
+  "resumeSessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",
+  "daemonShort": "d388900a",
+  "cliVersion": "2.1.285",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+  "bridgeSessionId": "cse_0114sM7UAKyGLjPZBr5SG3wq",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon",
+  "createdAt": "2026-10-07T21:12:37.896Z",
+  "updatedAt": "2026-10-07T22:19:59.121Z",
+  "firstTerminalAt": "2026-10-07T21:46:42.036Z"
+}

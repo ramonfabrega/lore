@@ -1,0 +1,73 @@
+[
+  {
+    "id": "60a64b5d",
+    "cwd": "/Users/u/code/fun/fantasy",
+    "kind": "background",
+    "startedAt": 1790180192064,
+    "sessionId": "60a64b5d-2fe1-42ea-9c9f-8a3b7c501d3d",
+    "name": "fantasy",
+    "state": "done"
+  },
+  {
+    "id": "4bdc1a58",
+    "cwd": "/Users/u/code/fun/fabrega",
+    "kind": "background",
+    "startedAt": 1790703716701,
+    "sessionId": "4bdc1a58-11b7-4151-b05f-68e038a50570",
+    "name": "fabrega",
+    "state": "done"
+  },
+  {
+    "pid": 88121,
+    "id": "c8f34388",
+    "cwd": "/Users/u/code/fun/nfl/.claude/worktrees/standings-phone-open-gate",
+    "kind": "background",
+    "startedAt": 1791132795872,
+    "sessionId": "bb1cbcdd-4c5f-4f5a-afcb-33d8abb6ebdc",
+    "name": "pickem",
+    "status": "idle",
+    "state": "done"
+  },
+  {
+    "id": "1b2cdb50",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+    "kind": "background",
+    "startedAt": 1791358689961,
+    "sessionId": "1b2cdb50-6849-4034-9859-a9e570c54745",
+    "name": "commander",
+    "state": "stopped"
+  },
+  {
+    "pid": 45095,
+    "id": "a18a763f",
+    "cwd": "/Users/u/code/fun/lore/.claude/worktrees/peer-gaps-1007",
+    "kind": "background",
+    "startedAt": 1791388000716,
+    "sessionId": "ce7cfc38-44d7-4aaf-b5a6-616b423e6149",
+    "name": "lore",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 66670,
+    "id": "d388900a",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+    "kind": "background",
+    "startedAt": 1791407558582,
+    "sessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",
+    "name": "steer",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 76693,
+    "id": "b87b7169",
+    "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+    "kind": "background",
+    "startedAt": 1791409761828,
+    "sessionId": "c6a02604-4c47-4208-8d06-2e4b0fe672c5",
+    "name": "ccc",
+    "status": "idle",
+    "state": "done"
+  }
+]

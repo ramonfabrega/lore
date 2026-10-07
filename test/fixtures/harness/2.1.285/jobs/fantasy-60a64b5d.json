@@ -1,0 +1,40 @@
+{
+  "state": "done",
+  "detail": "6-0 team ahead; no lineup changes; add Houston DEF, drop Philly",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": []
+  },
+  "tokens": 47223,
+  "children": null,
+  "linkScanOffset": 501503,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-fantasy--claude-worktrees-ir-doc-fix/1b8d814a-8390-4504-9467-b7e876cb0554.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--name",
+    "fantasy",
+    "--model",
+    "claude-fable-5-1"
+  ],
+  "intent": "",
+  "name": "fantasy",
+  "nameSource": "user",
+  "sessionId": "60a64b5d-2fe1-42ea-9c9f-8a3b7c501d3d",
+  "resumeSessionId": "1b8d814a-8390-4504-9467-b7e876cb0554",
+  "daemonShort": "60a64b5d",
+  "cliVersion": "2.1.285",
+  "cwd": "/Users/u/code/fun/fantasy",
+  "createdAt": "2026-09-23T16:16:32.064Z",
+  "updatedAt": "2026-10-06T23:56:14.286Z",
+  "firstTerminalAt": "2026-09-23T16:18:53.394Z",
+  "lastTerminalAt": "2026-10-01T21:49:17.630Z",
+  "worktreePath": "/Users/u/code/fun/fantasy/.claude/worktrees/ir-doc-fix",
+  "worktreeBranch": "worktree-ir-doc-fix",
+  "bridgeSessionId": "cse_01JnA14WVTHRGm2f9DHpYvtV",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 499,
+  "backend": "daemon"
+}

@@ -1,0 +1,12 @@
+{
+  "agentType": "lean",
+  "worktreePath": "/Users/u/code/fun/attrition/.claude/worktrees/agent-aaf774965de61fa92",
+  "spawnedWithWorktree": true,
+  "worktreeBranch": "worktree-agent-aaf774965de61fa92",
+  "description": "Sweep space_at_corner",
+  "toolUseId": "toolu_016AJQT3FmfLH9WuJNa1yQYv",
+  "spawnDepth": 1,
+  "requestShape": "background",
+  "requestNonInteractive": true,
+  "model": "sonnet"
+}
