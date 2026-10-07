@@ -86,6 +86,12 @@ async function corpus() {
         ack('ccc-1', '2026-09-02T06:57:40Z', 'C2', 'tu_c', 'msg-conf'),
       ],
     },
+    // A lane: a job whose ONLY session is its pointer-less root — no bridge
+    // record, no /clear child, keyed through the jobs row alone. Every
+    // `ccc spawn` worker looks like this.
+    '-u-code-fun-lane': {
+      'lane-1': [prompt('lane-1', '2026-09-03T10:00:00Z', 'N1', 'sweep it'), reply('lane-1', '2026-09-03T10:00:10Z', 'r5', 'swept')],
+    },
     '-u-code-work-app': {
       // Pre-bridge: a root and no bridge record.
       'old-1': [prompt('old-1', '2026-08-01T10:00:00Z', 'O1', 'old work', 'old-root'), reply('old-1', '2026-08-01T10:00:10Z', 'r3', 'done', 'old-root')],
@@ -96,6 +102,7 @@ async function corpus() {
   await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
   // Only lore still has a state.json; ccc was deleted.
   db.prepare("INSERT INTO jobs(job_id, session_id, bridge_key, name, cwd, state) VALUES('a18a763f', 'lore-root-1', 'LORE', 'lore', '/u/code/fun/lore', 'working')").run()
+  db.prepare("INSERT INTO jobs(job_id, session_id, bridge_key, name, cwd, state) VALUES('b2b2b2b2', 'lane-1', 'LANE', 'att-1', '/u/code/fun/lane', 'gone')").run()
   return db
 }
 
@@ -107,10 +114,11 @@ describe('backfillJobNames', () => {
     expect(rows).toEqual([
       { job_id: 'peer:CCC', bridge_key: 'CCC', name: 'ccc', source: 'peer' },
       { job_id: 'a18a763f', bridge_key: 'LORE', name: 'lore', source: 'state' },
+      { job_id: 'b2b2b2b2', bridge_key: 'LANE', name: 'att-1', source: 'state' },
     ])
     // Re-derived, not accumulated.
     expect(backfillJobNames(db)).toEqual({ named: 1 })
-    expect(db.prepare('SELECT COUNT(*) AS n FROM jobs').get()).toEqual({ n: 2 })
+    expect(db.prepare('SELECT COUNT(*) AS n FROM jobs').get()).toEqual({ n: 3 })
     // The thread page's sides resolve through it: ccc is a real side now.
     expect(resolveSide(db, 'ccc')).toEqual({ query: 'ccc', name: 'ccc', key: 'CCC', sessions: ['ccc-1'] })
   })
@@ -122,11 +130,15 @@ describe('listJobs', () => {
     backfillJobNames(db)
     const jobs = listJobs(db, { limit: 10 })
     expect(jobs.map((j) => [j.key, j.kind, j.name, j.nameSource])).toEqual([
+      ['LANE', 'bridge', 'att-1', 'state'],
       ['LORE', 'bridge', 'lore', 'state'],
       ['CCC', 'bridge', 'ccc', 'peer'],
       ['old-root', 'root', null, null],
     ])
-    const lore = jobs[0]!
+    // The lane: one pointer-less root, keyed through its jobs row, and its
+    // latest session is that root (NULL here killed `lore jobs` on b148).
+    expect(jobs[0]).toMatchObject({ jobId: 'b2b2b2b2', state: 'gone', sessions: 1, incarnations: 1, latest: { sessionId: 'lane-1', firstPrompt: 'sweep it', openedBy: null } })
+    const lore = jobs[1]!
     // Four sessions: the pre-bridge ones ride on the state row's root — the
     // root session itself included, which has no pointer at all.
     expect(lore).toMatchObject({ jobId: 'a18a763f', state: 'working', sessions: 4, incarnations: 2, first: '2026-07-17T08:00:00Z', last: '2026-09-02T07:20:10Z' })
@@ -135,12 +147,12 @@ describe('listJobs', () => {
     expect(lore.requests).toBe(5)
     expect(lore.peers).toEqual(['ccc'])
     expect(lore.latest).toEqual({ sessionId: 'lore-2', firstPrompt: 'sync', openedBy: null })
-    const ccc = jobs[1]!
+    const ccc = jobs[2]!
     // Deleted at the daemon: no id, no state — but a name, and its peer.
     expect(ccc).toMatchObject({ jobId: null, state: null, sessions: 1, incarnations: 1, peers: ['lore'] })
     expect(ccc.latest?.openedBy).toBeNull()
     // A root-keyed job with nobody to name it.
-    expect(jobs[2]).toMatchObject({ sessions: 1, incarnations: 1, peers: [], wells: ['-u-code-work-app'] })
+    expect(jobs[3]).toMatchObject({ sessions: 1, incarnations: 1, peers: [], wells: ['-u-code-work-app'] })
   })
 
   test('interactive sessions are one-session jobs, listed only on request; since and key narrow', async () => {
@@ -150,7 +162,7 @@ describe('listJobs', () => {
     const solo = all.find((j) => j.key === 'solo-1')
     // One incarnation, not zero: a session with no root IS its root.
     expect(solo).toMatchObject({ kind: 'session', name: null, sessions: 1, incarnations: 1, latest: { sessionId: 'solo-1', firstPrompt: 'quick question', openedBy: null } })
-    expect(listJobs(db, { since: '2026-09-01', limit: 10 }).map((j) => j.key)).toEqual(['LORE', 'CCC'])
+    expect(listJobs(db, { since: '2026-09-01', limit: 10 }).map((j) => j.key)).toEqual(['LANE', 'LORE', 'CCC'])
     expect(listJobs(db, { key: 'CCC', limit: 10 }).map((j) => j.key)).toEqual(['CCC'])
     expect(listJobs(db, { key: 'solo-1', limit: 10 }).map((j) => j.kind)).toEqual(['session'])
   })

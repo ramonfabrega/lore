@@ -45,6 +45,13 @@ const JOB_BRIDGE_SQL = `COALESCE(s.bridge_key,
      AND (j.session_id = COALESCE(s.job_session_id, s.session_id)
           OR j.job_id = substr(COALESCE(s.job_session_id, s.session_id), 1, 8)) LIMIT 1))`
 export const JOB_KEY_SQL = `COALESCE(${JOB_BRIDGE_SQL}, s.job_session_id, s.session_id)`
+// The same key for a second sessions alias, for a correlated subquery over
+// `s2`. It must be the WHOLE key: a lane job's only session is its
+// pointer-less root, keyed through the jobs row alone, and a subquery that
+// compared the plain COALESCE against it found nothing — `latest` came back
+// NULL and `lore jobs` and every `trace` with a lane died on the zod parse,
+// live, on b148's first evening.
+const JOB_KEY_S2_SQL = JOB_KEY_SQL.replace(/\bs\./g, 's2.')
 const JOB_KIND_SQL = `CASE WHEN ${JOB_BRIDGE_SQL} IS NOT NULL THEN 'bridge' WHEN s.job_session_id IS NOT NULL THEN 'root' ELSE 'session' END`
 
 const PeerName = z.object({ key: z.string(), kind: z.string(), name: z.string(), n: z.number() })
@@ -341,7 +348,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
                 COUNT(*) AS sessions, COUNT(DISTINCT COALESCE(s.job_session_id, s.session_id)) AS incarnations,
                 MIN(s.first_ts) AS first, MAX(COALESCE(s.last_activity_ts, s.last_ts)) AS last,
                 SUM(s.lines) AS lines, GROUP_CONCAT(DISTINCT w.dir) AS wells, GROUP_CONCAT(DISTINCT COALESCE(w.real_path, w.dir)) AS paths,
-                (SELECT s2.session_id FROM sessions s2 WHERE COALESCE(s2.bridge_key, s2.job_session_id, s2.session_id) = ${JOB_KEY_SQL}
+                (SELECT s2.session_id FROM sessions s2 WHERE ${JOB_KEY_S2_SQL} = ${JOB_KEY_SQL}
                  ORDER BY COALESCE(s2.last_activity_ts, s2.last_ts) DESC, s2.first_ts DESC LIMIT 1) AS latest
          FROM sessions s JOIN wells w ON w.id = s.well_id
          ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
