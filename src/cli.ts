@@ -434,7 +434,15 @@ cli.command('usage', {
 // The server refreshes the index itself (see `serve --refresh`); this holder
 // is how the pages learn when that last happened.
 const indexed: { at: string | null; busy: boolean; error: string | null } = { at: null, busy: false, error: null }
-const web = createApp(() => openDb(DB_PATH), { build: BUILD_INFO, indexed })
+// ONE read connection for the life of the process, opened on first use. It
+// used to be a connection per request, which is not a leak (the GC closes
+// them) but starts every page on a cold SQLite page cache: the recent
+// listing read 1,447 ms cold against 141 ms warm (2026-10-14). The index
+// refresh writes through its own connection; in WAL mode this one sees
+// each commit at its next statement, so nothing is re-opened on refresh.
+let held: ReturnType<typeof openDb> | null = null
+const heldDb = () => (held ??= openDb(DB_PATH))
+const web = createApp(heldDb, { build: BUILD_INFO, indexed })
 
 cli.command('serve', {
   description:

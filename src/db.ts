@@ -290,6 +290,11 @@ export function openDb(path: string): Database {
   // Parallel sessions (bg jobs, subagent fan-outs) share this db — wait out
   // writer contention instead of throwing SQLITE_BUSY at the first overlap.
   db.exec('PRAGMA busy_timeout = 5000')
+  // 256 MB of page cache (negative = KiB), against SQLite's 2 MB default,
+  // for a 1.7 GB db whose load-bearing reads are whole-table aggregates
+  // over `requests`. A cap, not an allocation: it fills only as pages are
+  // read. Measured 2026-10-14: the usage aggregates 20–35% faster, warm.
+  db.exec('PRAGMA cache_size = -262144')
   const { user_version: version } = z
     .object({ user_version: z.number() })
     .parse(db.prepare('PRAGMA user_version').get())

@@ -245,6 +245,19 @@ export function repoOf(p: string | null | undefined): string | null {
 // 2026-09-23 had no edge for exactly this). A result keeps its head, and
 // the ref is in the first 300 characters of every shape ccc answers with.
 //
+// The query is DRIVEN BY THE FTS INDEX: both markers are tokens, so
+// `MATCH 'backgrounded OR ref'` names the few hundred candidate rows and
+// the LIKE stays as the exact test on those alone. Driven from the
+// messages side it read every Bash result in the corpus — 225k rows of
+// FTS content, pattern-scanned — for 14–24 s per call, and every agents,
+// job and lane-spawning session page paid it (109 s for the attrition
+// commander's session, 2026-10-14). Same 541 edges, 191 ms. An index on
+// `tool_use_id` was measured first and bought nothing: the scan was the
+// text, not the join. Scoped to ONE session the shape flips back: FTS
+// cannot take a session filter, so the session's own rows (through the
+// session index, a few hundred) are the smaller side there — 14 ms against
+// a second through the FTS candidates.
+//
 // EVERY ref in the answer is an edge, not the first: a commander spawns two
 // lanes on one line (`ccc spawn … 573 …; ccc spawn … 567 …`, twice on the
 // canonical run) and the answer carries both refs — read the first alone
@@ -256,17 +269,24 @@ const CHILD_ID = /"ref"\s*:\s*"([0-9a-f]{8})|backgrounded · ([0-9a-f]{8})/g
 // lanes this one drove, not every lane the job ever had.
 export type SpawnEdge = { key: string; sessionId: string; ts: string | null }
 export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map<string, SpawnEdge> {
+  const from = opts.sessionId
+    ? `FROM messages m
+       JOIN sessions s ON s.session_id = m.session_id
+       JOIN messages m2 ON m2.tool_use_id = m.tool_use_id AND m2.session_id = m.session_id AND m2.type = 'user' AND m2.lane = 'tool'
+       JOIN messages_fts f2 ON f2.rowid = m2.id
+       WHERE m.session_id = ?`
+    : `FROM messages_fts f2
+       JOIN messages m2 ON m2.id = f2.rowid AND m2.type = 'user' AND m2.lane = 'tool'
+       JOIN messages m ON m.tool_use_id = m2.tool_use_id AND m.session_id = m2.session_id
+       JOIN sessions s ON s.session_id = m.session_id
+       WHERE messages_fts MATCH 'backgrounded OR ref'`
   const rows = z.array(SpawnRow).parse(
     db
       .prepare(
         `SELECT ${JOB_KEY_SQL} AS key, m.session_id AS sessionId, m.ts, f2.text AS result
-         FROM messages m
-         JOIN sessions s ON s.session_id = m.session_id
-         JOIN messages m2 ON m2.tool_use_id = m.tool_use_id AND m2.session_id = m.session_id AND m2.type = 'user' AND m2.lane = 'tool'
-         JOIN messages_fts f2 ON f2.rowid = m2.id
-         WHERE m.type = 'assistant' AND m.lane = 'tool' AND m.tool_name = 'Bash'
+         ${from}
+           AND m.type = 'assistant' AND m.lane = 'tool' AND m.tool_name = 'Bash'
            AND (f2.text LIKE '%backgrounded · %' OR f2.text LIKE '%"ref"%')
-           ${opts.sessionId ? 'AND m.session_id = ?' : ''}
          ORDER BY m.ts`,
       )
       .all(...(opts.sessionId ? [opts.sessionId] : [])),
