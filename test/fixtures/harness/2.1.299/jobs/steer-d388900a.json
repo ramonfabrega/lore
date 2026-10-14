@@ -1,0 +1,45 @@
+{
+  "state": "running",
+  "detail": "",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": []
+  },
+  "tokens": 232677,
+  "suggestedReply": "sonnet on sweeps, split the word lanes, write it in",
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 2302146,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/1d8e687d-2403-4632-88f8-844bf33ce155.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "steer",
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "claude-fable-5-1"
+  ],
+  "intent": "Read docs/QUEUE.md's opener and run it: the twen…",
+  "name": "steer",
+  "nameSource": "user",
+  "sessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",
+  "resumeSessionId": "1d8e687d-2403-4632-88f8-844bf33ce155",
+  "daemonShort": "d388900a",
+  "cliVersion": "2.1.285",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+  "createdAt": "2026-10-07T21:12:37.896Z",
+  "updatedAt": "2026-10-14T15:49:27.415Z",
+  "firstTerminalAt": "2026-10-13T04:07:38.532Z",
+  "bridgeSessionId": "cse_0114sM7UAKyGLjPZBr5SG3wq",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon"
+}

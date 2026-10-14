@@ -50,6 +50,11 @@ const RATES: Record<string, Rate[]> = {
   'claude-sonnet-5-5': [{ from: '2026-09-28', input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.2, output: 10 }],
   'claude-sonnet-5': [{ from: '2026-01-01', input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.2, output: 10 }],
   'claude-sonnet-4': [{ from: '2025-01-01', input: 3, cacheWrite5m: 3.75, cacheWrite1h: 6, cacheRead: 0.3, output: 15 }],
+  // Haiku 5.5 (2.1.293, 2026-10-07) is priced in two tiers — $0.10/$0.50 up to
+  // 100K prompt tokens, $0.50/$2.50 above — and a Rate has one tier. The
+  // small one is the row: a Haiku lane is a bulk extractor, not a 1M-context
+  // seat. If one ever runs long, this under-prices it by 5x and says nothing.
+  'claude-haiku-5-5': [{ from: '2026-10-07', input: 0.1, cacheWrite5m: 0.125, cacheWrite1h: 0.2, cacheRead: 0.01, output: 0.5 }],
   'claude-haiku-4-5': [{ from: '2025-01-01', input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.1, output: 5 }],
   'claude-haiku-3-5': [{ from: '2025-01-01', input: 0.8, cacheWrite5m: 1, cacheWrite1h: 1.6, cacheRead: 0.08, output: 4 }],
 }

@@ -1,0 +1,236 @@
+{
+  "proto": 1,
+  "supervisorPid": 36104,
+  "updatedAt": 1791992984543,
+  "workers": {
+    "d388900a": {
+      "pid": 36150,
+      "procStart": "Wed Oct 14 15:49:06 2026",
+      "sessionId": "1d8e687d-2403-4632-88f8-844bf33ce155",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/d388900a.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/1e0c1f7d.pty.sock",
+      "cliVersion": "2.1.299",
+      "startedAt": 1791992966892,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+      "dispatch": {
+        "proto": 1,
+        "short": "d388900a",
+        "nonce": "384be040",
+        "sessionId": "1d8e687d-2403-4632-88f8-844bf33ce155",
+        "createdAt": 1791992966882,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "1d8e687d-2403-4632-88f8-844bf33ce155",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/1d8e687d-2403-4632-88f8-844bf33ce155.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--name",
+            "steer",
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "--model",
+            "claude-fable-5-1"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "steer",
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "--model",
+          "claude-fable-5-1"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "steer"
+        },
+        "cols": 182,
+        "rows": 50
+      },
+      "decModes": [
+        2004,
+        2031,
+        1004,
+        1000,
+        1002,
+        1003,
+        1006
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 474,
+          "msgsInJsonl": 474,
+          "msgsRenderedAtFirstPaint": 474
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 36155,
+      "replProcStart": "Wed Oct 14 15:49:06 2026"
+    },
+    "1b2cdb50": {
+      "pid": 36503,
+      "procStart": "Wed Oct 14 15:49:26 2026",
+      "sessionId": "38acd062-ff85-4bb2-9bf1-ccf16a91c946",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/1b2cdb50.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/8938c6dd.pty.sock",
+      "cliVersion": "2.1.299",
+      "startedAt": 1791992973605,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+      "dispatch": {
+        "proto": 1,
+        "short": "1b2cdb50",
+        "nonce": "6d2d7a35",
+        "sessionId": "38acd062-ff85-4bb2-9bf1-ccf16a91c946",
+        "createdAt": 1791992973602,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "38acd062-ff85-4bb2-9bf1-ccf16a91c946",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/38acd062-ff85-4bb2-9bf1-ccf16a91c946.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--name",
+            "commander",
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "--effort",
+            "high",
+            "--model",
+            "claude-opus-5-5[1m]"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--name",
+          "commander",
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "--effort",
+          "high",
+          "--model",
+          "claude-opus-5-5[1m]"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "commander"
+        },
+        "cols": 182,
+        "rows": 50
+      },
+      "decModes": [
+        2004,
+        2031,
+        1004,
+        1000,
+        1002,
+        1003,
+        1006
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 3,
+          "msgsInJsonl": 3,
+          "msgsRenderedAtFirstPaint": 3
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 36515,
+      "replProcStart": "Wed Oct 14 15:49:27 2026"
+    },
+    "a18a763f": {
+      "pid": 36826,
+      "procStart": "Wed Oct 14 15:49:33 2026",
+      "sessionId": "3aa3d44a-0974-48c1-ac62-49ecb345f6f1",
+      "rendezvousSock": "/tmp/cc-daemon-501/f6ef2b33/rv/a18a763f.sock",
+      "ptySock": "/tmp/cc-daemon-501/f6ef2b33/spare/edff6d83.pty.sock",
+      "cliVersion": "2.1.299",
+      "startedAt": 1791992984112,
+      "attempt": 1,
+      "cwd": "/Users/u/code/fun/lore",
+      "dispatch": {
+        "proto": 1,
+        "short": "a18a763f",
+        "nonce": "3f78e50e",
+        "sessionId": "3aa3d44a-0974-48c1-ac62-49ecb345f6f1",
+        "createdAt": 1791992984110,
+        "source": "fleet",
+        "cwd": "/Users/u/code/fun/lore",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "3aa3d44a-0974-48c1-ac62-49ecb345f6f1",
+          "transcriptPath": "/Users/u/.claude/projects/-Users-u-code-fun-lore/3aa3d44a-0974-48c1-ac62-49ecb345f6f1.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--rc",
+            "--permission-mode",
+            "auto",
+            "--name",
+            "lore",
+            "--model",
+            "claude-fable-5-1"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {},
+        "isolation": "none",
+        "respawnFlags": [
+          "--rc",
+          "--permission-mode",
+          "auto",
+          "--name",
+          "lore",
+          "--model",
+          "claude-fable-5-1"
+        ],
+        "seed": {
+          "intent": "",
+          "name": "lore"
+        },
+        "cols": 182,
+        "rows": 50
+      },
+      "decModes": [
+        2004,
+        2031,
+        1004,
+        1000,
+        1002,
+        1003,
+        1006
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 62,
+          "msgsInJsonl": 62,
+          "msgsRenderedAtFirstPaint": 61
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "replPid": 36840,
+      "replProcStart": "Wed Oct 14 15:49:33 2026"
+    }
+  }
+}

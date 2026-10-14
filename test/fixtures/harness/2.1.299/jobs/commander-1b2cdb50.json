@@ -1,0 +1,47 @@
+{
+  "state": "working",
+  "detail": "Reading queue handoff",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 233016,
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 261093,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/38acd062-ff85-4bb2-9bf1-ccf16a91c946.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "commander",
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--effort",
+    "high",
+    "--model",
+    "claude-opus-5-5[1m]"
+  ],
+  "intent": "You are `commander`, the commander of the twenty…",
+  "name": "commander",
+  "nameSource": "user",
+  "sessionId": "1b2cdb50-6849-4034-9859-a9e570c54745",
+  "resumeSessionId": "38acd062-ff85-4bb2-9bf1-ccf16a91c946",
+  "daemonShort": "1b2cdb50",
+  "cliVersion": "2.1.299",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+  "bridgeSessionId": "cse_01RQtZxvY1xxXR5CwKBL8tY4",
+  "bridgeOutboundOnly": false,
+  "backend": "daemon",
+  "createdAt": "2026-10-07T07:38:09.961Z",
+  "updatedAt": "2026-10-14T15:49:45.134Z",
+  "firstTerminalAt": "2026-10-07T22:01:12.014Z"
+}

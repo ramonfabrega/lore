@@ -1,0 +1,44 @@
+[
+  {
+    "id": "b87b7169",
+    "cwd": "/Users/u/code/fun/ccc/.claude/worktrees/v2",
+    "kind": "background",
+    "startedAt": 1788741495840,
+    "sessionId": "b87b7169-7608-4b8d-afd0-c070ed3610cb",
+    "name": "ccc",
+    "state": "done"
+  },
+  {
+    "pid": 36155,
+    "id": "d388900a",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+    "kind": "background",
+    "startedAt": 1791992967191,
+    "sessionId": "1d8e687d-2403-4632-88f8-844bf33ce155",
+    "name": "steer",
+    "status": "idle",
+    "state": "working"
+  },
+  {
+    "pid": 36515,
+    "id": "1b2cdb50",
+    "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+    "kind": "background",
+    "startedAt": 1791992973881,
+    "sessionId": "38acd062-ff85-4bb2-9bf1-ccf16a91c946",
+    "name": "commander",
+    "status": "busy",
+    "state": "working"
+  },
+  {
+    "pid": 36840,
+    "id": "a18a763f",
+    "cwd": "/Users/u/code/fun/lore",
+    "kind": "background",
+    "startedAt": 1791992984352,
+    "sessionId": "3aa3d44a-0974-48c1-ac62-49ecb345f6f1",
+    "name": "lore",
+    "status": "idle",
+    "state": "working"
+  }
+]
