@@ -87,6 +87,12 @@ export function composeHandler(pages: (req: Request) => Response | Promise<Respo
 
 export type Indexed = { at: string | null; busy: boolean; error: string | null }
 
+// What the server requests of itself after each index refresh, so the
+// memos above are filled before anyone asks: the front page, the fleet,
+// and the usage profile at its default window. JSON, since the memo holds
+// the data and the markup is cheap.
+export const WARM_PATHS = ['/?json=1', '/agents?json=1', '/usage?json=1']
+
 export function createApp(
   getDb: Db,
   opts: { build?: string; agents?: (db: Database) => Promise<AgentRow[]>; wikiDir?: string; indexed?: Indexed } = {},
@@ -98,9 +104,14 @@ export function createApp(
   const indexed = opts.indexed ?? { at: null, busy: false, error: null }
   const chrome = (c?: { req: { query: (k: string) => string | undefined } }) => ({ indexedAt: indexed.at, indexError: indexed.error, theme: c?.req.query('theme') ?? null })
 
-  // In-process memo for the two slow things a page does: the whole-corpus
-  // usage aggregates (~150 ms each; keyed on the index's timestamp, so a
-  // refresh invalidates) and the daemon roster (~250 ms shell-out; 10 s).
+  // In-process memo. Everything a page reads from the db is a pure function
+  // of the index's timestamp (and the local day, for a windowed page), so
+  // the memo is keyed on it and a refresh invalidates; the TTL is a backstop
+  // for `--refresh 0`, where the timestamp never moves. The one live thing
+  // is the daemon roster (~250 ms shell-out; 10 s). The server warms the
+  // front, agents and usage pages after each refresh (WARM_PATHS, cli.ts),
+  // so the first visitor after one pays nothing — the whole-fleet work
+  // (usage over every session, the spawn edges) runs once per refresh.
   const memo = new Map<string, { at: number; key: string; value: unknown }>()
   const cached = <T,>(name: string, ttlMs: number, key: string, f: () => T): T => {
     const hit = memo.get(name)
@@ -201,7 +212,7 @@ export function createApp(
       error = e instanceof Error ? e.message : String(e)
     }
     const all = c.req.query('all') === '1'
-    const jobs = listJobs(db, { all, limit: 2000 })
+    const jobs = cached(`jobs.${all ? 'all' : 'bg'}`, 300_000, indexKey(), () => listJobs(db, { all, limit: 2000 }))
     const refs = jobsOfSessions(db, live.flatMap((a) => (a.sessionId ? [a.sessionId] : [])))
     const rows = mergeAgents(jobs, live, (sid) => refs.get(sid)?.key ?? null)
     const data = { count: rows.length, live: live.length, agents: live, jobs, error }
@@ -240,7 +251,9 @@ export function createApp(
     const db = getDb()
     const id = c.req.param('id')
     const ref = resolveJob(db, id)
-    const job = ref ? listJobs(db, { key: ref.key, limit: 1 })[0] : undefined
+    // One job's row still costs the fleet-wide folds (usage over every
+    // session, the spawn edges); memoized per key until the next refresh.
+    const job = ref ? cached(`job.${ref.key}`, 300_000, indexKey(), () => listJobs(db, { key: ref.key, limit: 1 })[0]) : undefined
     if (!ref || !job) return c.notFound()
     const members = z
       .array(z.object({ sessionId: z.string(), root: z.string().nullable() }))
@@ -323,21 +336,28 @@ export function createApp(
     const today = todayLocal()
     const weekAgo = isoDay(Date.now() - 7 * 86_400_000)
     const since45 = isoDay(Date.now() - 45 * 86_400_000)
-    // 100 sessions fold into a few dozen jobs (a busy job /clears a dozen
-    // times a day); the window is sized for the rows that survive folding.
-    const recentSessions = listSessions(db, { limit: 100, byActivity: true }).reverse()
-    const feeById = new Map(
-      listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 200 }).rows.map((r) => [r.key, r]),
-    )
-    // Harness-only sessions (no prompt, no request) are noise here.
-    const recentRows = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null })).filter((s) => s.prompts > 0 || s.usage)
-    // Grouped by JOB (job.ts): a job /cleared five times today is one row,
-    // headed by its newest session, not five. An interactive session is
-    // its own job and reads exactly as before.
-    const recent = groupRecent(recentRows, jobsOfSessions(db, recentRows.map((s) => s.sessionId)), jobNames(db))
-    const active = listUsage(db, { by: 'well', since: weekAgo, limit: 40 })
-    const todayU = listUsage(db, { by: 'day', since: today, limit: 2 })
-    const days = listUsage(db, { by: 'day', since: since45, limit: 60, split: true })
+    // Everything below the roster is a function of the index and the local
+    // day: memoized together, keyed on both.
+    const { recent, active, todayU, days } = cached('front', 300_000, `${indexKey()}|${today}`, () => {
+      // 100 sessions fold into a few dozen jobs (a busy job /clears a dozen
+      // times a day); the window is sized for the rows that survive folding.
+      const recentSessions = listSessions(db, { limit: 100, byActivity: true }).reverse()
+      const feeById = new Map(
+        listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 200 }).rows.map((r) => [r.key, r]),
+      )
+      // Harness-only sessions (no prompt, no request) are noise here.
+      const recentRows = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null })).filter((s) => s.prompts > 0 || s.usage)
+      // Grouped by JOB (job.ts): a job /cleared five times today is one row,
+      // headed by its newest session, not five. An interactive session is
+      // its own job and reads exactly as before.
+      const recent = groupRecent(recentRows, jobsOfSessions(db, recentRows.map((s) => s.sessionId)), jobNames(db))
+      return {
+        recent,
+        active: listUsage(db, { by: 'well', since: weekAgo, limit: 40 }),
+        todayU: listUsage(db, { by: 'day', since: today, limit: 2 }),
+        days: listUsage(db, { by: 'day', since: since45, limit: 60, split: true }),
+      }
+    })
     let live: AgentRow[] = []
     let agentsError: string | null = null
     try {

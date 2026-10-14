@@ -20,7 +20,7 @@ import { getThread } from './thread'
 import { listPolls } from './polls'
 import { getTrace } from './trace'
 import { GROUPINGS, listUsage } from './usage'
-import { composeHandler, createApp } from './web'
+import { WARM_PATHS, composeHandler, createApp } from './web'
 import { listWells } from './wells'
 import { wikiCommit, wikiInit } from './wiki'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
@@ -472,6 +472,12 @@ cli.command('serve', {
         await refreshIndex(openDb(DB_PATH))
         indexed.at = new Date().toISOString()
         indexed.error = null
+        // Warm the memos under the new timestamp (web.ts): the fleet-wide
+        // folds run here, once, instead of under the first visitor.
+        for (const p of WARM_PATHS) {
+          const res = await web.request(p)
+          if (!res.ok) console.error(`lore serve: warm ${p} → ${res.status}`)
+        }
       } catch (e) {
         indexed.error = e instanceof Error ? e.message : String(e)
         console.error(`lore serve: index refresh failed: ${indexed.error}`)

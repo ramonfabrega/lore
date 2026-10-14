@@ -280,4 +280,23 @@ describe('jobs: commit trailer → transcript', () => {
     const stale = createApp(() => db, { wikiDir: '/nonexistent' })
     expect(await (await stale.request('/usage')).text()).toContain('last `lore index`')
   })
+
+  test('the pages memoize on the index timestamp: a change under the same stamp is unseen, a new stamp shows it', async () => {
+    const db = await seeded()
+    const indexed = { at: '2026-09-01T12:00:00.000Z', busy: false, error: null }
+    const app = createApp(() => db, { wikiDir: '/nonexistent', indexed, agents: async () => [] })
+    for (const p of ['/?json=1', '/agents?json=1', '/usage?json=1', '/job/sess-2?json=1']) expect((await app.request(p)).status).toBe(200)
+    const Jobs = z.object({ jobs: z.array(z.object({ key: z.string(), lines: z.number() })) })
+    const before = Jobs.parse(await (await app.request('/agents?json=1')).json())
+    db.prepare('UPDATE sessions SET lines = lines + 1000').run()
+    // same stamp: the memo answers
+    expect(Jobs.parse(await (await app.request('/agents?json=1')).json())).toEqual(before)
+    const Job = z.object({ job: z.object({ lines: z.number() }) })
+    const jobBefore = Job.parse(await (await app.request('/job/sess-2?json=1')).json()).job.lines
+    // a refresh moves the stamp: both pages recompute
+    indexed.at = '2026-09-01T12:05:00.000Z'
+    const after = Jobs.parse(await (await app.request('/agents?json=1')).json())
+    expect(after.jobs.map((j) => j.lines)).not.toEqual(before.jobs.map((j) => j.lines))
+    expect(Job.parse(await (await app.request('/job/sess-2?json=1')).json()).job.lines).toBeGreaterThan(jobBefore)
+  })
 })

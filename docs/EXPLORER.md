@@ -296,6 +296,15 @@ error. Never `full` from the timer — a schema bump is a reinstall and a
 restart. Ran alongside a CLI `lore index`, the shared db's busy_timeout
 covers the overlap.
 
+After each refresh the server requests the front page, the agents page
+and the usage profile of itself (`WARM_PATHS`, web.ts). Everything a page
+reads from the db is a function of the index's timestamp, so those pages
+memoize on it and the refresh fills the memo: the fleet-wide folds (usage
+over every session, the spawn edges, ~1 s warm) run once per refresh, not
+under the first visitor. The server holds one read connection for its
+life — a connection per request started every page on a cold page cache
+(2026-10-14: the recent listing 1,447 ms cold against 141 ms warm).
+
 ## Which model ran this (landed 2026-09-02)
 
 The complaint that opened it: *"if I'm in a specific session, I wanna know
