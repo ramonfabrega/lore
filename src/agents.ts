@@ -35,6 +35,15 @@ export const Listed = z
 export type ListedAgent = z.infer<typeof Listed>
 
 const Child = z.object({ id: z.string(), href: z.string(), kind: z.string() }).loose()
+const Fan = z
+  .object({
+    id: z.string().nullish(),
+    kind: z.string().nullish(),
+    label: z.string().nullish(),
+    startedAt: z.union([z.string(), z.number()]).nullish(),
+    doneAt: z.union([z.string(), z.number()]).nullish(),
+  })
+  .loose()
 export const State = z
   .object({
     state: z.string().nullish(),
@@ -45,6 +54,9 @@ export const State = z
     intent: z.string().nullish(),
     worktreeBranch: z.string().nullish(),
     children: z.array(Child).nullish(),
+    // The shells and monitors the job has in flight (`fan`): what `lore loop`
+    // reads a running gate off. `doneAt` lands when one exits.
+    fan: z.array(Fan).nullish(),
     // ISO strings in state.json; the daemon listing uses epoch ms. Both land
     // as ISO on the row.
     createdAt: z.union([z.string(), z.number()]).nullish(),
@@ -53,7 +65,7 @@ export const State = z
   })
   .loose()
 
-function iso(v: string | number | null | undefined): string | null {
+export function iso(v: string | number | null | undefined): string | null {
   if (v == null) return null
   const d = typeof v === 'number' ? new Date(v) : new Date(v)
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
