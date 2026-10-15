@@ -1,7 +1,7 @@
 import { Cli, z } from 'incur'
 import { listAgents } from './agents'
 import { archive } from './archive'
-import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
+import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, CODEX_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
@@ -23,6 +23,7 @@ import { GROUPINGS, listUsage } from './usage'
 import { WARM_PATHS, composeHandler, createApp } from './web'
 import { listWells } from './wells'
 import { wikiCommit, wikiInit } from './wiki'
+import { listWorktrees } from './worktrees'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta', 'relay'] as const
@@ -527,6 +528,16 @@ cli.command('api', {
     url.searchParams.set('json', '1')
     return web.fetch(new Request(url.toString(), req))
   },
+})
+
+cli.command('worktrees', {
+  description:
+    'The worktree inventory: every checkout the harness minted under a repo\'s `.claude/worktrees/` (and Codex\'s under `~/.codex/worktrees/<id>/<repo>`), largest first, with what a prune decision needs and nothing decided for you — `registered` (git still lists it; false is an ORPHAN dir a prune or a hand delete left behind, which git can no longer remove: `rm -rf` it), `branch`/`head`/`lastCommit` (UTC), `dirty` (porcelain lines; 0 is clean), `base` (the repo\'s default branch the next two are read against), `ancestor` (HEAD reachable from base: a plain merge), `landed` (every commit beyond base has an EQUIVALENT PATCH there, `git cherry` — a squash merge or a cherry-pick, which `ancestor` cannot see: on 2026-10-15 none of cuanto\'s 22 read as ancestors and 12 were merged PRs, and 29 of attrition\'s lanes had been cherry-picked into the queue branch), `pr` (GitHub\'s word on the branch, `MERGED#5195`, only with --pr: one `gh` call per branch), and `pids` (processes whose working directory is INSIDE it — a dev server left running is why a removed worktree keeps its swap). `orphanProcesses` is the other half: every process whose working directory no longer exists, a worktree or a job\'s tmp dir closed under it (five found on the first run: a 9-day Rails preloader, a 19-day adb server, two Expo servers in a worktree already deleted). Model-free; changes nothing — `git worktree remove` for a registered row, `rm -rf` + `git worktree prune` for an orphan or a tree with submodules, `kill` for a pid, are a person\'s to type. Byte sizes come from `du`, so a run over a hundred worktrees takes a minute.',
+  options: z.object({
+    repo: z.string().optional().describe('Only worktrees whose repo key (`fun/attrition`) or path contains this'),
+    pr: z.boolean().optional().describe('Ask GitHub for each branch\'s PR state (one `gh pr list` per branch; needs `gh auth`)'),
+  }),
+  run: async ({ options }) => listWorktrees({ codeDir: CODE_DIR, codexDir: CODEX_DIR, repo: options.repo, pr: options.pr }),
 })
 
 cli.command('agents', {
