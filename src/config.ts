@@ -50,6 +50,22 @@ export const DOCS_ASSISTED = env.LORE_DOCS_ASSISTED.split(',').map((s) => s.trim
 declare const LORE_BUILD_INFO: string
 export const BUILD_INFO = typeof LORE_BUILD_INFO === 'string' ? LORE_BUILD_INFO : 'dev'
 
+// The command that re-invokes THIS lore — the same build, not whatever
+// `lore` on PATH resolves to. The server spawns its index refresh as a child
+// (cli.ts, `serve --refresh`), and the child has to be the server's own
+// build: openDb rebuilds the db over an older schema and refuses a newer
+// one, so a server still running b58 that spawned an installed b59 would
+// have the child migrate the db out from under it and then refuse its own
+// next statement. Three lanes: the frozen bundle (`bun ~/.lore/dist/lore.js`,
+// Bun.main is the bundle), the dev lane (`bun <checkout>/src/main.ts`, an
+// explicit absolute path as the convention asks), and a `--compile`
+// executable, where Bun.main is a path inside the embedded virtual fs and
+// the executable alone is the program.
+export function selfArgv(): string[] {
+  const embedded = Bun.main.startsWith('/$bunfs/') || Bun.main.includes('/~BUN/')
+  return embedded ? [process.execPath] : [process.execPath, Bun.main]
+}
+
 export const PROJECTS_DIR = join(CLAUDE_DIR, 'projects')
 export const HISTORY_PATH = join(CLAUDE_DIR, 'history.jsonl')
 export const DB_PATH = join(LORE_HOME, 'lore.db')

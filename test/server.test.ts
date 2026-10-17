@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { selfArgv } from '../src/config'
 import { launchdUnsupported, readPlistConfig, renderPlist, urlFor } from '../src/server'
 import { allowsFallthrough, composeHandler } from '../src/web'
 
@@ -50,5 +51,17 @@ describe('cli fall-through under /cli/', () => {
     expect(await (await h(get('/cli/trace/abc'))).text()).toBe('cli:/trace/abc')
     expect((await h(get('/cli/index'))).status).toBe(404)
     expect((await h(new Request('http://x/cli/usage', { method: 'POST' }))).status).toBe(404)
+  })
+})
+
+describe('selfArgv', () => {
+  // The refresh child must be THIS build (config.ts): under `bun test` the
+  // program is bun running this test file, so that is what comes back.
+  test('re-invokes the running program by absolute path', () => {
+    const argv = selfArgv()
+    expect(argv[0]).toBe(process.execPath)
+    expect(argv).toHaveLength(2)
+    expect(argv[1]).toBe(Bun.main)
+    expect(argv[1]!.startsWith('/') || /^[A-Za-z]:/.test(argv[1]!)).toBe(true)
   })
 })

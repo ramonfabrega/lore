@@ -1,7 +1,7 @@
 import { Cli, z } from 'incur'
 import { listAgents } from './agents'
 import { archive } from './archive'
-import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR } from './config'
+import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR, selfArgv } from './config'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
@@ -453,7 +453,7 @@ cli.command('usage', {
 // /openapi.json; writers blocked). `api` mounts the pages as CLI commands via
 // incur's fetch mount, forcing JSON so agents get data, not markup. `server`
 // is the launchd wrapper that keeps `serve` alive.
-// The server refreshes the index itself (see `serve --refresh`); this holder
+// The server drives the index refresh (see `serve --refresh`); this holder
 // is how the pages learn when that last happened.
 const indexed: { at: string | null; busy: boolean; error: string | null } = { at: null, busy: false, error: null }
 // ONE read connection for the life of the process, opened on first use. It
@@ -475,7 +475,7 @@ cli.command('serve', {
     refresh: z.coerce
       .number()
       .default(5)
-      .describe('Minutes between incremental index refreshes run by the server itself (0 = never; the pages then show the last `lore index`)'),
+      .describe('Minutes between incremental index refreshes the server runs as a child `lore index` of its own build (0 = never; the pages then show the last `lore index`)'),
   }),
   alias: { port: 'p' },
   run: async ({ options }) => {
@@ -483,15 +483,34 @@ cli.command('serve', {
     const handler = composeHandler(web.fetch, (req) => cli.fetch(req))
     const server = Bun.serve({ hostname, port: options.port, fetch: handler })
     console.error(`lore serve ${BUILD_INFO} → http://${server.hostname}:${server.port}/`)
-    // Incremental refresh in-process: sub-second when nothing changed, a few
-    // seconds after a busy hour; the shared db's busy_timeout covers a CLI
-    // `lore index` landing at the same moment. Never `full` — a schema bump
-    // is a reinstall + restart, not something a timer should trigger.
+    // Incremental refresh as a CHILD PROCESS — `lore index` run by the same
+    // build this server is (selfArgv, config.ts) — never in-process. It was
+    // in-process until 2026-10-17, and the server sat at 915 MB to 1.9 GB
+    // resident: a refresh parses every changed transcript into JS objects,
+    // and the allocator keeps the high-water mark after the GC lets go, so
+    // every busy hour ratcheted the server up and nothing brought it down.
+    // A child returns all of it to the OS at exit, and the server rests at
+    // what the pages need. The shared db's busy_timeout covers a CLI `lore
+    // index` landing at the same moment; this connection, in WAL mode, sees
+    // the child's commits at its next statement. Never `full` — a schema
+    // bump is a reinstall + restart, not something a timer should trigger.
+    // The timeout is a floor under a hung child: without it `busy` would
+    // stay set and every later tick would skip in silence.
     const refresh = async () => {
       if (indexed.busy) return
       indexed.busy = true
       try {
-        await refreshIndex(openDb(DB_PATH))
+        const child = Bun.spawn([...selfArgv(), 'index'], {
+          stdout: 'ignore',
+          stderr: 'pipe',
+          timeout: 10 * 60_000,
+          killSignal: 'SIGKILL',
+        })
+        const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited])
+        if (code !== 0) {
+          const tail = stderr.trim().split('\n').slice(-3).join(' | ')
+          throw new Error(`lore index exited ${code}${child.signalCode ? ` (${child.signalCode})` : ''}: ${tail}`)
+        }
         indexed.at = new Date().toISOString()
         indexed.error = null
         // Warm the memos under the new timestamp (web.ts): the fleet-wide

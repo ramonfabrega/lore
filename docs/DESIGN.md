@@ -570,6 +570,44 @@ was wanted for); a cached changelog for offline reads (the decision is made onli
 each source fails alone into `warnings` instead); exposing the verbs under `/cli/` on
 the explorer (they make outbound requests, which no page does).
 
+### 2026-10-17 — The refresh leaves the server process
+
+The 09-01 entry above rejected "a separate refresher process (one more thing to keep
+alive)" and ran the five-minute refresh in-process. Six weeks of production said what
+that costs: the server read 915 MB resident at one check and 1.94 GB at this one, for
+pages whose working set is a few tens of MB. The mechanism is not a leak lore can fix
+— an incremental refresh parses every changed transcript of a busy hour into JS
+objects, the GC frees them, and the allocator keeps the high-water mark; each busy
+hour ratchets the process up and nothing brings it down. The fix is the shape of the
+work: the timer now spawns `lore index` as a child and waits for it, so every byte of
+parsing goes back to the OS at exit and the server rests at what the pages need.
+Nothing else about the design moves — the server still owns the "indexed at" stamp
+and the memo warming, the pages still memoize on the stamp, and the child's exit code
+plus its last stderr lines are the error `/_lore` carries.
+
+What it does NOT buy, measured the same day on the dev lane against the production
+db: the server's floor is the warm folds, not the parse. A fresh instance idles at
+100 MB; the front page fold takes it to 348 MB, the agents page to 459, the usage
+profile to 508, and repeat hits add nothing. With a one-minute refresh, three ticks
+read 627 → 682 → 687 MB and then flat between ticks. So the resting figure is about
+0.6–0.7 GB, settled, against 1.9 GB and climbing — the recommendation's "about 70 MB"
+was the idle number, not the warmed one. The folds' high-water mark is a separate,
+bounded question (stream the usage aggregate through SQL instead of folding rows in
+JS; or warm less), and it is not urgent because it stops growing.
+
+The one decision inside the change is WHICH lore the child is: the server's own
+build, never `lore` on PATH. `selfArgv` (config.ts) re-invokes the running program —
+`bun ~/.lore/dist/lore.js`, the dev checkout by absolute path, or the compiled
+executable alone — because openDb migrates an older db forward and refuses a newer
+one: a server still on b58 spawning an installed b59 would have the child rebuild the
+db under it and then refuse its own next statement. "Restart owed" stays a status
+line, not a crash. The 09-01 objection was to a process that has to be KEPT alive; a
+child with a parent, a timeout and an exit code is not that. Rejected: a second
+launchd job on a `StartInterval` (it would run whatever build is installed, which is
+the hazard above, and the stamp and the warming would need a channel back to the
+server); the Bun GC and allocator knobs (`--smol`, forcing `Bun.gc(true)` after a
+refresh — treats the high-water mark as the bug when the bug is where the work runs).
+
 ## Privacy redline
 
 Transcripts span work/client repos and personal projects. Graduation must be loud

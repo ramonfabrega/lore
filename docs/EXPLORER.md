@@ -289,12 +289,29 @@ sender's is cut at index time.
 
 ## Freshness (landed)
 
-The server refreshes the index itself (`serve --refresh <min>`, default 5;
-0 = never): incremental, in-process, sub-second when nothing changed. The
-nav says `indexed N min ago`; `/_lore` carries the timestamp and the last
-error. Never `full` from the timer — a schema bump is a reinstall and a
-restart. Ran alongside a CLI `lore index`, the shared db's busy_timeout
-covers the overlap.
+The server drives the index refresh (`serve --refresh <min>`, default 5;
+0 = never): on each tick it spawns `lore index` as a child of its OWN build
+(`selfArgv`, config.ts — the frozen bundle, the dev checkout, or the
+compiled executable, never whatever `lore` on PATH resolves to, because a
+newer installed build would migrate the db out from under the running
+server), waits for it, then stamps and warms. Incremental, sub-second when
+nothing changed. The nav says `indexed N min ago`; `/_lore` carries the
+timestamp and the last error, which is the child's exit code and its last
+stderr lines. Never `full` from the timer — a schema bump is a reinstall
+and a restart. Ran alongside a CLI `lore index`, the shared db's
+busy_timeout covers the overlap. A hung child is killed at ten minutes so
+the busy flag cannot stick.
+
+The refresh was in-process until 2026-10-17, and the server grew to 1.9 GB
+resident: parsing a busy hour of transcripts allocates heavily, the GC
+frees it, and the allocator keeps the high-water mark — every busy hour
+ratcheted the process up and nothing brought it down. A child gives all of
+it back at exit, so the server rests at what the pages need — which is
+not small: measured the day of the change, a fresh server idles at 100 MB,
+the three warm folds take it to 510 MB on the first pass, and three
+refresh ticks moved it 627 → 682 → 687 MB and then flat. That floor is the
+fleet-wide folds' own high-water mark, settles, and is the next thing to
+look at if it matters; the ratchet was the parse, and the parse is gone.
 
 After each refresh the server requests the front page, the agents page
 and the usage profile of itself (`WARM_PATHS`, web.ts). Everything a page
