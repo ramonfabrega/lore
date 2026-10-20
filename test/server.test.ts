@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { selfArgv } from '../src/config'
-import { launchdUnsupported, readPlistConfig, renderPlist, urlFor } from '../src/server'
+import { launchdUnsupported, readPlistConfig, removeServerFile, renderPlist, ServerFile, urlFor, writeServerFile } from '../src/server'
 import { allowsFallthrough, composeHandler } from '../src/web'
 
 describe('launchd plist', () => {
@@ -13,6 +16,20 @@ describe('launchd plist', () => {
     expect(xml).toContain('<string>/u/.lore/serve.log</string>')
     expect(readPlistConfig(xml)).toEqual({ port: 4949, host: '100.100.100.100' })
     expect(readPlistConfig('<plist></plist>')).toBeNull()
+  })
+
+  // The file a GUI client reads for the url (ccc, v0.1.40). Removal is
+  // pid-guarded: a process that is not the writer leaves the file alone.
+  test('server.json is written whole and removed only by the pid that wrote it', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'lore-server-')), 'server.json')
+    const f = { url: 'http://100.100.100.100:4949/', build: 'v0.1.0 b1 @ abc', pid: 4242, startedAt: '2026-10-20T21:00:00.000Z' }
+    await writeServerFile(f, path)
+    expect(ServerFile.parse(await Bun.file(path).json())).toEqual(f)
+    expect(await removeServerFile(1, path)).toBe(false)
+    expect(await Bun.file(path).exists()).toBe(true)
+    expect(await removeServerFile(4242, path)).toBe(true)
+    expect(await Bun.file(path).exists()).toBe(false)
+    expect(await removeServerFile(4242, path)).toBe(false)
   })
 
   test('urlFor maps the wildcard bind to localhost', () => {

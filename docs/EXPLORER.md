@@ -119,7 +119,8 @@ HTML rather than on what a browser would have done to it.
   `lore usage` prints.
 - `/agents` — every job, live first: the daemon's roster (state, detail,
   live tokens, attach) over the index's jobs, the deleted ones included;
-  attach is a command to copy, never an embedded terminal. The agents-view
+  attach is a link into ccc (the Cross-links section), never an embedded
+  terminal. The agents-view
   replacement is a page. `lore jobs` is the CLI twin of the index half.
 - `/thread` — every pair of agents that has talked; `/thread/<a>/<b>` the
   pair's ledger, both halves of every message (the Thread section below).
@@ -147,6 +148,10 @@ services. Bind address resolved once at `up`: the Tailscale IP, so
 the prod bin is a frozen bundle, so after `scripts/install.ts` the server
 still runs the old one until `restart`. KeepAlive respawns a port race
 forever, so `status` and `logs` are the diagnosis, not the pid.
+`serve` writes `~/.lore/server.json` (`{url, build, pid, startedAt}`) once
+it listens and removes it on a clean stop — the url as a file, for a GUI
+client with no PATH to shell through (ccc reads it first; a stale file
+after a crash fails its pid check and the next start overwrites it).
 
 ## Annotation: deterministic first (landed)
 
@@ -197,9 +202,34 @@ the page showed a quarter of the fleet's history. Working, then blocked,
 then everything by last activity. A deleted job says `gone` in the state
 column and keeps the name its peers gave it (`peer` chip). `?all=1` adds
 interactive sessions as one-session jobs; by default the 250 of them since
-mid-August would drown 67 agents. Attach is a command to copy.
-`lore agents` is the CLI twin of the live half, `lore jobs` of the index
-half; `/cli/agents` and `/cli/jobs` the routes.
+mid-August would drown 67 agents. Attach is a link into ccc, with the
+command in its tooltip. `lore agents` is the CLI twin of the live half,
+`lore jobs` of the index half; `/cli/agents` and `/cli/jobs` the routes.
+
+### Cross-links with ccc (landed 2026-10-20, ccc v0.1.40)
+
+Neither app knew the other: ccc had no URL scheme and never linked here,
+and attach on this page was a command to copy. The split that makes two
+apps worth having is that lore renders what needs the index (history,
+cost, dialogue, threads, trees over time) and ccc what needs a PTY or a
+live control (attach, spawn, stop, the live roster) — so each links to the
+other for the thing the other owns, and neither duplicates it.
+
+- **ccc → lore.** A row's context menu, the Session menu (⌘L) and `l` on a
+  row open `<lore url>/job/<daemon id>`; twin `ccc lore <ref> [--print]
+  [--json]`. ccc reads the url from `~/.lore/server.json` first (with a
+  live-pid check, so a file a crash left behind is skipped), then `lore
+  server status --json`; `CCC_LORE_URL` overrides. A remote row asks that
+  host's own ccc over the hop. Nothing on lore's side but the file.
+- **lore → ccc.** `ccc://attach/<daemon id>` — the BARE daemon job id,
+  percent-encoded (`attachLink`, agents.ts). ccc resolves it against every
+  host's roster, local first, and refuses an ambiguous ref with a notice
+  naming both — so lore never qualifies with a host. Not accepted, and
+  never emitted: the bridge id (the roster carries none) and the session id
+  (changes at /clear). A `gone` job gets no link — nothing can attach to it.
+  Emitted on the agents rows (live half) and the job page head (while the
+  last index still lists the job at the daemon). A cold link launches ccc,
+  waits for its first poll, then attaches; a running ccc switches the pane.
 
 Each row names its **model** — see below; neither of the harness's two
 files carries one, so a live agent's is read from its own transcript.
@@ -651,7 +681,7 @@ falls back to a stack and the page scrolls.
   flat bar.
 - **`/agents`.** One row per agent: state, name, where, doing, live
   tokens with bars, requests, $, indexed (ago), links (a pile of 100 PRs
-  folds into "100 links"), attach command.
+  folds into "100 links"), attach link.
 - **`/well/:dir`, `/job/:id`, `/session/:id`** — a fixed head (title,
   tiles, and for the session the fee bar and timeline) over one scrolling
   panel, so the block's map stays put while its spine scrolls.

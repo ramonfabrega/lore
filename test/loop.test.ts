@@ -157,7 +157,7 @@ async function corpus(cmdCwd: string) {
 
 const row = (o: Partial<AgentRow> & { cwd: string; state: string }): AgentRow => ({
   id: null, name: null, waitingFor: null, detail: null, tempo: null, branch: null, sessionId: null, startedAt: '2026-10-15T09:00:00.000Z', updatedAt: null,
-  liveTokens: null, ctx: null, children: [], attach: null, model: null, modelSource: null, indexed: null, ...o,
+  liveTokens: null, ctx: null, children: [], attach: null, attachUrl: null, model: null, modelSource: null, indexed: null, ...o,
 })
 
 describe('lore loop', () => {

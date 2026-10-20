@@ -12,7 +12,7 @@ import { getLoop } from './loop'
 import type { Lane } from './parse'
 import { purgeSession } from './purge'
 import { searchHistory, searchMessages } from './search'
-import { resolveHost, serverDown, serverLogs, serverRestart, serverStatus, serverUp } from './server'
+import { removeServerFile, resolveHost, serverDown, serverLogs, serverRestart, serverStatus, serverUp, urlFor, writeServerFile } from './server'
 import { getSession } from './session'
 import { listSessions } from './sessions'
 import { indexSpawns, listSpawns } from './spawns'
@@ -483,6 +483,14 @@ cli.command('serve', {
     const handler = composeHandler(web.fetch, (req) => cli.fetch(req))
     const server = Bun.serve({ hostname, port: options.port, fetch: handler })
     console.error(`lore serve ${BUILD_INFO} → http://${server.hostname}:${server.port}/`)
+    // The url as a file, for a GUI client (server.ts SERVER_FILE): written
+    // once we listen, removed on a clean stop. launchd stops with SIGTERM.
+    await writeServerFile({ url: urlFor({ port: server.port ?? options.port, host: server.hostname ?? hostname }), build: BUILD_INFO, pid: process.pid, startedAt: new Date().toISOString() })
+    for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+      process.once(sig, () => {
+        void removeServerFile(process.pid).finally(() => process.exit(0))
+      })
+    }
     // Incremental refresh as a CHILD PROCESS — `lore index` run by the same
     // build this server is (selfArgv, config.ts) — never in-process. It was
     // in-process until 2026-10-17, and the server sat at 915 MB to 1.9 GB
@@ -572,7 +580,7 @@ cli.command('api', {
 
 cli.command('agents', {
   description:
-    'The live roster joined to the index: what `claude agents --json --all` lists (state, name, cwd, waitingFor) + each job\'s state.json (detail, tempo, LIVE tokens, links, worktree branch) + lore\'s side per session (well, requests, list $, last indexed activity — as of the last `lore index`). Active (working/blocked) first, then by last update. Attach is a command to copy, never done for you. Each row names its `model`: for a live agent (working/blocked) read from the transcript\'s last assistant record and marked `modelSource: transcript`, otherwise the session\'s dominant model as of the last index (`modelSource: index`) — neither the daemon listing nor state.json carries a model at all. Each row also carries `ctx`: the context the NEXT turn will carry (input + cache read + cache write of the last request, from the same transcript record), read for every row that has a transcript including resting commanders — the number a /clear decision needs, which `liveTokens` (the daemon\'s cumulative count) is not; null when no transcript was found. The agents page of the explorer is this verb rendered.',
+    'The live roster joined to the index: what `claude agents --json --all` lists (state, name, cwd, waitingFor) + each job\'s state.json (detail, tempo, LIVE tokens, links, worktree branch) + lore\'s side per session (well, requests, list $, last indexed activity — as of the last `lore index`). Active (working/blocked) first, then by last update. Attach is never done for you: `attach` is the command to copy, `attachUrl` the `ccc://attach/<daemon id>` link that opens the pane in ccc (null once the daemon no longer lists the job). Each row names its `model`: for a live agent (working/blocked) read from the transcript\'s last assistant record and marked `modelSource: transcript`, otherwise the session\'s dominant model as of the last index (`modelSource: index`) — neither the daemon listing nor state.json carries a model at all. Each row also carries `ctx`: the context the NEXT turn will carry (input + cache read + cache write of the last request, from the same transcript record), read for every row that has a transcript including resting commanders — the number a /clear decision needs, which `liveTokens` (the daemon\'s cumulative count) is not; null when no transcript was found. The agents page of the explorer is this verb rendered.',
   run: async () => {
     const db = openDb(DB_PATH)
     const agents = await listAgents(db)

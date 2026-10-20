@@ -142,7 +142,7 @@ describe('transcript tail', () => {
       writeFileSync(join(projects, well, `${sid}.jsonl`), `${rec('assistant', 'claude-fable-5-1', { input_tokens: 1, cache_read_input_tokens: 700_000, cache_creation_input_tokens: 0 })}\n`)
     }
     const row = (sessionId: string, state: string) =>
-      ({ id: sessionId, name: sessionId, state, waitingFor: null, detail: null, tempo: null, cwd, branch: null, sessionId, startedAt: '2026-09-01T00:00:00.000Z', updatedAt: null, liveTokens: null, ctx: null, children: [], attach: null, model: 'claude-opus-5', modelSource: 'index' as const, indexed: null })
+      ({ id: sessionId, name: sessionId, state, waitingFor: null, detail: null, tempo: null, cwd, branch: null, sessionId, startedAt: '2026-09-01T00:00:00.000Z', updatedAt: null, liveTokens: null, ctx: null, children: [], attach: null, attachUrl: null, model: 'claude-opus-5', modelSource: 'index' as const, indexed: null })
     const rows = [row('live-1', 'working'), row('done-1', 'done'), row('missing', 'working')]
     await verifyModels(rows, projects)
     expect(rows[0]).toMatchObject({ ctx: 700_001, model: 'claude-fable-5-1', modelSource: 'transcript' })
@@ -172,7 +172,7 @@ describe('agents join', () => {
           : null,
     )
     expect(rows.map((r) => r.id)).toEqual(['bbb', 'ccc', 'eee', 'ddd', 'aaa'])
-    expect(rows[0]).toMatchObject({ liveTokens: 12345, branch: 'x', attach: 'claude attach bbb', indexed: null })
+    expect(rows[0]).toMatchObject({ liveTokens: 12345, branch: 'x', attach: 'claude attach bbb', attachUrl: 'ccc://attach/bbb', indexed: null })
     expect(rows[0]!.children[0]!.id).toBe('7')
     expect(rows[1]!.waitingFor).toBe('permission prompt')
     expect(rows[4]!.indexed).toMatchObject({ requests: 5, listUsd: 0.23 })
@@ -187,7 +187,7 @@ describe('explorer pages: search, agents, job, anchors', () => {
     const db = await seeded()
     const app = createApp(() => db, {
       agents: async () => [
-        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, ctx: 640_000, children: [], attach: 'claude attach bbb', model: 'claude-fable-5-1', modelSource: 'transcript', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-fable-5-1', requests: 5 }] } },
+        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, ctx: 640_000, children: [], attach: 'claude attach bbb', attachUrl: 'ccc://attach/bbb', model: 'claude-fable-5-1', modelSource: 'transcript', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-fable-5-1', requests: 5 }] } },
       ],
       wikiDir: '/nonexistent',
     })
@@ -199,6 +199,8 @@ describe('explorer pages: search, agents, job, anchors', () => {
     expect((await app.request('/search')).status).toBe(200)
 
     const agents = await (await app.request('/agents')).text()
+    // attach is a link into ccc (the cross-link contract), the command in its tooltip
+    expect(agents).toContain('href="ccc://attach/bbb"')
     expect(agents).toContain('claude attach bbb')
     expect(agents).toContain('running tests')
     expect(agents).toContain('/session/sess-1')

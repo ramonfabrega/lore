@@ -92,7 +92,11 @@ export type AgentRow = {
   // transcript was found.
   ctx: number | null
   children: { id: string; href: string; kind: string }[]
+  // Two spellings of one act: the command for a terminal, the link for a
+  // page (`attachLink` — ccc opens the pane). Null for a row the daemon no
+  // longer lists: nothing can attach to it.
   attach: string | null
+  attachUrl: string | null
   // What is running this conversation (model.ts), and how we know.
   model: string | null
   modelSource: 'transcript' | 'index' | null
@@ -156,6 +160,7 @@ export function joinAgents(
       ctx: null,
       children: st?.children ?? [],
       attach: a.id ? `claude attach ${a.id}` : null,
+      attachUrl: a.id ? attachLink(a.id) : null,
       model,
       modelSource: model ? 'index' : null,
       indexed,
@@ -164,6 +169,15 @@ export function joinAgents(
   rows.sort((x, y) => rank(x.state) - rank(y.state) || (y.updatedAt ?? y.startedAt).localeCompare(x.updatedAt ?? x.startedAt))
   return rows
 }
+
+// The link that attaches in ccc — the cross-link contract decided with ccc
+// on 2026-10-20 (ccc v0.1.40, docs/EXPLORER.md "Cross-links"): the BARE
+// daemon job id, percent-encoded, nothing else. ccc resolves the id against
+// every host's roster, local first, and refuses an ambiguous ref with a
+// notice; so lore never qualifies it with a host (host names are ccc's own)
+// and never emits a bridge id or a session id (the roster carries no bridge
+// id, and a session id changes at /clear — neither resolves there).
+export const attachLink = (jobId: string) => `ccc://attach/${encodeURIComponent(jobId)}`
 
 const IndexedRow = z.object({ sessionId: z.string(), well: z.string(), last: z.string().nullable() })
 

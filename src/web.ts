@@ -5,7 +5,7 @@ import type { HtmlEscapedString } from 'hono/utils/html'
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { z } from 'zod'
-import { type AgentRow, listAgents } from './agents'
+import { type AgentRow, attachLink, listAgents } from './agents'
 import { repoOf } from './job'
 import { TZ, WIKI_DIR } from './config'
 import { JOB_KEY_SQL, type JobKind, type JobRow, jobNames, jobsOfSessions, listJobs, resolveJob } from './job'
@@ -285,7 +285,9 @@ export function createApp(
         <p class="crumbs"><a href="/">lore</a> / <a href="/agents">agents</a> / job</p>
         <h1 class="mono">${job.name ? html`<span class="kind side-a">@${job.name}</span> ` : ''}<span class="muted" title="${kindText}">${job.key}</span></h1>
         <p class="muted">${kindText}${job.nameSource === 'peer' ? html` · <span class="kind peer" title="the daemon has forgotten this job; its peers called it this">named by its peers</span>` : ''}${
-          job.jobId ? html` · daemon ${job.jobId} · <span class="kind st-${job.state ?? ''}">${job.state ?? '?'}</span> as of the last index` : job.kind === 'session' ? '' : ' · not at the daemon'
+          job.jobId ? html` · daemon ${job.jobId} · <span class="kind st-${job.state ?? ''}">${job.state ?? '?'}</span> as of the last index${
+            job.state !== 'gone' ? html` · <a href="${attachLink(job.jobId)}" title="claude attach ${job.jobId} — opens the pane in ccc">attach</a>` : ''
+          }` : job.kind === 'session' ? '' : ' · not at the daemon'
         }
           · ${spanEl(job.first, job.last)} · in ${job.wells.map((w, i) => html`${i ? ', ' : ''}<a class="mono" href="/well/${encodeURIComponent(w)}" title="${w}">${shortWell(w)}</a>`)}
           ${job.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
@@ -942,7 +944,7 @@ function agentRow(r: AgentJob, maxLive: number, maxUsd: number, depth = 0) {
     <span class="num">${j ? html`${ibar(j.listUsd ?? 0, maxUsd, { of: 'priciest job here' })}${usd(j.listUsd)}` : a?.indexed ? usd(a.indexed.listUsd) : ''}</span>
     <span class="mono">${sid && (j || a?.indexed) ? html`<a href="/session/${sid}">${lastAt ? timeEl(lastAt) : 'yes'}</a>` : sid ? html`<span class="muted">not yet</span>` : ''}</span>
     <span>${(j?.peers ?? []).map((p, i) => html`${i ? ' ' : ''}<a href="/thread/${encodeURIComponent(name ?? r.key ?? '')}/${encodeURIComponent(p)}">@${p}</a>`)}</span>
-    <span class="mono">${a?.attach ?? ''}</span>
+    <span class="mono">${a?.attachUrl ? html`<a href="${a.attachUrl}" title="${a.attach ?? ''} — opens the pane in ccc">attach</a>` : ''}</span>
   </div>`
 }
 

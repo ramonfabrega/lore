@@ -24,6 +24,32 @@ export const LOG_PATH = join(LORE_HOME, 'serve.log')
 export const ERR_PATH = join(LORE_HOME, 'serve.err')
 const BIN = join(homedir(), '.bun', 'bin', 'lore')
 
+// Where the server is, as a FILE — for a GUI client. ccc opens a lore page
+// from a row (v0.1.40, 2026-10-20) and had to find the URL: `lore server
+// status --json` answers it, but a LaunchServices app has no ~/.bun/bin on
+// its PATH and the shim there execs bun, so ccc read this first and shells
+// out only when it is missing. Written by `lore serve` once it listens,
+// removed on a clean stop; a crash leaves it behind, so a reader checks
+// the pid is alive before trusting the url (ccc does), and the next start
+// overwrites it. The pid guard on removal keeps a dying process from
+// deleting the file a newer one just wrote.
+export const SERVER_FILE = join(LORE_HOME, 'server.json')
+export const ServerFile = z.object({ url: z.string(), build: z.string(), pid: z.number(), startedAt: z.string() })
+export type ServerFile = z.infer<typeof ServerFile>
+
+export async function writeServerFile(f: ServerFile, path = SERVER_FILE): Promise<void> {
+  await Bun.write(path, `${JSON.stringify(f, null, 2)}\n`)
+}
+
+export async function removeServerFile(pid: number, path = SERVER_FILE): Promise<boolean> {
+  const file = Bun.file(path)
+  if (!(await file.exists())) return false
+  const parsed = ServerFile.safeParse(await file.json().catch(() => null))
+  if (parsed.success && parsed.data.pid !== pid) return false
+  await file.delete()
+  return true
+}
+
 export type ServerConfig = { port: number; host: string }
 
 export function renderPlist(cfg: ServerConfig, opts: { bin?: string; home?: string } = {}): string {
