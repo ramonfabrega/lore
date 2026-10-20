@@ -26,13 +26,24 @@ export type Head = {
 }
 
 const RELAY = /<cross-session-message\b([^>]*)>([\s\S]*?)(?:<\/cross-session-message>|$)/
+// A subagent's hand-back wears a different envelope: `<agent-message
+// from="<task id>">`, a `[Subagent hand-back]` preamble that disclaims the
+// report's authority, and the report itself indented two spaces per line.
+// The `from` is the spawn's task id; the row's `peer` is its agent type.
+const AGENT = /<agent-message\b([^>]*)>([\s\S]*?)(?:<\/agent-message>|$)/
+const HANDBACK = /^\[Subagent hand-back\][\s\S]*?The report follows:\n/
 
 // A relay's body, and the peer that sent it. `peer` on the row is the
 // authority (origin.name, recorded by the harness); the `from-name`
 // attribute is the fallback for rows indexed before that column existed.
 export function relayHead(text: string): { from: string | null; addr: string | null; text: string } {
   const m = RELAY.exec(text)
-  if (!m) return { from: null, addr: null, text: plain(text) }
+  if (!m) {
+    const a = AGENT.exec(text)
+    if (!a) return { from: null, addr: null, text: plain(text) }
+    const report = (a[2] ?? '').trim().replace(HANDBACK, '').replace(/^ {2}/gm, '')
+    return { from: null, addr: attr('from', a[1] ?? ''), text: report || plain(text) }
+  }
   const body = plain(m[2] ?? '').trim()
   const attrs = m[1] ?? ''
   return { from: attr('from-name', attrs), addr: attr('from', attrs), text: body || plain(text) }

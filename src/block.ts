@@ -64,25 +64,26 @@ export function annotationLine(a: Annotations) {
 
 // ---- the page ------------------------------------------------------------
 
-export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
+// The spine's numbering: a turn is a transaction somebody OPENED — the user
+// typing, the user's slash command, or a peer session relaying in. Harness
+// preamble (meta) opened nothing, so it is neither counted nor numbered, and
+// the tile and the spine's numbers agree: a session with eight relays in it
+// says so.
+function numbering(txs: Transaction[]): Map<Transaction, number> {
+  return new Map(txs.filter((x) => x.kind !== 'meta').map((x, i) => [x, i + 1]))
+}
+
+export type SessionView = 'block' | 'conversation'
+
+// The header every view of a session shares: identity, the fee split, the
+// model mix, the fan-out ledger, the map, the lanes — and the view switch.
+export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
   const s = trace.session
   const t = trace.totals
   const txs = trace.transactions
-  // A turn is a transaction somebody OPENED — the user typing, the user's
-  // slash command, or a peer session relaying in. Harness preamble (meta)
-  // opened nothing, so it is neither counted nor numbered, and the tile and
-  // the spine's numbers agree: a session with eight relays in it says so.
-  const turns = txs.filter((x) => x.kind !== 'meta')
-  // A one-prompt session IS its transaction: open it. A conversation
-  // stays folded so the spine reads first.
-  const openAll = turns.length <= 2
-  const maxUsd = Math.max(...txs.map((x) => x.listUsd ?? 0), 0)
-  const maxMs = Math.max(...txs.map((x) => x.ms ?? 0), 0)
   const fee = feeByClass(txs)
-  // A session that ran one model says so once, in the header. A session that
-  // SWITCHED gets a column: which prompt ran on what is the whole question.
-  const mixed = trace.models.length > 1
-  const num = new Map<Transaction, number>(turns.map((x, i) => [x, i + 1]))
+  const num = numbering(txs)
+  const view = o.view ?? 'block'
   // The peers this session spoke with — a relay that opened a turn, one read
   // mid-turn, or a send the address book named — each a way into the thread
   // page, where the exchange reads with neither side nested in the other.
@@ -91,9 +92,11 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     ...x.received.filter((r) => r.kind === 'relay').map((r) => r.tag),
     ...x.sent.map((sn) => sn.name),
   ]).filter((p): p is string => p != null))]
+  const sw = (v: SessionView, label: string) => (v === view ? html`<b>${label}</b>` : html`<a href="?view=${v}">${label}</a>`)
   return html`
     <div class="page-head">
-    <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session</p>
+    <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session
+      <span class="views">${sw('block', 'block')} · ${sw('conversation', 'conversation')}</span></p>
     <h1 class="mono">${s.sessionId}${s.name ? html` <span class="kind self" title="this session's agent">@${s.name}</span>` : ''}</h1>
     <p class="muted">${spanEl(s.first, s.last, { sec: true })}
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobKey ? html` · job <a class="mono" href="/job/${encodeURIComponent(s.jobKey)}" title="${s.jobKey}">${s.name ? `@${s.name}` : s.jobKey.slice(0, 8)}</a>` : ''}
@@ -117,7 +120,22 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
     ${fanout(trace.spawns)}
     ${timeline(trace, num)}
     ${laneLedger(trace.lanes)}
-    </div>
+    </div>`
+}
+
+export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
+  const txs = trace.transactions
+  const num = numbering(txs)
+  // A one-prompt session IS its transaction: open it. A conversation
+  // stays folded so the spine reads first.
+  const openAll = num.size <= 2
+  const maxUsd = Math.max(...txs.map((x) => x.listUsd ?? 0), 0)
+  const maxMs = Math.max(...txs.map((x) => x.ms ?? 0), 0)
+  // A session that ran one model says so once, in the header. A session that
+  // SWITCHED gets a column: which prompt ran on what is the whole question.
+  const mixed = trace.models.length > 1
+  return html`
+    ${sessionHead(trace, { view: 'block' })}
     <div class="panel"><div class="scroll">
     <section class="spine ${mixed ? 'mixed' : ''}">
       <div class="row head"><span class="n">#</span><span class="at">at</span><span class="p">prompt</span>${mixed ? html`<span class="m">model</span>` : ''}<span class="num">steps</span><span class="num">instr</span><span class="num">err</span><span class="num">out</span><span class="num">list $</span><span class="num">wall</span></div>
@@ -525,13 +543,13 @@ function txBody(x: Transaction, openTools: boolean) {
 
 // What a folded run of instructions did, by tool in the order first used —
 // `Bash ×3 Edit Read` — each wearing its lane's swatch.
-function toolMix(ix: Instruction[]) {
+export function toolMix(ix: Instruction[]) {
   const n = new Map<string, number>()
   for (const i of ix) n.set(i.tool, (n.get(i.tool) ?? 0) + 1)
   return html`<span class="mix mono">${[...n].map(([t, c]) => html`<span><i class="sw ${family(t)}"></i>${t}${c > 1 ? html` <b>×${c}</b>` : ''}</span>`)}</span>`
 }
 
-function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>, tail = false) {
+export function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>, tail = false) {
   const rows: H[] = []
   let lastReq: string | null | undefined
   const thoughts = x.thoughts.filter((t) => t.at >= from && t.at < to)

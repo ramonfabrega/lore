@@ -14,7 +14,9 @@ import { FAMILIES, type ModelFamily, modelFamily } from './model'
 import { searchSessions } from './search'
 import { resolveSessionId } from './session'
 import { listSessions, modelsFor } from './sessions'
-import { annotationLine, sessionBody, tile } from './block'
+import { annotationLine, sessionBody, sessionHead, tile } from './block'
+import { conversationOf } from './conversation'
+import { conversationBody } from './convoview'
 import { cut, day, dayName, stamp, tok, todayLocal, usd } from './fmt'
 import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
 import { CSS, tick } from './style'
@@ -622,9 +624,17 @@ export function createApp(
     } catch (e) {
       return c.text(e instanceof Error ? e.message : String(e), 404)
     }
+    const open = c.req.query('open') === 'all'
+    const title = `${trace.session.sessionId.slice(0, 8)} · lore`
+    // ?view=conversation reads the same trace as a dialogue (convoview.ts):
+    // its JSON is the projection `lore conversation` prints.
+    if (c.req.query('view') === 'conversation') {
+      if (wantsJson(c.req.raw)) return c.json(conversationOf(trace))
+      return c.html(page(title, html`${sessionHead(trace, { view: 'conversation' })}${conversationBody([trace], { open })}`, { ...chrome(c), layout: 'head' }))
+    }
     if (wantsJson(c.req.raw)) return c.json(trace)
     // ?open=all unfolds every transaction and phase — one page to ⌘F or print.
-    return c.html(page(`${trace.session.sessionId.slice(0, 8)} · lore`, sessionBody(trace, { open: c.req.query('open') === 'all' }), { ...chrome(c), layout: 'head' }))
+    return c.html(page(title, sessionBody(trace, { open }), { ...chrome(c), layout: 'head' }))
   })
 
   // The thread between two agents (thread.ts, threadview.ts): the
@@ -956,7 +966,7 @@ function tallyWellModels(rows: { models: { model: string; requests: number }[] }
 }
 
 type Layout = 'one' | 'head' | 'root' | 'usage'
-function page(
+export function page(
   title: string,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,
   opts: { q?: string; indexedAt?: string | null; indexError?: string | null; layout?: Layout; nav?: string; bare?: boolean; theme?: string | null } = {},

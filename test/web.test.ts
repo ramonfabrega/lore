@@ -139,6 +139,24 @@ describe('explorer routes', () => {
     expect((await app.request('/session/zzz')).status).toBe(404)
   })
 
+  test('/session/:id?view=conversation reads the same trace as a dialogue, and its JSON is the projection', async () => {
+    const app = await seededApp()
+    const res = await app.request('/session/sess-1?view=conversation')
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('<section class="convo">')
+    // the switch names the view it is on, and links the other
+    expect(text).toContain('<a href="?view=block">block</a> · <b>conversation</b>')
+    // the user's words, the work folded to a line, the reply in markdown
+    expect(text).toContain('<p class="plain">ship the explorer')
+    expect(text).toContain('<details class="work" >')
+    expect(text).toContain('Green.')
+    const json = Any.parse(await (await app.request('/session/sess-1?view=conversation&json=1')).json())
+    expect(json[0].kind).toBe('prompt')
+    expect(json[0].beats.map((b: { kind: string }) => b.kind)).toContain('work')
+    expect(json[0].reply).toContain('Green.')
+  })
+
   test('/usage renders the profile', async () => {
     const app = await seededApp()
     const res = await app.request('/usage')

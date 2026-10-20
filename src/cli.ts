@@ -2,6 +2,7 @@ import { Cli, z } from 'incur'
 import { listAgents } from './agents'
 import { archive } from './archive'
 import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR, selfArgv } from './config'
+import { getConversation } from './conversation'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
@@ -412,6 +413,24 @@ cli.command('loop', {
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
     return getLoop(db, args.job, { base: options.base, queue: options.queue, landing: options.landing, of: options.of, deep: options.deep, lanes: options.lanes })
+  },
+})
+
+cli.command('conversation', {
+  description:
+    'One session — or a job across its /clears — read as a dialogue: what was said, by whom, in order, with the tool work between a message and its answer folded to one line. A PROJECTION of `lore trace` (docs/EXPLORER.md): every beat is a trace field at an instruction cursor, and the block view is the same data with the work unfolded. A `turn` is a transaction: `kind` says who opened it (`prompt` the user, `command` a slash command, `relay` a peer session or a subagent handing back, `meta` a harness notification — unnumbered, as on the spine), `message` is the whole opener with the envelope off, `reply` the assistant\'s closing text as markdown, `replyTs` when it landed, and `beats[]` what happened between them in reading order: `work` (a run of instructions — `steps`, `ms`, `listUsd`, the `tools` mix, the heading-notes and harness `notifications` folded inside it; `from`/`to` are the instruction cursors, so the block view\'s tables for exactly these rows are the fold), `said` (the assistant\'s own words mid-turn when they are MORE than a heading — the trace\'s `notes[].body`; a one-line "Now the tests…" heads its run and folds with it), `you` and `peer` (a message read WHILE the turn ran — the user\'s or a peer\'s — at the cursor where the turn read it; it did not open a turn), and `sent` (a SendMessage out: recipient, the sender\'s summary, the message, whether the ack delivered it). Totals count turns by opener and beats by kind. Takes a session id or unique prefix first, then a job (name, bridge id, daemon id, root), whose sessions read in order — each opens with its `/clear`. `--tail n` keeps the newest n rows: the "orient me after an hour away" read. Prose is whole (20,000 characters); tool text is not carried — `lore trace` has it.',
+  args: z.object({
+    id: z.string().describe('Session id or unique prefix; else a job by name, bridge id, daemon id or root'),
+  }),
+  options: z.object({
+    tail: z.coerce.number().optional().describe('Keep only the newest n rows'),
+    well: z.string().optional().describe('Narrow an ambiguous id prefix to wells whose dir or real path contains this substring'),
+    exact: z.boolean().default(false).describe('Match --well exactly'),
+  }),
+  alias: { tail: 't', well: 'w' },
+  run: ({ args, options }) => {
+    const db = openDb(DB_PATH)
+    return getConversation(db, args.id, { tail: options.tail, well: options.well, exact: options.exact })
   },
 })
 

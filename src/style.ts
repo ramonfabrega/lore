@@ -390,6 +390,48 @@ tr.err td { color: var(--err); } tr.thought td { padding: 2px 8px; } tr.thought 
 .snippet { color: var(--ink-2); font-size: var(--fs-125); padding-left: 8px; } .snippet a { color: inherit; }
 mark { background: color-mix(in oklab, var(--series-1) 22%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
 
+/* the conversation view (convoview.ts): a session as the dialogue it was.
+   Who speaks is a left rule and a small mono name — the thread page's hues:
+   the session's own agent series-1, a peer series-2, the user ink, the
+   harness muted — and the tool work between is one muted line that opens
+   into the block's own table. */
+.views { float: right; font: var(--fs-115) var(--mono); color: var(--ink-3); } .views b { color: var(--ink); font-weight: 600; }
+.convo { padding: 2px 0 24px; }
+.convo .turn { padding: 10px 14px 12px; border-bottom: 1px solid var(--line); }
+.convo .turn.command { padding: 4px 14px; color: var(--ink-3); } .convo .turn.command .who { margin: 0; } .convo .turn.command .cmd { color: var(--ink-2); font-size: var(--fs-12); }
+.convo .turn.meta .who.meta, .convo .say.meta { color: var(--ink-3); }
+.convo .turn:target { background: var(--surface-2); }
+.convo .sess { position: sticky; top: 0; z-index: 1; background: var(--surface); border-bottom: 1px solid var(--line); padding: 4px 14px; font: var(--fs-115) var(--mono); color: var(--ink-3); }
+.convo .who { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 3px; font: 600 var(--fs-105) var(--mono); color: var(--ink-3); text-transform: uppercase; letter-spacing: .05em; }
+.convo .turn > .who:first-child { margin-top: 0; }
+.convo .who .n { color: var(--ink-3); font-weight: 500; min-width: 1.5ch; }
+.convo .who .kind, .convo .who .self, .convo .who .mchip, .convo .who .fee, .convo .who .muted, .convo .who .cmd { text-transform: none; letter-spacing: 0; }
+.convo .who .kind { font-weight: 500; }
+.convo .who.ai .self { color: var(--series-1); }
+.convo .who time { font-weight: 500; color: var(--ink-3); }
+.convo .who .fee { margin-left: auto; font-weight: 500; color: var(--ink-3); }
+.convo .say { border-left: 3px solid var(--line-2); padding: 1px 0 1px 10px; margin-left: 1px; max-width: 92ch; }
+.convo .say.you { border-color: var(--ink-3); }
+.convo .say.ai { border-color: var(--series-1); }
+.convo .say.peer { border-color: var(--series-2); }
+.convo .say.meta { border-color: var(--line); }
+.convo .say p.plain { margin: 0; white-space: pre-wrap; font: var(--fs-13)/1.5 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.convo .say.meta p.plain { color: var(--ink-3); font-size: var(--fs-12); }
+.convo .say.out .sum { margin: 0 0 4px; font-weight: 600; }
+.convo .say.md.reply { margin: 0; }
+.convo details.say.long > summary { list-style: none; cursor: pointer; } .convo details.say.long > summary::-webkit-details-marker { display: none; }
+.convo details.say.long > summary .more { display: inline-block; margin-top: 4px; font: var(--fs-105) var(--mono); color: var(--ink-3); }
+.convo details.say.long > summary .more::before { content: '▸ '; } .convo details.say.long[open] > summary .more::before { content: '▾ '; }
+.convo details.say.long[open] > summary .lead { display: none; }
+.convo details.work { margin: 6px 0 6px 14px; }
+.convo details.work > summary { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: baseline; padding: 2px 0; cursor: pointer; list-style: none; font: var(--fs-115) var(--mono); color: var(--ink-3); }
+.convo details.work > summary::-webkit-details-marker { display: none; }
+.convo details.work > summary::before { content: '▸'; display: inline-block; width: 1ch; color: var(--ink-3); transition: transform var(--t-fold) var(--ease-out); }
+.convo details.work[open] > summary::before { transform: rotate(90deg); }
+.convo details.work[open] > summary { color: var(--ink-2); }
+.convo details.work .mix { display: inline-flex; flex-wrap: wrap; gap: 0 10px; color: var(--ink-2); } .convo details.work .mix b { font-weight: 500; color: var(--ink-3); }
+.convo details.work table.ix { margin: 4px 0 8px; }
+
 /* narrow: the page scrolls, panels stack */
 @media (max-width: 900px) {
   body { overflow: auto; height: auto; } html { height: auto; }

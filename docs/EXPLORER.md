@@ -96,6 +96,8 @@ HTML rather than on what a browser would have done to it.
 - `/session/:id` — the block: header (well, branch, job, first/last, fee,
   spawns, lanes, links), then transactions, each expandable to steps and
   instructions; instruction logs collapsed by default; thinking collapsed.
+  `?view=conversation` is the same trace read as a dialogue (the
+  Conversation view section below; `lore conversation` is its verb).
   The `transactions` tile says WHO opened them — `1 you · 44 relay · 1 cmd`,
   and `+19 task` muted for the injections the spine leaves unnumbered — and
   a `sent` tile counts the messages the session sent back (with `lost` for
@@ -639,6 +641,63 @@ timeline without lanes (2px marks cannot carry hue). Deferred: a
 transaction page with the full instruction logs (`/session/:id/tx/:n`),
 and a "diff view" of files touched — both wait for a session that needs
 them.
+
+## The conversation view (landed 2026-10-20)
+
+The first page of the explorer revamp (wiki: log.md "explorer revamp sync",
+10-20): pages map to QUESTIONS, and the question a dialogue session answers
+is "what did we say to each other" — which the block answers only one fold
+at a time. `/session/:id?view=conversation` reads the SAME `getTrace` top to
+bottom with every turn open: the message, the assistant's words, the reply,
+at reading size, and the tool work between them as one muted line
+(`Bash ×29 · 29 steps · 9min · $4.05 · 1 err · 2 notifications`) that opens
+into the block's own instruction table for exactly those rows. The header,
+tiles, fee bar and timeline are the block's, with a `block · conversation`
+switch in the crumbs; the timeline's bands link into the same turn ids.
+
+`conversation.ts` is the projection and `lore conversation <session|job>`
+prints it (`?json=1` on the page is the same object): per turn, `beats[]`
+in reading order — `work` (a run of instructions: steps, wall, fee, tool
+mix, the `from`/`to` cursors that name the fold), `said` (assistant text
+between runs), `you` / `peer` (a message read mid-turn, at the cursor where
+the turn read it), `sent` (a SendMessage out: recipient, summary, message,
+delivered). Events sit at an instruction cursor and tie-break received →
+said → sent, because a message read at `at` was delivered with the result
+of `at − 1`, a note at `at` precedes instruction `at`, and a send IS
+instruction `at`. Given a job, the sessions read in order and each `/clear`
+is its own one-line row. `--tail n` is the "orient me after an hour away"
+read.
+
+Three calls, taken against steer d60e79fa (4 you + 1 relay + 4 task, the
+dialogue shape) and lane edecbbfc (one brief, 141 steps, must still read):
+
+- **Every assistant text is dialogue, not only the reply.** The first cut
+  folded the notes into the work line, and the opening turn read `Bash ×29`
+  where the terminal had shown "The gates table is in. Next, in parallel…".
+  A note is the assistant talking; the block treats it as the heading of the
+  phase under it, the conversation as a line of speech with the phase folded
+  after it. The grind therefore reads as narration with folds — fourteen
+  lines and fourteen folds — rather than one fold, and that is what it was.
+- **A peer's message shows its lead and folds whole.** A subagent's hand-back
+  is a 5,800-character report and took the screen; a cross-session brief is
+  4,000. The first 600 characters read in place, the whole text is one fold
+  away and never cut (the thread page's rule). The user's words and the
+  assistant's replies are never previewed.
+- **A harness notification read mid-turn is a count on the work line**, not
+  a bubble: fourteen of them in one turn would be fourteen rows saying
+  "background command finished".
+
+Who speaks is a left rule and a small mono name, never a bubble floated to a
+side — at this density a column of text with a coloured edge reads at a
+glance. The hues are the thread page's: the session's own agent (`@steer`,
+from its job's name) in series-1, a peer in series-2, the user in ink, the
+harness muted. A message read mid-turn wears `mid-turn` with its clock,
+inside the turn where it landed. `relayHead` now also unwraps the subagent
+envelope (`<agent-message from="<task id>">` + the `[Subagent hand-back]`
+preamble + a two-space-indented report), which the hand-backs wore raw.
+
+Not yet: a job's conversation as a page (`/job/<key>?view=conversation` —
+the verb has it), and the run page the sync put next.
 
 ## The console (layout pass, landed 2026-09-01)
 
