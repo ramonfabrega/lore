@@ -259,7 +259,10 @@ export function jobTraces(db: Database, key: string, opts: { head?: number; pros
         .all(key),
     )
   if (members.length === 0) return null
-  const o = traceOpts(opts)
+  // No lane ledger per session: the job's head has its own, and the ledger
+  // is the one fleet-wide fold in a trace (trace.ts) — 47 sessions paid it
+  // 47 times, 17 of the page's 21 cold seconds.
+  const o = { ...traceOpts(opts), lanes: false }
   return { job: { key, name: members.find((m) => m.name)?.name ?? null }, traces: members.map((m) => getTrace(db, m.sessionId, o)) }
 }
 

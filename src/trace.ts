@@ -345,7 +345,11 @@ const HEAD = 160
 export function getTrace(
   db: Database,
   idPrefix: string,
-  opts: { well?: string; exact?: boolean; limit: number; steps?: boolean; head?: number; proseHead?: number },
+  // `lanes: false` skips the lane ledger and reports none: the ledger is a
+  // fleet-wide fold (listJobs prices every session to price thirteen lanes,
+  // ~400 ms whatever the count), fine once on a session page and 17 s on a
+  // job page tracing 47 sessions whose head does not use it.
+  opts: { well?: string; exact?: boolean; limit: number; steps?: boolean; head?: number; proseHead?: number; lanes?: boolean },
 ): Trace {
   const head = opts.head ?? HEAD
   // Prose — the message that opened the turn, the assistant's notes, its
@@ -416,7 +420,7 @@ export function getTrace(
       .all(sessionId),
   )
   const models = tallyModels([...reqs.values()].map((r) => r.model))
-  const lanes = lanesOf(db, sessionId)
+  const lanes = opts.lanes === false ? [] : lanesOf(db, sessionId)
   const laneUsd = lanes.length && lanes.every((l) => l.listUsd != null) ? round2(lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0)) : lanes.length ? null : 0
 
   // The address book, from the harness's own words: every inbound relay
