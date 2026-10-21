@@ -8,15 +8,15 @@ import { z } from 'zod'
 import { type AgentRow, attachLink, listAgents } from './agents'
 import { repoOf } from './job'
 import { TZ, WIKI_DIR } from './config'
-import { JOB_KEY_SQL, type JobKind, type JobRow, jobNames, jobsOfSessions, listJobs, resolveJob } from './job'
+import { JOB_KEY_SQL, type JobKind, type JobRow, jobNames, jobsOfSessions, listJobs, resolveJob, spawnEdges } from './job'
 import type { Lane } from './parse'
 import { FAMILIES, type ModelFamily, modelFamily } from './model'
 import { searchSessions } from './search'
 import { resolveSessionId } from './session'
 import { listSessions, modelsFor } from './sessions'
 import { annotationLine, sessionBody, sessionHead, tile } from './block'
-import { conversationOf } from './conversation'
-import { conversationBody } from './convoview'
+import { conversationFrom, conversationOf, jobTraces } from './conversation'
+import { conversationBody, railBody } from './convoview'
 import { cut, day, dayName, stamp, tok, todayLocal, usd } from './fmt'
 import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
 import { CSS, tick } from './style'
@@ -271,6 +271,29 @@ export function createApp(
       if (root != null) prevRoot = root
       return { ...s, root, respawn, usage: fee.get(s.sessionId) ?? null }
     })
+    const title = job.name ? `@${job.name}` : job.key.slice(0, 8)
+    // The lanes this job spawned (spawnEdges, read off its own transcripts):
+    // a commander's peers are three hundred lanes and two real peers, and
+    // the head named every lane as a thread — a chip wall where the one
+    // fact worth reading was `@lore, @steer`.
+    const lanes = cached(`job.lanes.${ref.key}`, 300_000, indexKey(), () => {
+      const kids = [...spawnEdges(db)].filter(([, e]) => e.key === ref.key).map(([k]) => k)
+      return kids.length ? listJobs(db, { keys: kids, limit: kids.length }) : []
+    })
+    // Every job by name, for reading a peer's parentage (the agents page's
+    // own listing, shared through the cache).
+    const byName = new Map<string, JobRow>()
+    for (const j of cached('jobs.all', 300_000, indexKey(), () => listJobs(db, { all: true, limit: 2000 })).slice().reverse()) if (j.name) byName.set(j.name, j)
+    // ?view=conversation: the job read as one dialogue across its /clears
+    // (convoview.ts) — each session under a rule, the rail grouped the same
+    // way. The JSON is the projection `lore conversation <job>` prints.
+    if (c.req.query('view') === 'conversation') {
+      const read = cached(`job.convo.${ref.key}`, 300_000, indexKey(), () => jobTraces(db, ref.key, { head: 400 }))
+      if (!read) return c.notFound()
+      if (wantsJson(c.req.raw)) return c.json(conversationFrom(read.traces, read.job))
+      const open = c.req.query('open') === 'all'
+      return c.html(page(`${title} · conversation · lore`, html`${jobHead(job, lanes, byName, { view: 'conversation' })}${conversationBody(read.traces, { open, name: job.name })}${railBody(read.traces, { name: job.name })}`, { ...chrome(c), layout: 'convo', nav: 'agents' }))
+    }
     const data = { job, sessions }
     if (wantsJson(c.req.raw)) return c.json(data)
     const today = todayLocal()
@@ -280,30 +303,8 @@ export function createApp(
       const d = s.first ?? '?'
       days.set(d, [...(days.get(d) ?? []), s])
     }
-    const kindText = { bridge: 'bridge id · the key that survives /clear and a daemon respawn', root: 'root id · a pre-bridge job, one incarnation', session: 'interactive session · a job of one' }[job.kind]
-    const title = job.name ? `@${job.name}` : job.key.slice(0, 8)
     const body = html`
-      <div class="page-head">
-        <p class="crumbs"><a href="/">lore</a> / <a href="/agents">agents</a> / job</p>
-        <h1 class="mono">${job.name ? html`<span class="kind side-a">@${job.name}</span> ` : ''}<span class="muted" title="${kindText}">${job.key}</span></h1>
-        <p class="muted">${kindText}${job.nameSource === 'peer' ? html` · <span class="kind peer" title="the daemon has forgotten this job; its peers called it this">named by its peers</span>` : ''}${
-          job.jobId ? html` · daemon ${job.jobId} · <span class="kind st-${job.state ?? ''}">${job.state ?? '?'}</span> as of the last index${
-            job.state !== 'gone' ? html` · <a href="${attachLink(job.jobId)}" title="claude attach ${job.jobId} — opens the pane in ccc">attach</a>` : ''
-          }` : job.kind === 'session' ? '' : ' · not at the daemon'
-        }
-          · ${spanEl(job.first, job.last)} · in ${job.wells.map((w, i) => html`${i ? ', ' : ''}<a class="mono" href="/well/${encodeURIComponent(w)}" title="${w}">${shortWell(w)}</a>`)}
-          ${job.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
-            job.peers.length ? html` · thread with ${job.peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(job.name ?? job.key)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
-          }</p>
-        <div class="tiles">
-          ${tile('sessions', String(job.sessions))}
-          ${tile(html`<span title="distinct roots under the bridge: one per daemon respawn">incarnations</span>`, String(job.incarnations))}
-          ${tile('requests', job.requests.toLocaleString())}
-          ${tile('output', tok(job.output))}
-          ${tile('list $', usd(job.listUsd))}
-          ${tile('lines', job.lines.toLocaleString())}
-        </div>
-      </div>
+      ${jobHead(job, lanes, byName, { view: 'sessions' })}
       <div class="panel"><div class="scroll list jobsess">
         <div class="row head"><span title="when the session began — these rows are grouped under the day they started">started</span><span>well</span><span>model</span><span>opening</span><span class="num">turns</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
         ${[...days].map(
@@ -324,6 +325,79 @@ export function createApp(
       </div></div>`
     return c.html(page(`${title} · job · lore`, body, { ...chrome(c), layout: 'head', nav: 'agents' }))
   })
+
+  // The header every view of a job shares — identity, where it is at the
+  // daemon, its span, wells, models, peers and tiles — with the view switch
+  // in the crumbs. `lanes` are the jobs it spawned, one fold away as chips.
+  // The thread line names PEERS, not the fleet: a peer this job spawned is
+  // a lane and is counted (`306 lanes in thread`), and of the rest only the
+  // loudest few are named — `peers` is ordered by messages exchanged
+  // (job.ts) — with the long tail one fold away. The attrition commander's
+  // head was three hundred `@att-NNNN` chips, most of them lanes of the
+  // commander before it (a lane reports to whichever job wears the name
+  // that day; the daemon's parent edge names the earlier job, so the exact
+  // rule cannot fold them), and the two facts worth reading, `@steer` and
+  // `@lore`, sat at the end of the wall. Exact where exact is possible, a
+  // count where it is not; nothing is classified on the shape of a name.
+  function jobHead(job: JobRow, lanes: JobRow[], byName: Map<string, JobRow>, o: { view: 'sessions' | 'conversation' }) {
+    const kindText = { bridge: 'bridge id · the key that survives /clear and a daemon respawn', root: 'root id · a pre-bridge job, one incarnation', session: 'interactive session · a job of one' }[job.kind]
+    // A lane is a job this one spawned that lived ONE session: a job that
+    // crossed a /clear is a standing agent whoever spawned it (the commander
+    // spawns the next steer; the steer is not its lane). Standing peers are
+    // named longest-lived first — sessions, then messages — because the
+    // thread's message counts do not separate them: lore exchanged two
+    // messages with the commander, a lane six.
+    const spawned = new Set(lanes.map((l) => l.name).filter((n): n is string => n != null))
+    const sessionsOf = (p: string) => byName.get(p)?.sessions ?? 1
+    const isLane = (p: string) => (spawned.has(p) || byName.get(p)?.parent?.key === job.key) && sessionsOf(p) <= 1
+    const NAMED = 6
+    const standing = job.peers.filter((p) => !isLane(p)).sort((a, b) => sessionsOf(b) - sessionsOf(a))
+    const peers = standing.slice(0, NAMED)
+    const tail = standing.slice(NAMED)
+    const lanePeers = job.peers.filter(isLane)
+    const laneUsd = lanes.some((l) => l.listUsd != null) ? lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0) : null
+    const threadTo = (p: string) => `/thread/${encodeURIComponent(job.name ?? job.key)}/${encodeURIComponent(p)}`
+    const sw = (v: typeof o.view, label: string) => (v === o.view ? html`<b>${label}</b>` : html`<a href="?view=${v}">${label}</a>`)
+    return html`
+      <div class="page-head">
+        <p class="crumbs"><a href="/">lore</a> / <a href="/agents">agents</a> / job
+          <span class="views">${sw('sessions', 'sessions')} · ${sw('conversation', 'conversation')}</span></p>
+        <h1 class="mono">${job.name ? html`<span class="kind side-a">@${job.name}</span> ` : ''}<span class="muted" title="${kindText}">${job.key}</span></h1>
+        <p class="muted">${kindText}${job.nameSource === 'peer' ? html` · <span class="kind peer" title="the daemon has forgotten this job; its peers called it this">named by its peers</span>` : ''}${
+          job.jobId ? html` · daemon ${job.jobId} · <span class="kind st-${job.state ?? ''}">${job.state ?? '?'}</span> as of the last index${
+            job.state !== 'gone' ? html` · <a href="${attachLink(job.jobId)}" title="claude attach ${job.jobId} — opens the pane in ccc">attach</a>` : ''
+          }` : job.kind === 'session' ? '' : ' · not at the daemon'
+        }
+          · ${spanEl(job.first, job.last)} · in ${job.wells.map((w, i) => html`${i ? ', ' : ''}<a class="mono" href="/well/${encodeURIComponent(w)}" title="${w}">${shortWell(w)}</a>`)}
+          ${job.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
+            peers.length ? html` · thread with ${peers.map((p, i) => html`${i ? ', ' : ''}<a href="${threadTo(p)}">@${p}</a>`)}` : ''
+          }${tail.length ? html` <a href="#peers" title="the rest of the thread, longest-lived first">+${tail.length} more</a>` : ''}${
+            lanePeers.length ? html` · <a href="#lanes" title="lanes this job spawned that are in its thread">${lanePeers.length} lane${lanePeers.length === 1 ? '' : 's'} in thread</a>` : ''
+          }${
+            job.parent ? html` · spawned by <a href="/job/${encodeURIComponent(job.parent.key)}">@${job.parent.name ?? job.parent.key.slice(0, 8)}</a>` : ''
+          }</p>
+        ${
+          lanes.length
+            ? html`<details class="lanes-ledger" id="lanes"><summary class="fan small"><span class="muted">lanes</span> <span class="g"><b>${lanes.length}</b> spawned${laneUsd != null ? html` · ${usd(laneUsd)}` : ''}</span></summary>
+              <p class="chips small">${lanes.map((l) => html`<a class="kind ${l.name != null && lanePeers.includes(l.name) ? 'relay' : 'peer'}" href="/job/${encodeURIComponent(l.key)}" title="${l.state ?? '?'} · ${usd(l.listUsd)} · ${cut(l.latest?.firstPrompt ?? '', 120)}">@${l.name ?? l.key.slice(0, 8)}</a> `)}</p></details>`
+            : ''
+        }
+        ${
+          tail.length
+            ? html`<details class="lanes-ledger" id="peers"><summary class="fan small"><span class="muted">thread</span> <span class="g"><b>${tail.length}</b> more peers · longest-lived first</span></summary>
+              <p class="chips small">${tail.map((p) => html`<a class="kind peer" href="${threadTo(p)}">@${p}</a> `)}</p></details>`
+            : ''
+        }
+        <div class="tiles">
+          ${tile('sessions', String(job.sessions))}
+          ${tile(html`<span title="distinct roots under the bridge: one per daemon respawn">incarnations</span>`, String(job.incarnations))}
+          ${tile('requests', job.requests.toLocaleString())}
+          ${tile('output', tok(job.output))}
+          ${tile('list $', usd(job.listUsd))}
+          ${tile('lines', job.lines.toLocaleString())}
+        </div>
+      </div>`
+  }
 
   // Liveness + provenance for `lore server status`.
   app.get('/_lore', (c) => c.json({ ok: true, build: opts.build ?? 'dev', pid: process.pid, startedAt, indexed }))
@@ -630,7 +704,7 @@ export function createApp(
     // its JSON is the projection `lore conversation` prints.
     if (c.req.query('view') === 'conversation') {
       if (wantsJson(c.req.raw)) return c.json(conversationOf(trace))
-      return c.html(page(title, html`${sessionHead(trace, { view: 'conversation' })}${conversationBody([trace], { open })}`, { ...chrome(c), layout: 'head' }))
+      return c.html(page(title, html`${sessionHead(trace, { view: 'conversation' })}${conversationBody([trace], { open })}${railBody([trace])}`, { ...chrome(c), layout: 'convo' }))
     }
     if (wantsJson(c.req.raw)) return c.json(trace)
     // ?open=all unfolds every transaction and phase — one page to ⌘F or print.
@@ -965,7 +1039,9 @@ function tallyWellModels(rows: { models: { model: string; requests: number }[] }
   return [...n].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests || (a.model < b.model ? -1 : 1))
 }
 
-type Layout = 'one' | 'head' | 'root' | 'usage'
+// `convo` is the conversation pages' two columns: the dialogue at reading
+// width and the rail beside it, under a head that spans both.
+type Layout = 'one' | 'head' | 'root' | 'usage' | 'convo'
 export function page(
   title: string,
   body: HtmlEscapedString | Promise<HtmlEscapedString>,

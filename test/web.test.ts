@@ -147,10 +147,18 @@ describe('explorer routes', () => {
     expect(text).toContain('<section class="convo">')
     // the switch names the view it is on, and links the other
     expect(text).toContain('<a href="?view=block">block</a> · <b>conversation</b>')
-    // the user's words, the work folded to a line, the reply in markdown
-    expect(text).toContain('<p class="plain">ship the explorer')
+    // the user's words (rendered — a brief is written in markdown), the work
+    // folded to a line, the reply in markdown
+    expect(text).toContain('<div class="say you md"><p>ship the explorer')
     expect(text).toContain('<details class="work" >')
     expect(text).toContain('Green.')
+    // the turn's weight on the line that opens it
+    expect(text).toMatch(/<div class="who you">.*<span class="fee">3 steps/)
+    // the rail: a row per turn linking into it, a sub-row for the reply
+    expect(text).toContain('<div class="panel rail">')
+    expect(text).toMatch(/<a class="r prompt" href="#tx-[^"]+"/)
+    expect(text).toMatch(/<a class="r sub ai" href="#tx-[^"]+-r"/)
+    expect(text).toContain('class="layout-convo"')
     const json = Any.parse(await (await app.request('/session/sess-1?view=conversation&json=1')).json())
     expect(json[0].kind).toBe('prompt')
     expect(json[0].beats.map((b: { kind: string }) => b.kind)).toContain('work')

@@ -2,7 +2,7 @@ import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
 import { sentHead } from './envelope'
 import { cut, hm, hms, ms, tok, usd } from './fmt'
-import { mdBlock, mdInline, mdLead } from './md'
+import { mdBlock, mdInline, mdLead, mdUser } from './md'
 import { modelDrift, modelLabel } from './model'
 import type { Annotations, Instruction, Lane, SpawnGroup, Trace, Transaction } from './trace'
 import { priceOf, rateFor } from './usage'
@@ -87,11 +87,17 @@ export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
   // The peers this session spoke with — a relay that opened a turn, one read
   // mid-turn, or a send the address book named — each a way into the thread
   // page, where the exchange reads with neither side nested in the other.
-  const peers = [...new Set(txs.flatMap((x) => [
+  // A peer that is one of this session's own lanes is not a thread: a
+  // commander's ten lanes reporting in are the lanes tile and the ledger
+  // below, not ten `@att-NNNN` after `thread with`.
+  const laneNames = new Set(trace.lanes.map((l) => l.name).filter((n): n is string => n != null))
+  const spoke = [...new Set(txs.flatMap((x) => [
     x.kind === 'relay' ? x.tag : null,
     ...x.received.filter((r) => r.kind === 'relay').map((r) => r.tag),
     ...x.sent.map((sn) => sn.name),
   ]).filter((p): p is string => p != null))]
+  const peers = spoke.filter((p) => !laneNames.has(p))
+  const lanePeers = spoke.length - peers.length
   const sw = (v: SessionView, label: string) => (v === view ? html`<b>${label}</b>` : html`<a href="?view=${v}">${label}</a>`)
   return html`
     <div class="page-head">
@@ -102,7 +108,7 @@ export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
       · ${ms(t.ms)} wall · ${s.lines} lines${s.jobKey ? html` · job <a class="mono" href="/job/${encodeURIComponent(s.jobKey)}" title="${s.jobKey}">${s.name ? `@${s.name}` : s.jobKey.slice(0, 8)}</a>` : ''}
       ${trace.models.map((m) => html` · ${modelChip(m.model)} <span class="muted">×${m.requests}</span>`)}${
         peers.length ? html` · thread with ${peers.map((p, i) => html`${i ? ', ' : ''}<a href="/thread/${encodeURIComponent(s.name ?? s.sessionId)}/${encodeURIComponent(p)}">@${p}</a>`)}` : ''
-      }</p>
+      }${lanePeers ? html` · <a href="#lanes" title="lanes this session spawned that reported back — the ledger below">${lanePeers} lane${lanePeers === 1 ? '' : 's'} in thread</a>` : ''}</p>
     <div class="tiles">
       ${tile(whoOpened(t.turns, txs), String(t.transactions))}
       ${t.sent ? tile(html`<span title="messages this session sent with SendMessage — to peer sessions and to its own spawns${t.lost ? '; a lost one is a send the ack refused (a stale socket after the peer restarted), which the harness never marks an error' : ''}">sent</span>`, t.lost ? `${t.sent} · ${t.lost} lost` : String(t.sent), t.lost ? 'warn' : '') : ''}
@@ -190,7 +196,7 @@ function laneLedger(lanes: Lane[]) {
   const states = new Map<string, number>()
   for (const l of lanes) states.set(l.state ?? '?', (states.get(l.state ?? '?') ?? 0) + 1)
   const total = lanes.every((l) => l.listUsd != null) ? lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0) : null
-  return html`<details class="lanes-ledger">
+  return html`<details class="lanes-ledger" id="lanes">
     <summary class="fan small"><span class="muted">lanes</span> <span class="g"><b>${lanes.length}</b> · ${usd(total)}</span>
       ${[...states].sort((a, b) => b[1] - a[1]).map(([st, n]) => html`<span class="g"><span class="kind st-${st}">${st}</span> <span class="muted">×${n}</span></span>`)}</summary>
     <table class="ix lanes">
@@ -390,7 +396,7 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
     <summary class="row">${cells}</summary>
     <div class="body">
       ${annotationLine(x.annotations)}
-      ${x.message ? (x.kind === 'relay' ? html`<div class="msg md">${raw(mdBlock(x.message))}</div>` : html`<p class="msg">${x.message}</p>`) : ''}
+      ${x.message ? (x.kind === 'relay' ? html`<div class="msg md">${raw(mdBlock(x.message))}</div>` : x.kind === 'prompt' ? html`<div class="msg md">${raw(mdUser(x.message))}</div>` : html`<p class="msg">${x.message}</p>`) : ''}
       ${txBody(x, o.openPhases)}
     </div>
   </details>`

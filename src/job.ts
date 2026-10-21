@@ -330,7 +330,8 @@ export type JobRow = {
   requests: number
   output: number
   listUsd: number | null
-  // Every agent this job exchanged a message with, by name.
+  // Every agent this job exchanged a message with, by name, most messages
+  // first.
   peers: string[]
   // The repo this job works in — its cwd, or its first well, with a
   // worktree folded into its base checkout (repoOf). The fleet tree groups
@@ -408,12 +409,15 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     const n = nameOf(key)
     if (n && !keyOfName.has(n)) keyOfName.set(n, key)
   }
-  const peers = new Map<string, Set<string>>()
-  const add = (key: string, peer: string) => {
+  // Counted, so the list reads loudest first: a commander's thread holds
+  // two standing peers at hundreds of messages and three hundred lanes at
+  // three each, and a page naming the first few names the right ones.
+  const peers = new Map<string, Map<string, number>>()
+  const add = (key: string, peer: string, n: number) => {
     if (!keys.has(key)) return
-    const set = peers.get(key) ?? new Set()
-    set.add(peer)
-    peers.set(key, set)
+    const m = peers.get(key) ?? new Map<string, number>()
+    m.set(peer, (m.get(peer) ?? 0) + n)
+    peers.set(key, m)
   }
   const relays = z.array(PeerRow).parse(
     db
@@ -424,10 +428,10 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
       .all(),
   )
   for (const r of relays) {
-    add(r.key, r.peer)
+    add(r.key, r.peer, r.n)
     const sender = keyOfName.get(r.peer)
     const receiver = nameOf(r.key)
-    if (sender && receiver) add(sender, receiver)
+    if (sender && receiver) add(sender, receiver, r.n)
   }
   const latest = new Map(listSessions(db, { sessions: groups.map((g) => g.latest), limit: groups.length }).map((s) => [s.sessionId, s]))
   const parentOf = spawnEdges(db)
@@ -454,7 +458,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
       requests: u?.requests ?? 0,
       output: u?.output ?? 0,
       listUsd: u?.priced ? u.listUsd : null,
-      peers: [...(peers.get(g.key) ?? [])].sort(),
+      peers: [...(peers.get(g.key) ?? [])].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([p]) => p),
       repo: repoOf(j?.cwd ?? g.paths?.split(',')[0] ?? null),
       parent: parentKey ? { key: parentKey, name: nameOf(parentKey) } : null,
       latest: l ? { sessionId: l.sessionId, firstPrompt: l.firstPrompt, openedBy: l.openedBy } : null,

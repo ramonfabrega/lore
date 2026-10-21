@@ -82,6 +82,27 @@ export function mdBlock(s: string): string {
   return balanced(out) ? out : `<p class="plain">${esc(s)}</p>`
 }
 
+// What the USER typed is not markdown by contract — the terminal never
+// rendered it — but a commander's brief IS written in it (`**READ FIRST**`,
+// `## Item 3380`, a fence of commands) and every lane page showed the syntax
+// raw. Rendering it costs the one thing a prompt cannot afford to lose: its
+// line structure, where a newline is a new thought and never a soft wrap
+// ("need more info on #2" / "also an example on #3" is two lines, not one
+// sentence). So every line break becomes a hard break before the parser sees
+// it, outside fences where whitespace is already syntax, and the paragraph
+// breaks the user typed stay paragraphs. Still no sniffing: this is called
+// on what the user wrote because it is the user's, never because it looked
+// like markdown.
+export function mdUser(s: string): string {
+  const lines: string[] = []
+  let fenced = false
+  for (const line of s.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
+    lines.push(!fenced && line.trim() !== '' ? `${line}  ` : line)
+  }
+  return mdBlock(lines.join('\n'))
+}
+
 // One line of markdown inside a heading or a row: code spans, emphasis,
 // links, and no block wrapper. A line that parses as a heading or a list
 // item keeps only its text — it is sitting in someone else's layout.

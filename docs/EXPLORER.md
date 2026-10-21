@@ -696,8 +696,45 @@ inside the turn where it landed. `relayHead` now also unwraps the subagent
 envelope (`<agent-message from="<task id>">` + the `[Subagent hand-back]`
 preamble + a two-space-indented report), which the hand-backs wore raw.
 
-Not yet: a job's conversation as a page (`/job/<key>?view=conversation` —
-the verb has it), and the run page the sync put next.
+**The rail (2026-10-21).** Two calls off the first day's reading: at a
+glance the block had told who opened what in six rows and the dialogue
+did not, and the dialogue is a column of reading-size text on a page
+wider than a column — 40% of the panel empty at 1440, 60% at 2400, with
+the turn's fee floated to the far edge of the emptiness. One answer to
+both: `layout-convo` is two tracks, the dialogue at its measure
+(`840px × --z`, what the 92ch cap gave it) and the RAIL (`railBody`,
+convoview.ts) in the rest. The rail is the spine as a column of anchors:
+a row per turn — number, who in its hue, clock, the first line, steps and
+fee; errors, output and wall when the panel is over 640px (a container
+query), so on an ultrawide it is the whole spine and at 1440 it is who,
+when, lead, weight — and under it a row per voice inside the turn: `↳ you`
+mid-turn, `↳ @lean`, `→ @ccc` with its summary, `↳ @steer` with the reply's
+lead. Every row lands on the voice (`#tx-<id>-b<k>`, `-r` for the reply),
+which the existing `:target` rule highlights; no script. A run of harness
+turns is one muted row (`task ×3`). Under 1100px there is no rest of the
+width, and the page is the dialogue alone. The turn's weight now rides the
+line that opens it, not the reply forty lines down, and the fee aligns to
+the column, not the panel. A job's page is the same shape
+(`/job/<key>?view=conversation`): each session under a rule in both
+panels, the job's name standing in for a session that predates it.
+
+The user's words render (`mdUser`, md.ts): a commander's brief is written
+in markdown and showed its `**` and `##` raw on every lane page. Still no
+sniffing — it is called on the user's text because it is the user's — and
+every line break becomes a hard break first, because a prompt's newlines
+are thoughts, not soft wraps.
+
+The job head stopped being a chip wall: the attrition commander's `thread
+with` named 320 `@att-NNNN` lanes before `@lore, @steer`. A peer this job
+spawned that lived one session is a lane and is counted (`306 lanes in
+thread`, the chips one fold away); a job that crossed a /clear is a
+standing agent whoever spawned it (the commander spawns the next steer);
+standing peers are named longest-lived first, six of them, the rest one
+fold away. `peers` on a job row is now ordered by messages exchanged.
+Nothing is classified on the shape of a name. The session head does the
+same with its own lanes (`10 lanes in thread` → the ledger).
+
+Not yet: the run page the sync put next.
 
 ## The console (layout pass, landed 2026-09-01)
 

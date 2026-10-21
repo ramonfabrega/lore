@@ -432,6 +432,45 @@ mark { background: color-mix(in oklab, var(--series-1) 22%, transparent); color:
 .convo details.work .mix { display: inline-flex; flex-wrap: wrap; gap: 0 10px; color: var(--ink-2); } .convo details.work .mix b { font-weight: 500; color: var(--ink-3); }
 .convo details.work table.ix { margin: 4px 0 8px; }
 
+/* The conversation pages' frame: the dialogue is a column of reading-size
+   text, so it gets a column — the measure the 92ch cap gave it, as the grid
+   track — and the rail takes the rest of the width. Below ~1100px there is
+   no rest, and the page is the dialogue alone. */
+main.layout-convo { grid-template-columns: minmax(0, calc(840px * var(--z))) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+main.layout-convo > .page-head { grid-column: 1 / -1; }
+main.layout-convo .convo .say, main.layout-convo .convo .md { max-width: none; }
+@media (max-width: 1100px) { main.layout-convo { grid-template-columns: minmax(0, 1fr); } main.layout-convo > .rail { display: none; } }
+/* a prompt the user wrote, rendered (md.ts mdUser), in the block's open turn */
+div.msg.md { margin: 2px 0 10px; border-left: 2px solid var(--line-2); padding-left: 10px; }
+/* the rail (convoview.ts railBody): the spine as a column of anchors. A row
+   is a turn — number, who, when, lead, weight — and a sub-row a voice inside
+   it. Columns that need width (err, out, wall) appear when the panel has it. */
+.rail .outline { padding: 0 0 16px; font: var(--fs-115) var(--mono); }
+.rail .r { display: grid; grid-template-columns: calc(22px * var(--z)) auto calc(46px * var(--z)) minmax(0, 1fr) calc(40px * var(--z)) calc(60px * var(--z)); gap: 0 8px; align-items: baseline; padding: 3px 10px; color: var(--ink-2); border-bottom: 1px solid var(--line); text-decoration: none; transition: background-color var(--t-hover) var(--ease-out); }
+.rail a.r:hover { background: var(--surface-2); color: var(--ink); }
+.rail .r.head { position: sticky; top: 0; z-index: 1; background: var(--surface); color: var(--ink-3); font-weight: 500; }
+.rail .r.head .who, .rail .r.head .lead { text-transform: none; letter-spacing: 0; color: var(--ink-3); font: inherit; }
+.rail .r .n { text-align: right; color: var(--ink-3); }
+.rail .r .at { color: var(--ink-3); white-space: nowrap; } .rail .r .at time { color: inherit; }
+.rail .r .who { white-space: nowrap; font: 600 var(--fs-105) var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
+.rail .r .who .kind { text-transform: none; letter-spacing: 0; } .rail .r .who b { font-weight: 600; color: var(--ink-3); }
+.rail .r.ai .who { color: var(--series-1); text-transform: none; letter-spacing: 0; }
+.rail .r.relay .who, .rail .r.peer .who { text-transform: none; letter-spacing: 0; }
+.rail .r.command .who, .rail .r.meta .who { color: var(--ink-3); }
+.rail .r .lead { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font: var(--fs-12) var(--sans); }
+.rail .r .lead.mono { font-family: var(--mono); color: var(--ink-2); }
+.rail .r.sub .lead, .rail .r.meta .lead { color: var(--ink-3); } .rail .r.sub.you .lead, .rail .r.sub.peer .lead { color: var(--ink-2); }
+.rail .r .num { text-align: right; color: var(--ink-3); white-space: nowrap; font-size: var(--fs-115); } .rail .r .num.err { color: var(--err); }
+.rail .r .x { display: none; }
+.rail .r.sess { grid-template-columns: auto auto minmax(0, 1fr); gap: 0 10px; margin-top: 6px; background: var(--surface-2); color: var(--ink-3); font-size: var(--fs-115); }
+.rail .r.relay { box-shadow: inset 2px 0 0 var(--series-2); } .rail .r.sub { box-shadow: inset 2px 0 0 var(--line); } .rail .r.sub.peer { box-shadow: inset 2px 0 0 color-mix(in oklab, var(--series-2) 45%, transparent); }
+.rail .r.sub.ai { box-shadow: inset 2px 0 0 color-mix(in oklab, var(--series-1) 45%, transparent); }
+@container (inline-size > 640px) {
+  .rail .r { grid-template-columns: calc(22px * var(--z)) auto calc(46px * var(--z)) minmax(0, 1fr) calc(40px * var(--z)) calc(30px * var(--z)) calc(44px * var(--z)) calc(60px * var(--z)) calc(50px * var(--z)); }
+  .rail .r .x { display: block; }
+}
+.chips { margin: 2px 0 6px; line-height: 1.9; }
+
 /* narrow: the page scrolls, panels stack */
 @media (max-width: 900px) {
   body { overflow: auto; height: auto; } html { height: auto; }

@@ -224,32 +224,48 @@ export function getConversation(
   q: string,
   opts: { tail?: number; head?: number; proseHead?: number; well?: string; exact?: boolean } = {},
 ): Conversation {
-  const head = opts.head ?? 160
-  const proseHead = opts.proseHead ?? PROSE
-  const traceOf = (id: string) => getTrace(db, id, { limit: 10_000, exact: true, steps: true, head, proseHead })
   let traces: Trace[]
   let job: Conversation['job'] = null
   try {
-    traces = [traceOf(resolveSessionId(db, q, { well: opts.well, exact: opts.exact }))]
+    traces = [getTrace(db, resolveSessionId(db, q, { well: opts.well, exact: opts.exact }), traceOpts(opts))]
   } catch (e) {
     const ref = resolveJob(db, q)
     if (!ref) throw e
-    const members = z
-      .array(z.object({ sessionId: z.string(), name: z.string().nullable() }))
-      .parse(
-        db
-          .prepare(
-            `SELECT s.session_id AS sessionId, j.name AS name FROM sessions s
-             LEFT JOIN jobs j ON (s.bridge_key IS NOT NULL AND j.bridge_key = s.bridge_key) OR j.session_id = s.job_session_id
-             WHERE ${JOB_KEY_SQL} = ? ORDER BY s.first_ts, s.session_id`,
-          )
-          .all(ref.key),
-      )
-    if (members.length === 0) throw e
-    job = { key: ref.key, name: members.find((m) => m.name)?.name ?? null }
-    traces = members.map((m) => traceOf(m.sessionId))
+    const read = jobTraces(db, ref.key, opts)
+    if (!read) throw e
+    job = read.job
+    traces = read.traces
   }
+  return conversationFrom(traces, job, opts.tail)
+}
+
+function traceOpts(opts: { head?: number; proseHead?: number }) {
+  return { limit: 10_000, exact: true, steps: true, head: opts.head ?? 160, proseHead: opts.proseHead ?? PROSE } as const
+}
+
+// Every session of a job, traced, in order — the job's conversation page
+// and the verb's job form read the same list. Null when the key has no
+// sessions in the index.
+export function jobTraces(db: Database, key: string, opts: { head?: number; proseHead?: number } = {}): { traces: Trace[]; job: NonNullable<Conversation['job']> } | null {
+  const members = z
+    .array(z.object({ sessionId: z.string(), name: z.string().nullable() }))
+    .parse(
+      db
+        .prepare(
+          `SELECT s.session_id AS sessionId, j.name AS name FROM sessions s
+           LEFT JOIN jobs j ON (s.bridge_key IS NOT NULL AND j.bridge_key = s.bridge_key) OR j.session_id = s.job_session_id
+           WHERE ${JOB_KEY_SQL} = ? ORDER BY s.first_ts, s.session_id`,
+        )
+        .all(key),
+    )
+  if (members.length === 0) return null
+  const o = traceOpts(opts)
+  return { job: { key, name: members.find((m) => m.name)?.name ?? null }, traces: members.map((m) => getTrace(db, m.sessionId, o)) }
+}
+
+export function conversationFrom(traces: Trace[], job: Conversation['job'], tail?: number): Conversation {
   const all = traces.flatMap(conversationOf)
+  const opts = { tail }
   const turns = opts.tail != null && opts.tail > 0 ? all.slice(-opts.tail) : all
   const models = new Map<string, number>()
   for (const t of traces) for (const m of t.models) models.set(m.model, (models.get(m.model) ?? 0) + m.requests)

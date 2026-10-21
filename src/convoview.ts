@@ -2,8 +2,8 @@ import { html, raw } from 'hono/html'
 import type { HtmlEscapedString } from 'hono/utils/html'
 import { ixTable } from './block'
 import { type Beat, type Turn, type Work, conversationOf } from './conversation'
-import { cut, cutMarkdown, ms, usd } from './fmt'
-import { mdBlock } from './md'
+import { cut, cutMarkdown, ms, tok, usd } from './fmt'
+import { mdBlock, mdLead, mdUser } from './md'
 import type { Trace, Transaction } from './trace'
 import { clockEl, modelChip } from './viz'
 
@@ -22,83 +22,110 @@ import { clockEl, modelChip } from './viz'
 // muted. A message read mid-turn sits INSIDE the turn at the cursor where
 // the turn read it, marked `mid-turn` with its clock — it did not open a
 // turn, and showing it where it landed is the point.
+//
+// Beside the dialogue, the RAIL (`railBody`): the block's spine as a second
+// panel — one row per turn, who opened it, when, its first line and its
+// weight, and under it a row per voice inside the turn (the user mid-turn,
+// a peer, the assistant's reply, a message sent). The dialogue is a column
+// of reading-size text and the page is wider than a column; the rail is
+// what the rest of the width is for, and it is how a reader who scrolled
+// past forty turns finds the one where a peer spoke. Rows are anchors into
+// the turn ids the timeline's bands already use; no script.
 
 type H = HtmlEscapedString | Promise<HtmlEscapedString>
 
-export function conversationBody(traces: Trace[], o: { open?: boolean } = {}) {
+// `name` is the job's, for a session that predates the name (a session's
+// own `name` is read as of its index; the job's is a property looked up on
+// the key, CLAUDE.md) — the speaker is the same agent either way.
+export function conversationBody(traces: Trace[], o: { open?: boolean; name?: string | null } = {}) {
   const many = traces.length > 1
   return html`<div class="panel"><div class="scroll">
     <section class="convo">
       ${traces.map((trace) => {
         const turns = conversationOf(trace)
-        const self = trace.session.name ? `@${trace.session.name}` : 'assistant'
+        const self = selfOf(trace, o.name)
         return html`${many ? sessionRule(trace) : ''}${turns.map((turn, i) => turnEl(turn, trace.transactions[i]!, i, self, o))}`
       })}
     </section>
   </div></div>`
 }
 
+function selfOf(trace: Trace, name?: string | null): string {
+  const n = trace.session.name ?? name
+  return n ? `@${n}` : 'assistant'
+}
+
 // A job across /clears: each session's rows under a rule naming it. The
 // `/clear` that opened it is the first row and reads as what it is.
 function sessionRule(trace: Trace) {
   const s = trace.session
-  return html`<div class="sess"><a class="mono" href="/session/${s.sessionId}">${s.sessionId.slice(0, 8)}</a> · ${clockEl(s.first)} → ${clockEl(s.last)} · ${trace.totals.steps} steps · ${usd(trace.totals.listUsd)}</div>`
+  return html`<div class="sess" id="s-${s.sessionId.slice(0, 8)}"><a class="mono" href="/session/${s.sessionId}">${s.sessionId.slice(0, 8)}</a> · ${clockEl(s.first)} → ${clockEl(s.last)} · ${trace.totals.steps} steps · ${usd(trace.totals.listUsd)}</div>`
+}
+
+// The turn's anchor; a beat inside it is `<turn>-b<index>` so the rail can
+// land on a voice inside a long turn, not only at its top.
+function turnId(x: Transaction, i: number): string {
+  return x.promptId ? `tx-${x.promptId}` : `tx-${i}`
 }
 
 function turnEl(turn: Turn, x: Transaction, i: number, self: string, o: { open?: boolean }) {
-  const id = x.promptId ? `tx-${x.promptId}` : `tx-${i}`
+  const id = turnId(x, i)
   const n = turn.n != null ? html`<span class="n">${turn.n}</span>` : ''
   // A slash command with nothing after it is one line.
   if (turn.kind === 'command' && !turn.reply && turn.beats.length === 0)
     return html`<div class="turn command" id="${id}"><div class="who">${n}<span class="kind">command</span><span class="cmd mono">${turn.message}</span>${clockEl(turn.ts, { sec: true })}</div></div>`
 
+  // The turn's weight rides the line that opens it — steps, wall, fee — so a
+  // scroll reads the heavy turn where it starts, not forty lines later where
+  // it ends. The rail carries the same numbers as a column.
+  const fee = turn.steps ? html`<span class="fee">${turn.steps} step${turn.steps === 1 ? '' : 's'} · ${ms(turn.ms)} · ${usd(turn.listUsd)}</span>` : ''
   const opener =
     turn.kind === 'relay'
-      ? html`<div class="who peer">${n}<span class="kind relay">@${turn.tag ?? 'peer'}</span>${clockEl(turn.ts, { sec: true })}</div>${peerText(turn.message)}`
+      ? html`<div class="who peer">${n}<span class="kind relay">@${turn.tag ?? 'peer'}</span>${clockEl(turn.ts, { sec: true })}${fee}</div>${peerText(turn.message)}`
       : turn.kind === 'meta'
-        ? html`<div class="who meta">${n}<span class="kind meta">${turn.tag ?? 'meta'}</span>${clockEl(turn.ts, { sec: true })}</div><div class="say meta"><p class="plain">${turn.message}</p></div>`
+        ? html`<div class="who meta">${n}<span class="kind meta">${turn.tag ?? 'meta'}</span>${clockEl(turn.ts, { sec: true })}${fee}</div><div class="say meta"><p class="plain">${turn.message}</p></div>`
         : turn.kind === 'command'
-          ? html`<div class="who you">${n}<span class="kind">command</span>${clockEl(turn.ts, { sec: true })}</div><div class="say you"><p class="plain mono">${turn.message}</p></div>`
-          : html`<div class="who you">${n}you${clockEl(turn.ts, { sec: true })}</div><div class="say you"><p class="plain">${turn.message}</p></div>`
+          ? html`<div class="who you">${n}<span class="kind">command</span>${clockEl(turn.ts, { sec: true })}${fee}</div><div class="say you"><p class="plain mono">${turn.message}</p></div>`
+          : html`<div class="who you">${n}you${clockEl(turn.ts, { sec: true })}${fee}</div><div class="say you md">${raw(mdUser(turn.message))}</div>`
 
   // Speaker tracking: a name line opens each change of voice, so a run of
   // assistant text broken by two folds reads as one speaker, not three.
   let speaker: string = turn.kind === 'relay' ? `peer:${turn.tag}` : turn.kind
   const parts: H[] = []
   const stepFee = new Map((x.requests ?? []).map((r) => [r.requestId, r]))
-  for (const b of turn.beats) {
+  turn.beats.forEach((b, k) => {
+    const bid = `${id}-b${k}`
     if (b.kind === 'work') {
       parts.push(workEl(b, x, stepFee, o.open === true))
-      continue
+      return
     }
     if (b.kind === 'said') {
       if (speaker !== 'ai') parts.push(html`<div class="who ai"><span class="self">${self}</span>${clockEl(b.ts, { sec: true })}</div>`)
       speaker = 'ai'
       parts.push(html`<div class="say ai md">${raw(mdBlock(b.text))}</div>`)
-      continue
+      return
     }
     if (b.kind === 'you') {
-      parts.push(html`<div class="who you">you <span class="kind land mid-turn" title="typed while the turn ran; read at the next tool result">mid-turn</span>${clockEl(b.ts, { sec: true })}</div><div class="say you"><p class="plain">${b.text}</p></div>`)
+      parts.push(html`<div class="who you" id="${bid}">you <span class="kind land mid-turn" title="typed while the turn ran; read at the next tool result">mid-turn</span>${clockEl(b.ts, { sec: true })}</div><div class="say you md">${raw(mdUser(b.text))}</div>`)
       speaker = 'you'
-      continue
+      return
     }
     if (b.kind === 'peer') {
-      parts.push(html`<div class="who peer"><span class="kind relay">@${b.tag ?? 'peer'}</span> <span class="kind land mid-turn" title="arrived while the turn ran; read at the next tool result">mid-turn</span>${clockEl(b.ts, { sec: true })}</div>${peerText(b.text)}`)
+      parts.push(html`<div class="who peer" id="${bid}"><span class="kind relay">@${b.tag ?? 'peer'}</span> <span class="kind land mid-turn" title="arrived while the turn ran; read at the next tool result">mid-turn</span>${clockEl(b.ts, { sec: true })}</div>${peerText(b.text)}`)
       speaker = `peer:${b.tag}`
-      continue
+      return
     }
-    if (b.kind !== 'sent') continue
+    if (b.kind !== 'sent') return
     const to = b.agent ? html`<span class="kind sent agent" title="${b.to ?? ''}">→ agent</span> <span class="muted">${cut(b.agent, 60)}</span>` : html`<span class="kind sent" title="${b.to ?? ''}">→ @${b.name ?? shortTo(b.to)}</span>`
-    parts.push(html`<div class="who ai"><span class="self">${self}</span>${to}${b.delivered === false ? html`<span class="kind err">lost</span>` : ''}${clockEl(b.ts, { sec: true })}</div>
+    parts.push(html`<div class="who ai" id="${bid}"><span class="self">${self}</span>${to}${b.delivered === false ? html`<span class="kind err">lost</span>` : ''}${clockEl(b.ts, { sec: true })}</div>
       <div class="say ai out">${b.summary ? html`<p class="sum">${b.summary}</p>` : ''}${b.message ? html`<div class="md">${raw(mdBlock(b.message))}</div>` : ''}</div>`)
     speaker = 'ai'
-  }
+  })
 
-  const fee = html`<span class="fee">${turn.steps} step${turn.steps === 1 ? '' : 's'} · ${ms(turn.ms)} · ${usd(turn.listUsd)}</span>`
   const reply = turn.reply
-    ? html`<div class="who ai"><span class="self">${self}</span>${modelChip(turn.model)}${clockEl(turn.replyTs, { sec: true })}${fee}</div><div class="say ai md reply">${raw(mdBlock(turn.reply))}</div>`
+    ? html`<div class="who ai" id="${id}-r"><span class="self">${self}</span>${modelChip(turn.model)}${clockEl(turn.replyTs, { sec: true })}</div><div class="say ai md reply">${raw(mdBlock(turn.reply))}</div>`
     : turn.steps
-      ? html`<div class="who ai end"><span class="self">${self}</span>${clockEl(turn.replyTs, { sec: true })}<span class="muted">ended without a reply</span>${fee}</div>`
+      ? html`<div class="who ai end" id="${id}-r"><span class="self">${self}</span>${clockEl(turn.replyTs, { sec: true })}<span class="muted">ended without a reply</span></div>`
       : ''
   return html`<article class="turn ${turn.kind}" id="${id}">${opener}${parts}${reply}</article>`
 }
@@ -126,6 +153,83 @@ function peerText(text: string) {
   return html`<details class="say peer long"><summary><div class="md lead">${raw(mdBlock(cutMarkdown(text, PEER_LEAD)))}</div><span class="more">full message · ${text.length.toLocaleString()} chars</span></summary><div class="md">${raw(mdBlock(text))}</div></details>`
 }
 
+// ---- the rail -------------------------------------------------------------
+
+// One row per turn and one per voice inside it. The turn row is the spine's:
+// number, who opened it, when, the first line, and the weight (steps and
+// fee always; errors, output and wall when the panel is wide enough — the
+// container query in style.ts). Under it, indented: the user mid-turn, a
+// peer mid-turn, each message sent, and the reply's lead — so the column
+// reads as who spoke, in order, and every row lands on the voice itself.
+// Harness turns (a task finishing) are one muted row per run of them: ten
+// rows saying `task` between two human turns was the spine's noise.
+export function railBody(traces: Trace[], o: { name?: string | null } = {}) {
+  const many = traces.length > 1
+  const turns = traces.reduce((n, t) => n + t.totals.transactions, 0)
+  return html`<div class="panel rail"><header><h2>turns</h2><span class="sub">${turns} · who spoke, where; a row lands on the voice</span></header><div class="scroll">
+    <section class="outline">
+      <div class="r head"><span class="n">#</span><span class="who">who</span><span class="at">at</span><span class="lead"></span><span class="num">steps</span><span class="num x">err</span><span class="num x">out</span><span class="num">list $</span><span class="num x">wall</span></div>
+      ${traces.map((trace) => {
+        const turns = conversationOf(trace)
+        const self = selfOf(trace, o.name)
+        const rows: H[] = []
+        let metaRun: { turn: Turn; x: Transaction; i: number; n: number } | null = null
+        const flush = () => {
+          if (!metaRun) return
+          const { turn, x, i, n } = metaRun
+          rows.push(html`<a class="r meta" href="#${turnId(x, i)}" title="${cut(turn.message, 300)}"><span class="n"></span><span class="who">${turn.tag ?? 'meta'}${n > 1 ? html` <b>×${n}</b>` : ''}</span><span class="at">${clockEl(turn.ts)}</span><span class="lead">${cut(turn.message, 140)}</span><span class="num"></span><span class="num x"></span><span class="num x"></span><span class="num"></span><span class="num x"></span></a>`)
+          metaRun = null
+        }
+        turns.forEach((turn, i) => {
+          const x = trace.transactions[i]!
+          if (turn.kind === 'meta') {
+            if (metaRun && metaRun.turn.tag === turn.tag) metaRun.n++
+            else {
+              flush()
+              metaRun = { turn, x, i, n: 1 }
+            }
+            return
+          }
+          flush()
+          rows.push(...turnRows(turn, x, i, self))
+        })
+        flush()
+        return html`${many ? sessionRailRule(trace) : ''}${rows}`
+      })}
+    </section>
+  </div></div>`
+}
+
+function sessionRailRule(trace: Trace) {
+  const s = trace.session
+  return html`<a class="r sess" href="#s-${s.sessionId.slice(0, 8)}"><span class="mono">${s.sessionId.slice(0, 8)}</span><span>${clockEl(s.first)}</span><span class="muted">${trace.totals.transactions} turns · ${usd(trace.totals.listUsd)}</span></a>`
+}
+
+function turnRows(turn: Turn, x: Transaction, i: number, self: string): H[] {
+  const id = turnId(x, i)
+  const nums = html`<span class="num">${turn.steps || ''}</span><span class="num x ${turn.errors ? 'err' : ''}">${turn.errors || ''}</span><span class="num x">${x.output ? tok(x.output) : ''}</span><span class="num">${turn.listUsd ? usd(turn.listUsd) : ''}</span><span class="num x">${turn.ms ? ms(turn.ms) : ''}</span>`
+  const who =
+    turn.kind === 'relay'
+      ? html`<span class="who"><span class="kind relay">@${turn.tag ?? 'peer'}</span></span>`
+      : turn.kind === 'command'
+        ? html`<span class="who">cmd</span>`
+        : html`<span class="who">you</span>`
+  const lead = turn.kind === 'command' ? html`<span class="lead mono">${turn.message}</span>` : html`<span class="lead">${turn.kind === 'relay' ? cut(mdLead(turn.message) || turn.message, 160) : cut(turn.message, 160)}</span>`
+  const rows: H[] = [html`<a class="r ${turn.kind}" href="#${id}" title="${cut(turn.message, 300)}"><span class="n">${turn.n ?? ''}</span>${who}<span class="at">${clockEl(turn.ts)}</span>${lead}${nums}</a>`]
+  const blank = html`<span class="num"></span><span class="num x"></span><span class="num x"></span><span class="num"></span><span class="num x"></span>`
+  turn.beats.forEach((b, k) => {
+    const bid = `${id}-b${k}`
+    if (b.kind === 'you') rows.push(html`<a class="r sub you" href="#${bid}" title="${cut(b.text, 300)}"><span class="n"></span><span class="who">↳ you</span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(b.text, 140)}</span>${blank}</a>`)
+    else if (b.kind === 'peer') rows.push(html`<a class="r sub peer" href="#${bid}" title="${cut(b.text, 300)}"><span class="n"></span><span class="who">↳ <span class="kind relay">@${b.tag ?? 'peer'}</span></span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(mdLead(b.text) || b.text, 140)}</span>${blank}</a>`)
+    else if (b.kind === 'sent') {
+      const to = b.agent ? 'agent' : `@${cut(b.name ?? shortTo(b.to), 14)}`
+      rows.push(html`<a class="r sub ai sent" href="#${bid}" title="${cut(b.summary ?? b.message ?? '', 300)}"><span class="n"></span><span class="who">→ ${to}${b.delivered === false ? html` <b class="err">lost</b>` : ''}</span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(b.summary ?? b.message ?? '', 140)}</span>${blank}</a>`)
+    }
+  })
+  if (turn.reply) rows.push(html`<a class="r sub ai" href="#${id}-r" title="${cut(turn.reply, 300)}"><span class="n"></span><span class="who">↳ ${self}</span><span class="at">${clockEl(turn.replyTs)}</span><span class="lead">${cut(mdLead(turn.reply) || turn.reply, 140)}</span>${blank}</a>`)
+  return rows
+}
+
 // The lane families, for the swatch (block.ts owns the table; the mix on
 // the work line is the same legend).
 const FAMILY: Record<string, string> = {
@@ -145,4 +249,3 @@ function shortTo(to: string | null): string {
   const name = tail.replace(/\.sock$/, '')
   return name.length > 12 ? `${name.slice(0, 8)}…` : name
 }
-
