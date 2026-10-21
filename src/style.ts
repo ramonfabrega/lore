@@ -471,6 +471,26 @@ div.msg.md { margin: 2px 0 10px; border-left: 2px solid var(--line-2); padding-l
 }
 .chips { margin: 2px 0 6px; line-height: 1.9; }
 
+/* the run page (runview.ts): one tranche of a loop. The head is lore loop
+   as a line, a picker, tiles, the scoreboard and the tranche timeline; the
+   dialogue strip (a rail) above the lanes table. */
+main.layout-run { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 2fr) minmax(0, 3fr); }
+.ink { color: var(--ink); } .good { color: var(--good); }
+.seg.tranches a { padding: 1px 7px; font: var(--fs-115) var(--mono); }
+.score { margin: 6px 0 0; font: var(--fs-115) var(--mono); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 2px 18px; }
+.score .sline { display: flex; flex-wrap: wrap; gap: 0 12px; align-items: baseline; } .score .sline.fold { flex: 0 0 100%; }
+.score .sline.fold > summary { cursor: pointer; list-style: none; display: flex; gap: 10px; } .score .sline.fold > summary::-webkit-details-marker { display: none; }
+.score .sline.fold > summary::before { content: '▸ '; color: var(--ink-3); } .score .sline.fold[open] > summary::before { content: '▾ '; }
+.score .sn { color: var(--ink-3); } .score .si { white-space: nowrap; } .score .sl { color: var(--ink-3); } .score b { font-weight: 500; color: var(--ink); }
+.score .sitems { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 2px 0 4px 1.5ch; }
+.score .delta.up { color: var(--good); } .score .delta.down { color: var(--err); }
+.tl.run .m.land { fill: var(--good); } .tl.run .landl { stroke: color-mix(in oklab, var(--good) 35%, transparent); stroke-width: 0.5; vector-effect: non-scaling-stroke; }
+.tl.run .m.msg { fill: var(--ink); } .tl.run .now { stroke: var(--ink-3); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 2 2; }
+.tl.run .bandn.ln { color: var(--ink-2); font-size: 8px; }
+.tl.run .ln.st-done { fill: color-mix(in oklab, var(--good) 55%, var(--surface-2)); }
+table.ix.lanes.run tr.live td { color: var(--ink); } table.ix.lanes.run td.warn { color: var(--warn); }
+.strip .outline { padding: 0; } .strip .r.sess { margin-top: 0; } .strip .r.sess .kind { font-size: var(--fs-105); }
+
 /* short: the console gives way. The frame pins the page head as a grid row
    that never scrolls, and on a laptop a head with tiles, a fee bar and a
    timeline is half the screen, with the panels under it split into strips

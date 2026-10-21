@@ -97,7 +97,14 @@ export type Loop = {
     label: string | null
     base: string
     baseAt: string | null
+    // The tranche's end: `--until` (the next tranche's base) and its
+    // instant; null for the open tranche, which runs to HEAD and now.
+    until: string | null
+    endAt: string | null
     landings: number
+    // Each landing: the booking commit, when, the item it books (the first
+    // number in its subject), the subject's head.
+    booked: { sha: string; at: string | null; item: number | null; subject: string }[]
     of: number
     first: string | null
     last: string | null
@@ -119,6 +126,10 @@ export type Loop = {
 
 export type LoopOpts = {
   base?: string
+  // The tranche's end commit (the next tranche's base): landings, lanes and
+  // fee stop there, and the clock the rates use is its instant, not now —
+  // a closed tranche's per-hour is what it was.
+  until?: string
   queue?: string
   landing?: string
   of?: number
@@ -168,6 +179,43 @@ export function parseQueueHead(text: string): { label: string | null; base: stri
   return { label: TRANCHE_LABEL.exec(text)?.[1] ?? null, base: BASE_IN_QUEUE.exec(text)?.[1] ?? null }
 }
 
+// The tranches, off the queue file's own history: every commit that moved
+// the base line is a tranche's opening (`lore tranches`). The loop rewrites
+// the queue's head at every booking — `13 of 20 landed from \`11da5dd8\`` —
+// and the base changes once per tranche, at the handoff; `git log -p` on
+// the file, read oldest first, and a row wherever the `+` side names a new
+// base. The rows carry the commit that opened the tranche and when, its
+// label, and its base; the next row's base is its end. Nothing is
+// inferred from session openers or prose: the queue is the loop's own
+// record of where each tranche began.
+export type Tranche = { sha: string; at: string | null; label: string | null; base: string }
+const PATCH_HEAD = /^\+(?!\+\+).*?\*\*(the [\w-]+ tranche)\b[^\n]*?from `([0-9a-f]{7,40})`/m
+export function parseTrancheLog(log: string): Tranche[] {
+  const out: Tranche[] = []
+  // Chunks are newest first (git's order); read oldest first.
+  for (const chunk of log.split('\x01').slice(1).reverse()) {
+    const nl = chunk.indexOf('\n')
+    const [sha, at] = chunk.slice(0, nl).split('\t')
+    const m = PATCH_HEAD.exec(chunk.slice(nl + 1))
+    if (!sha || !m?.[2]) continue
+    const base = m[2].slice(0, 8)
+    if (out.at(-1)?.base === base) continue
+    out.push({ sha: sha.slice(0, 8), at: iso(at ?? null), label: m[1] ?? null, base })
+  }
+  return out
+}
+
+export async function listTranches(cwd: string, queueRel = 'docs/QUEUE.md'): Promise<Tranche[]> {
+  const log = await git(cwd, ['log', '--format=%x01%H%x09%cI', '-p', '--', queueRel])
+  return log == null ? [] : parseTrancheLog(log)
+}
+
+// The job's working directory, for the readers that need the repo (the
+// tranches, the queue): the daemon's row, else its latest session's cwd.
+export function cwdOf(db: Database, key: string): string | null {
+  return jobsRowOf(db, key)?.cwd ?? null
+}
+
 const Ts = z.object({ ts: z.string().nullable() })
 const Span = z.object({ n: z.number(), first: z.string().nullable(), last: z.string().nullable() })
 const Sessions = z.array(z.object({ sessionId: z.string() }))
@@ -206,9 +254,9 @@ function lastTs(db: Database, sessions: string[], where: string): string | null 
 
 // The fee of a set of sessions from an instant: requests, list price, and
 // the models that served them.
-function feeOf(db: Database, sessions: string[], since: string | undefined): { requests: number; listUsd: number | null; models: { model: string; requests: number }[] } {
+function feeOf(db: Database, sessions: string[], since: string | undefined, until?: string): { requests: number; listUsd: number | null; models: { model: string; requests: number }[] } {
   if (sessions.length === 0) return { requests: 0, listUsd: 0, models: [] }
-  const u = listUsage(db, { by: 'session', sessions, since, limit: 100_000, split: true })
+  const u = listUsage(db, { by: 'session', sessions, since, until, limit: 100_000, split: true })
   const models = new Map<string, number>()
   for (const r of u.rows) for (const m of r.models ?? []) models.set(m.model, (models.get(m.model) ?? 0) + m.requests)
   return {
@@ -254,45 +302,62 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
   const head = queueText ? parseQueueHead(queueText) : { label: null, base: null }
   const base = opts.base ?? head.base
   if (queueText) score = parseScore(queueText)
+  const until = opts.until ?? null
   if (cwd && base) {
     const landing = new RegExp(opts.landing ?? '^Book ')
-    const [log, baseAtRaw, open] = await Promise.all([
-      git(cwd, ['log', '--first-parent', '--format=%H%x09%cI%x09%P%x09%s', `${base}..HEAD`]),
+    const [log, baseAtRaw, open, endAtRaw] = await Promise.all([
+      git(cwd, ['log', '--first-parent', '--format=%H%x09%cI%x09%P%x09%s', `${base}..${until ?? 'HEAD'}`]),
       git(cwd, ['show', '-s', '--format=%cI', base]),
       queueText ? git(cwd, ['show', `${base}:${queueRel}`]) : Promise.resolve(null),
+      until ? git(cwd, ['show', '-s', '--format=%cI', until]) : Promise.resolve(null),
     ])
     if (log != null) {
       const rows = log
         .split('\n')
         .filter(Boolean)
         .map((l) => l.split('\t'))
-        .map(([, at, parents, subject]) => ({ at: iso(at ?? null), merge: (parents ?? '').split(' ').length > 1, subject: subject ?? '' }))
+        .map(([sha, at, parents, subject]) => ({ sha: (sha ?? '').slice(0, 8), at: iso(at ?? null), merge: (parents ?? '').split(' ').length > 1, subject: subject ?? '' }))
       const landings = rows.filter((r) => landing.test(r.subject))
+      // A closed tranche's label and score are the queue as its LAST LANDING
+      // left it. Not the end commit: that is the next tranche's base, and
+      // not the commit before it either — the steer's pass between the last
+      // booking and the base rewrites the queue's head for the next tranche
+      // (28f48612..11da5dd8 read "the forty-ninth" off both).
+      const closed = until && queueText && landings[0] ? await git(cwd, ['show', `${landings[0].sha}:${queueRel}`]) : null
       const first = landings.at(-1)?.at ?? null
       const last = landings[0]?.at ?? null
       const baseAt = iso(baseAtRaw?.trim() ?? null)
-      const hours = baseAt ? (now - Date.parse(baseAt)) / 3_600_000 : null
+      const endAt = iso(endAtRaw?.trim() ?? null)
+      // A closed tranche is measured to its end, not to now.
+      const clock = endAt ? Date.parse(endAt) : now
+      const hours = baseAt ? (clock - Date.parse(baseAt)) / 3_600_000 : null
       const perHour = hours && hours > 0 ? round2(landings.length / hours) : null
       const left = of - landings.length
       tranche = {
-        label: head.label,
+        label: (closed != null ? parseQueueHead(closed).label : null) ?? head.label,
         base,
         baseAt,
+        until,
+        endAt,
         landings: landings.length,
+        booked: landings.map((r) => ({ sha: r.sha, at: r.at, item: LANE_ITEM.exec(r.subject)?.[1] != null ? Number(LANE_ITEM.exec(r.subject)?.[1]) : null, subject: r.subject.slice(0, 160) })),
         of,
         first,
         last,
-        sinceLastMs: last ? now - Date.parse(last) : null,
+        sinceLastMs: last ? clock - Date.parse(last) : null,
         perHour,
-        etaMs: perHour && left > 0 ? Math.round((left / perHour) * 3_600_000) : null,
+        etaMs: !endAt && perHour && left > 0 ? Math.round((left / perHour) * 3_600_000) : null,
         merges: rows.filter((r) => r.merge).length,
         commits: rows.length,
       }
+      if (closed != null) score = parseScore(closed)
       if (open != null) score = diffScore(score, parseScore(open))
     }
   }
   const baseAt = tranche?.baseAt ?? null
+  const endAt = tranche?.endAt ?? null
   const since = baseAt ?? undefined
+  const clock = endAt ? Date.parse(endAt) : now
 
   // The lanes: the jobs this one spawned (the edges in its own sessions'
   // transcripts), those of this tranche by spawn instant, plus any still
@@ -304,7 +369,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
       const jr = jobsRowOf(db, key)
       const r = byKey.get(key) ?? (jr ? byId.get(jr.jobId) : undefined) ?? null
       const lsp = spanOf(db, key)
-      const fee = feeOf(db, sessionsOf(db, key), since)
+      const fee = feeOf(db, sessionsOf(db, key), since, endAt ?? undefined)
       const ctx = r?.ctx ?? null
       const name = jr?.name ?? r?.name ?? null
       const item = LANE_ITEM.exec(name ?? '')?.[1]
@@ -317,7 +382,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
         live: r != null && LIVE.has(r.state),
         model: r?.model ?? dominantModel(fee.models),
         spawnedAt: spawned,
-        ageMs: spawned ? now - Date.parse(spawned) : null,
+        ageMs: spawned ? clock - Date.parse(spawned) : null,
         ctx,
         deep: ctx != null && ctx >= deep,
         requests: fee.requests,
@@ -325,7 +390,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
         last: lsp.last,
       }
     })
-    .filter((l) => l.live || !baseAt || (l.spawnedAt != null && l.spawnedAt >= baseAt))
+    .filter((l) => (l.live && !endAt) || !baseAt || (l.spawnedAt != null && l.spawnedAt >= baseAt && (!endAt || l.spawnedAt <= endAt)))
     .sort((a, b) => Number(b.live) - Number(a.live) || (b.spawnedAt ?? '').localeCompare(a.spawnedAt ?? ''))
     .slice(0, laneCap)
 
@@ -338,7 +403,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
 
   // The fee since the base: the job's own sessions, and its lanes' (whole
   // jobs, each inside the tranche); the whole job when there is no base.
-  const ownFee = feeOf(db, sessions, since)
+  const ownFee = feeOf(db, sessions, since, endAt ?? undefined)
   const jobUsd = sessions.length ? ownFee.listUsd : null
   const laneUsd = lanes.length ? (lanes.every((l) => l.listUsd != null) ? round2(lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0)) : null) : 0
   const totalUsd = jobUsd == null || laneUsd == null ? null : round2(jobUsd + laneUsd)

@@ -7,7 +7,7 @@ import type { AgentRow, JobState } from '../src/agents'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { indexJobs } from '../src/jobs'
-import { diffScore, getLoop, parseQueueHead, parseScore } from '../src/loop'
+import { diffScore, getLoop, listTranches, parseQueueHead, parseScore, parseTrancheLog } from '../src/loop'
 
 // One loop in miniature: a commander in its worktree that spawned two lanes
 // through `ccc spawn --json`, a queue file whose opening line names the
@@ -56,7 +56,7 @@ Census: simulation backed 1125 of 3611
 Golden: every chapter closed · ch1 closed · ch2 closed
 `
 
-async function repo(): Promise<{ dir: string; base: string }> {
+async function repo(): Promise<{ dir: string; base: string; note: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'lore-loop-repo-'))
   // Both dates: `--date` sets the author's alone, and a landing is read off
   // the committer's (%cI), which is what the loop's own commits carry.
@@ -85,9 +85,10 @@ async function repo(): Promise<{ dir: string; base: string }> {
   writeFileSync(join(dir, 'note.txt'), 'n')
   await g('add', '.')
   await g('commit', '-q', '-m', 'The handoff names the next number', '--date', '2026-10-15T11:10:00Z')
+  const note = (await $`git -C ${dir} rev-parse --short HEAD`.text()).trim()
   writeFileSync(join(dir, 'docs', 'QUEUE.md'), queueAt(base))
   await g('commit', '-q', '-am', 'Book 2: the peace pair 5400 -> 5499, census 1068 -> 1125', '--date', '2026-10-15T12:00:00Z')
-  return { dir, base }
+  return { dir, base, note }
 }
 
 function wells(cmdCwd: string, w1: string, w2: string) {
@@ -221,6 +222,45 @@ describe('lore loop', () => {
     // Index instants pass through as the transcript wrote them, like every
     // other verb's; only what git or the daemon wrote is normalized.
     expect(loop.spoke).toEqual({ lastPrompt: '2026-10-15T09:00:01Z', lastText: '2026-10-15T12:01:00Z', lastSent: null })
+  })
+
+  test('--until closes the tranche: landings stop at the end commit, the clock is its instant, the score is the last landing\'s queue', async () => {
+    const { dir, base, note } = await repo()
+    const { db } = await corpus(dir)
+    const now = Date.parse('2026-10-15T12:30:00Z')
+    const loop = await getLoop(db, 'commander', { now, live: { rows: [], states: new Map() }, base, until: note })
+    // base..note on the first-parent line: the merge, Book 1, and the note
+    // itself; Book 2 is past the end.
+    expect(loop.tranche).toMatchObject({ base, until: note, endAt: '2026-10-15T11:10:00.000Z', landings: 1, merges: 1, commits: 3, etaMs: null })
+    expect(loop.tranche?.booked).toEqual([{ sha: expect.any(String), at: '2026-10-15T11:00:00.000Z', item: 1, subject: 'Book 1: the peace pair 5315 -> 5400' }])
+    // Measured to the end, not to now: 1 landing in 70 minutes; 10 minutes
+    // from the landing to the end.
+    expect(loop.tranche?.perHour).toBe(0.86)
+    expect(loop.tranche?.sinceLastMs).toBe(10 * 60_000)
+    // The score as Book 1 left it, against the base.
+    const peace = loop.score.find((l) => l.line === 'Peace pair')?.items[0]
+    expect(peace).toMatchObject({ value: 5400, open: 5315, delta: 85 })
+    // Lanes by spawn instant inside base..end (att-2 at 11:05 is in; att-0
+    // before the base is not), newest first; nothing is live in a closed one.
+    expect(loop.lanes.map((l) => [l.name, l.live])).toEqual([['att-2', false], ['att-1', false]])
+  })
+
+  test('the tranches off the queue file\'s history: one row per base change, oldest first', async () => {
+    const log = [
+      '\x01cccccccc3333\t2026-10-21T16:01:10Z\n+*2026-10-21, **the forty-ninth tranche (commander, Opus): 1 of 20 landed from `11da5dd81`** — x',
+      '\x01bbbbbbbb2222\t2026-10-21T13:41:25Z\n+*2026-10-21, **the forty-eighth tranche (commander, Opus): 7 of 20 landed from `28f48612`** — y',
+      '\x01bbbbbbbb1111\t2026-10-21T11:53:59Z\n+*2026-10-21, **the forty-eighth tranche (commander, Opus): 1 of 20 landed from `28f48612`** — y\n-*2026-10-20, **the forty-seventh tranche** from `56f23ba5`',
+      '\x01aaaaaaaa0000\t2026-10-20T21:13:30Z\n+++ b/docs/QUEUE.md\n+*2026-10-20, **the forty-seventh tranche (commander, Opus): 1 of 20 landed from `56f23ba5`**',
+    ].join('\n')
+    expect(parseTrancheLog(log)).toEqual([
+      { sha: 'aaaaaaaa', at: '2026-10-20T21:13:30.000Z', label: 'the forty-seventh tranche', base: '56f23ba5' },
+      { sha: 'bbbbbbbb', at: '2026-10-21T11:53:59.000Z', label: 'the forty-eighth tranche', base: '28f48612' },
+      { sha: 'cccccccc', at: '2026-10-21T16:01:10.000Z', label: 'the forty-ninth tranche', base: '11da5dd8' },
+    ])
+    // Against a real repo: the fixture's queue names one base, once.
+    const { dir, base } = await repo()
+    const rows = await listTranches(dir)
+    expect(rows.map((t) => [t.label, t.base])).toEqual([['the second tranche', base]])
   })
 
   test('a job without a queue or a daemon still answers: no tranche, no score, the ledger side alone', async () => {

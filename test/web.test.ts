@@ -165,6 +165,20 @@ describe('explorer routes', () => {
     expect(json[0].reply).toContain('Green.')
   })
 
+  test('/run/:id renders a job as a run even without a queue or a daemon; unknown id is 404', async () => {
+    const app = await seededApp()
+    const res = await app.request('/run/abcd1234-root')
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('class="layout-run"')
+    expect(text).toContain('no tranche')
+    expect(text).toContain('<h2>lanes</h2>')
+    const json = Any.parse(await (await app.request('/run/abcd1234-root?json=1')).json())
+    expect(json.loop.tranche).toBeNull()
+    expect(json.tranches).toEqual([])
+    expect((await app.request('/run/zzz')).status).toBe(404)
+  })
+
   test('/usage renders the profile', async () => {
     const app = await seededApp()
     const res = await app.request('/usage')

@@ -7,9 +7,9 @@ import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
 import { buildIndex } from './indexer'
-import { backfillJobNames, listJobs } from './job'
+import { backfillJobNames, listJobs, resolveJob } from './job'
 import { indexJobs } from './jobs'
-import { getLoop } from './loop'
+import { cwdOf, getLoop, listTranches } from './loop'
 import type { Lane } from './parse'
 import { purgeSession } from './purge'
 import { searchHistory, searchMessages } from './search'
@@ -403,6 +403,7 @@ cli.command('loop', {
   }),
   options: z.object({
     base: z.string().optional().describe('The tranche\'s base commit; default: what the queue file names'),
+    until: z.string().optional().describe('The tranche\'s end commit (the next tranche\'s base, from `lore tranches`): landings, lanes and fee stop there and the rates are measured to its instant, not to now — a closed tranche reads as it was'),
     queue: z.string().optional().describe('The queue file, relative to the job\'s cwd (default docs/QUEUE.md)'),
     landing: z.string().optional().describe('Regex a first-parent commit subject must match to count as a landing (default `^Book `)'),
     of: z.coerce.number().default(20).describe('Landings per tranche, for `etaMs`'),
@@ -412,7 +413,27 @@ cli.command('loop', {
   alias: { base: 'b', of: 'n' },
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
-    return getLoop(db, args.job, { base: options.base, queue: options.queue, landing: options.landing, of: options.of, deep: options.deep, lanes: options.lanes })
+    return getLoop(db, args.job, { base: options.base, until: options.until, queue: options.queue, landing: options.landing, of: options.of, deep: options.deep, lanes: options.lanes })
+  },
+})
+
+cli.command('tranches', {
+  description:
+    'The tranches of an unattended loop, oldest first, off the queue file\'s own history: the loop rewrites the queue\'s head at every booking (`13 of 20 landed from `11da5dd8``) and the base changes once per tranche, at the handoff, so every commit that moved the base line opens a tranche. Each row: `sha` (the commit that opened it) and `at`, `label` (the queue\'s own words, `the forty-ninth tranche`), `base`, and `until` — the next tranche\'s base, null for the open one — which is what `lore loop --base <base> --until <until>` takes to read a closed tranche as it was. Nothing is read off session openers or prose. The run page (`/run/<job>`, docs/EXPLORER.md) is this list as a picker.',
+  args: z.object({
+    job: z.string().describe('The job: its name (`commander`), a bridge id, the daemon\'s id, or a session id'),
+  }),
+  options: z.object({
+    queue: z.string().optional().describe('The queue file, relative to the job\'s cwd (default docs/QUEUE.md)'),
+  }),
+  run: async ({ args, options }) => {
+    const db = openDb(DB_PATH)
+    const ref = resolveJob(db, args.job)
+    if (!ref) throw new Error(`no job matches "${args.job}" — a name from \`lore jobs\`, a bridge id, the daemon's id, or a session id`)
+    const cwd = cwdOf(db, ref.key)
+    if (!cwd) throw new Error(`job ${ref.key} has no cwd at the daemon — the queue's history is read from the repo it runs in`)
+    const rows = await listTranches(cwd, options.queue)
+    return { job: { key: ref.key, cwd }, tranches: rows.map((t, i) => ({ ...t, until: rows[i + 1]?.base ?? null })) }
   },
 })
 

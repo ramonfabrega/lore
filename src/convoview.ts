@@ -163,21 +163,26 @@ function peerText(text: string) {
 // reads as who spoke, in order, and every row lands on the voice itself.
 // Harness turns (a task finishing) are one muted row per run of them: ten
 // rows saying `task` between two human turns was the spine's noise.
-export function railBody(traces: Trace[], o: { name?: string | null } = {}) {
+// `pages`: the rows link into each session's conversation PAGE rather than
+// into anchors on this one — the run page's strip, where the dialogue is
+// not beside it. `title`/`sub` name the panel; `rule` labels each session's
+// rule (the run page says whose voice a session is).
+export function railBody(traces: Trace[], o: { name?: string | null; pages?: boolean; title?: string; sub?: string; rule?: (t: Trace) => string } = {}) {
   const many = traces.length > 1
   const turns = traces.reduce((n, t) => n + t.totals.transactions, 0)
-  return html`<div class="panel rail"><header><h2>turns</h2><span class="sub">${turns} · who spoke, where; a row lands on the voice</span></header><div class="scroll">
+  return html`<div class="panel rail"><header><h2>${o.title ?? 'turns'}</h2><span class="sub">${o.sub ?? html`${turns} · who spoke, where; a row lands on the voice`}</span></header><div class="scroll">
     <section class="outline">
       <div class="r head"><span class="n">#</span><span class="who">who</span><span class="at">at</span><span class="lead"></span><span class="num">steps</span><span class="num x">err</span><span class="num x">out</span><span class="num">list $</span><span class="num x">wall</span></div>
       ${traces.map((trace) => {
         const turns = conversationOf(trace)
         const self = selfOf(trace, o.name)
+        const at = o.pages ? `/session/${trace.session.sessionId}?view=conversation` : ''
         const rows: H[] = []
         let metaRun: { turn: Turn; x: Transaction; i: number; n: number } | null = null
         const flush = () => {
           if (!metaRun) return
           const { turn, x, i, n } = metaRun
-          rows.push(html`<a class="r meta" href="#${turnId(x, i)}" title="${cut(turn.message, 300)}"><span class="n"></span><span class="who">${turn.tag ?? 'meta'}${n > 1 ? html` <b>×${n}</b>` : ''}</span><span class="at">${clockEl(turn.ts)}</span><span class="lead">${cut(turn.message, 140)}</span><span class="num"></span><span class="num x"></span><span class="num x"></span><span class="num"></span><span class="num x"></span></a>`)
+          rows.push(html`<a class="r meta" href="${at}#${turnId(x, i)}" title="${cut(turn.message, 300)}"><span class="n"></span><span class="who">${turn.tag ?? 'meta'}${n > 1 ? html` <b>×${n}</b>` : ''}</span><span class="at">${clockEl(turn.ts)}</span><span class="lead">${cut(turn.message, 140)}</span><span class="num"></span><span class="num x"></span><span class="num x"></span><span class="num"></span><span class="num x"></span></a>`)
           metaRun = null
         }
         turns.forEach((turn, i) => {
@@ -191,21 +196,21 @@ export function railBody(traces: Trace[], o: { name?: string | null } = {}) {
             return
           }
           flush()
-          rows.push(...turnRows(turn, x, i, self))
+          rows.push(...turnRows(turn, x, i, self, at))
         })
         flush()
-        return html`${many ? sessionRailRule(trace) : ''}${rows}`
+        return html`${many || o.rule ? sessionRailRule(trace, at, o.rule?.(trace)) : ''}${rows}`
       })}
     </section>
   </div></div>`
 }
 
-function sessionRailRule(trace: Trace) {
+function sessionRailRule(trace: Trace, at = '', label?: string) {
   const s = trace.session
-  return html`<a class="r sess" href="#s-${s.sessionId.slice(0, 8)}"><span class="mono">${s.sessionId.slice(0, 8)}</span><span>${clockEl(s.first)}</span><span class="muted">${trace.totals.transactions} turns · ${usd(trace.totals.listUsd)}</span></a>`
+  return html`<a class="r sess" href="${at || `#s-${s.sessionId.slice(0, 8)}`}">${label ? html`<span class="kind">${label}</span>` : ''}<span class="mono">${s.sessionId.slice(0, 8)}</span><span>${clockEl(s.first)}</span><span class="muted">${trace.totals.transactions} turns · ${usd(trace.totals.listUsd)}</span></a>`
 }
 
-function turnRows(turn: Turn, x: Transaction, i: number, self: string): H[] {
+function turnRows(turn: Turn, x: Transaction, i: number, self: string, at = ''): H[] {
   const id = turnId(x, i)
   const nums = html`<span class="num">${turn.steps || ''}</span><span class="num x ${turn.errors ? 'err' : ''}">${turn.errors || ''}</span><span class="num x">${x.output ? tok(x.output) : ''}</span><span class="num">${turn.listUsd ? usd(turn.listUsd) : ''}</span><span class="num x">${turn.ms ? ms(turn.ms) : ''}</span>`
   const who =
@@ -215,18 +220,18 @@ function turnRows(turn: Turn, x: Transaction, i: number, self: string): H[] {
         ? html`<span class="who">cmd</span>`
         : html`<span class="who">you</span>`
   const lead = turn.kind === 'command' ? html`<span class="lead mono">${turn.message}</span>` : html`<span class="lead">${turn.kind === 'relay' ? cut(mdLead(turn.message) || turn.message, 160) : cut(turn.message, 160)}</span>`
-  const rows: H[] = [html`<a class="r ${turn.kind}" href="#${id}" title="${cut(turn.message, 300)}"><span class="n">${turn.n ?? ''}</span>${who}<span class="at">${clockEl(turn.ts)}</span>${lead}${nums}</a>`]
+  const rows: H[] = [html`<a class="r ${turn.kind}" href="${at}#${id}" title="${cut(turn.message, 300)}"><span class="n">${turn.n ?? ''}</span>${who}<span class="at">${clockEl(turn.ts)}</span>${lead}${nums}</a>`]
   const blank = html`<span class="num"></span><span class="num x"></span><span class="num x"></span><span class="num"></span><span class="num x"></span>`
   turn.beats.forEach((b, k) => {
     const bid = `${id}-b${k}`
-    if (b.kind === 'you') rows.push(html`<a class="r sub you" href="#${bid}" title="${cut(b.text, 300)}"><span class="n"></span><span class="who">↳ you</span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(b.text, 140)}</span>${blank}</a>`)
-    else if (b.kind === 'peer') rows.push(html`<a class="r sub peer" href="#${bid}" title="${cut(b.text, 300)}"><span class="n"></span><span class="who">↳ <span class="kind relay">@${b.tag ?? 'peer'}</span></span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(mdLead(b.text) || b.text, 140)}</span>${blank}</a>`)
+    if (b.kind === 'you') rows.push(html`<a class="r sub you" href="${at}#${bid}" title="${cut(b.text, 300)}"><span class="n"></span><span class="who">↳ you</span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(b.text, 140)}</span>${blank}</a>`)
+    else if (b.kind === 'peer') rows.push(html`<a class="r sub peer" href="${at}#${bid}" title="${cut(b.text, 300)}"><span class="n"></span><span class="who">↳ <span class="kind relay">@${b.tag ?? 'peer'}</span></span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(mdLead(b.text) || b.text, 140)}</span>${blank}</a>`)
     else if (b.kind === 'sent') {
       const to = b.agent ? 'agent' : `@${cut(b.name ?? shortTo(b.to), 14)}`
-      rows.push(html`<a class="r sub ai sent" href="#${bid}" title="${cut(b.summary ?? b.message ?? '', 300)}"><span class="n"></span><span class="who">→ ${to}${b.delivered === false ? html` <b class="err">lost</b>` : ''}</span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(b.summary ?? b.message ?? '', 140)}</span>${blank}</a>`)
+      rows.push(html`<a class="r sub ai sent" href="${at}#${bid}" title="${cut(b.summary ?? b.message ?? '', 300)}"><span class="n"></span><span class="who">→ ${to}${b.delivered === false ? html` <b class="err">lost</b>` : ''}</span><span class="at">${clockEl(b.ts)}</span><span class="lead">${cut(b.summary ?? b.message ?? '', 140)}</span>${blank}</a>`)
     }
   })
-  if (turn.reply) rows.push(html`<a class="r sub ai" href="#${id}-r" title="${cut(turn.reply, 300)}"><span class="n"></span><span class="who">↳ ${self}</span><span class="at">${clockEl(turn.replyTs)}</span><span class="lead">${cut(mdLead(turn.reply) || turn.reply, 140)}</span>${blank}</a>`)
+  if (turn.reply) rows.push(html`<a class="r sub ai" href="${at}#${id}-r" title="${cut(turn.reply, 300)}"><span class="n"></span><span class="who">↳ ${self}</span><span class="at">${clockEl(turn.replyTs)}</span><span class="lead">${cut(mdLead(turn.reply) || turn.reply, 140)}</span>${blank}</a>`)
   return rows
 }
 
