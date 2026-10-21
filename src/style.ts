@@ -471,6 +471,21 @@ div.msg.md { margin: 2px 0 10px; border-left: 2px solid var(--line-2); padding-l
 }
 .chips { margin: 2px 0 6px; line-height: 1.9; }
 
+/* short: the console gives way. The frame pins the page head as a grid row
+   that never scrolls, and on a laptop a head with tiles, a fee bar and a
+   timeline is half the screen, with the panels under it split into strips
+   (measured 2026-10-21 at 1440×800 on the run page: a 400px head, two
+   panels of 150px). Below 860px the page scrolls — the head goes by, the
+   panels take their natural height capped near a viewport so each still
+   scrolls on its own once the head is past. The columns stay: a laptop is
+   wide enough for the rail beside the dialogue, just not tall enough for
+   a fixed head above both. */
+@media (max-height: 860px) and (min-width: 901px) {
+  html, body { height: auto; } body { overflow: auto; }
+  main[class] { flex: none; grid-template-rows: none; grid-auto-rows: auto; }
+  .panel { max-height: calc(100vh - 64px); } .panel > .scroll { max-height: calc(100vh - 104px); }
+}
+
 /* narrow: the page scrolls, panels stack */
 @media (max-width: 900px) {
   body { overflow: auto; height: auto; } html { height: auto; }

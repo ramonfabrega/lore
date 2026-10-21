@@ -744,8 +744,14 @@ dense enough, not an ops/control dashboard". The pass makes the viewport
 the frame: `body` never scrolls, `main` is a CSS grid of **panels**
 (`style.ts`; header + an internally scrolling body), and every list is a
 grid row — one line, ellipsis, tooltip on hover, inline bar beside the
-number that matters. 13px type, 3px row padding. Under 900px the grid
-falls back to a stack and the page scrolls.
+number that matters. 13px type, 3px row padding. Under 900px wide the grid
+falls back to a stack and the page scrolls. Under 860px TALL the console
+gives way too (2026-10-21): the head is a grid row that never scrolls, and
+on a laptop a head with tiles, a fee bar and a timeline was half the
+screen with the panels under it split into 150px strips. There the page
+scrolls, the head goes by, and each panel keeps its own scroll capped near
+a viewport; the columns stay, since a laptop is wide enough for the rail
+beside the dialogue, only not tall enough for a fixed head above both.
 
 - **`/` — the control room.** KPI tiles (today $, this week $, requests,
   sessions, working, blocked), the **45-day chart** (list $ per day,
