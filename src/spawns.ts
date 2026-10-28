@@ -279,6 +279,7 @@ const Row = z.object({
 export type SpawnRow = Omit<z.infer<typeof Row>, 'lastStopReason' | 'openRequests'> & {
   drift?: boolean
   telemetryPartial?: true
+  partialReason?: 'floor' | 'in-flight'
   lastStopReason?: string | null
   openRequests?: number
 }
@@ -370,6 +371,10 @@ export function listSpawns(
 ): {
   spawns: SpawnRow[]
   partialTelemetry: number
+  // The two halves of partialTelemetry, over all matches: rows that ENDED
+  // with totals that are a floor, and rows with no terminal stop at all.
+  partialFloors: number
+  partialInFlight: number
   byAgentType: SpawnSummary[]
   byWeek: SpawnTrendRow[]
   sessionMiss?: SessionMiss
@@ -426,21 +431,30 @@ export function listSpawns(
       // terminal usage row never landed; `openRequests` = how many requests
       // have no completion record, each missing its whole output), not
       // fields to skim past on every healthy row.
-      ...(TERMINAL_STOP.has(lastStopReason ?? '') && openRequests === 0 ? {} : { telemetryPartial: true as const, lastStopReason, openRequests }),
+      // `partialReason` says which floor: 'in-flight' = no terminal stop
+      // (still running, or killed mid-tool); 'floor' = it ENDED (end_turn or
+      // a handback) and the totals are low because requests lost their
+      // completion records. Ingest #31 read 24 finished handbacks as a lore
+      // bug until the two were told apart.
+      ...(TERMINAL_STOP.has(lastStopReason ?? '') && openRequests === 0
+        ? {}
+        : {
+            telemetryPartial: true as const,
+            partialReason: TERMINAL_STOP.has(lastStopReason ?? '') ? ('floor' as const) : ('in-flight' as const),
+            lastStopReason,
+            openRequests,
+          }),
     }))
   // Counted over ALL matches, not just the limited page: a ledger reader needs
   // to know unreliable rows exist even when they fall past the row limit.
   const terminalList = [...TERMINAL_STOP].map((s) => `'${s}'`).join(',')
-  const partialTelemetry = z
-    .object({ n: z.number() })
-    .parse(
-      db
-        .prepare(
-          `SELECT COUNT(*) AS n ${base} ${whereClause ? 'AND' : 'WHERE'}
-             (p.last_stop_reason IS NULL OR p.last_stop_reason NOT IN (${terminalList}) OR p.open_requests > 0)`,
-        )
-        .get(...params),
-    ).n
+  const countWhere = (cond: string) =>
+    z
+      .object({ n: z.number() })
+      .parse(db.prepare(`SELECT COUNT(*) AS n ${base} ${whereClause ? 'AND' : 'WHERE'} (${cond})`).get(...params)).n
+  const partialInFlight = countWhere(`p.last_stop_reason IS NULL OR p.last_stop_reason NOT IN (${terminalList})`)
+  const partialFloors = countWhere(`p.last_stop_reason IN (${terminalList}) AND p.open_requests > 0`)
+  const partialTelemetry = partialInFlight + partialFloors
   // Boot cache reuse: what share of the boot envelope was served from cache
   // (0% = full-freight cache write — historically half of all runs).
   const reuse = `CAST(ROUND(100.0 * SUM(p.boot_cached) / NULLIF(SUM(p.boot_tokens), 0)) AS INTEGER)`
@@ -486,5 +500,5 @@ export function listSpawns(
   // Only when --session is the reason nothing came back: a 0-count that no
   // filter explains is a fact about the corpus, not a mis-copied id.
   const sessionMiss = opts.session && !spawns.length ? explainSessionMiss(db, opts.session) : undefined
-  return { spawns, partialTelemetry, byAgentType, byWeek, ...(sessionMiss ? { sessionMiss } : {}) }
+  return { spawns, partialTelemetry, partialFloors, partialInFlight, byAgentType, byWeek, ...(sessionMiss ? { sessionMiss } : {}) }
 }

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
-import { getSession } from '../src/session'
+import { getSession, resolveSessionId } from '../src/session'
 
 function seedDb(): Database {
   const db = new Database(':memory:')
@@ -100,4 +100,32 @@ describe('getSession', () => {
     expect(dump.session.last).toBe('2026-07-02T03:00:00Z')
     expect(dump.session.idleUntil).toBe('2026-08-02T03:00:00Z')
   })
+})
+
+// The harness leaves `<id>.orphaned-<ms>-<hash>` stubs beside a re-sharded
+// session, in the SAME well: a prefix of the id matches the session and every
+// stub, and --well cannot tell them apart (an ingest-#31 miner lost a
+// session's opener to it). The unsuffixed id is the session.
+test('a prefix shared with the session\'s own .orphaned-* stubs resolves to the session', () => {
+  const db = new Database(':memory:')
+  db.exec(`
+    CREATE TABLE wells(id INTEGER PRIMARY KEY, dir TEXT UNIQUE NOT NULL, real_path TEXT,
+      is_worktree INTEGER NOT NULL DEFAULT 0, has_memory INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE sessions(id INTEGER PRIMARY KEY, well_id INTEGER NOT NULL, session_id TEXT UNIQUE NOT NULL,
+      size INTEGER NOT NULL, mtime_ms INTEGER NOT NULL, lines INTEGER NOT NULL DEFAULT 0, first_ts TEXT, last_ts TEXT,
+      last_activity_ts TEXT);
+    INSERT INTO wells(id, dir, real_path) VALUES (1, '-u-code-fun-ccc--claude-worktrees-v2', '/u/code/fun/ccc/.claude/worktrees/v2');
+    INSERT INTO sessions(well_id, session_id, size, mtime_ms) VALUES
+      (1, '289c4228-4ed5-4403-b5c5-6199c6d55a81', 10, 0),
+      (1, '289c4228-4ed5-4403-b5c5-6199c6d55a81.orphaned-1791409761454-fe737cd3', 7, 0),
+      (1, '289c4228-4ed5-4403-b5c5-6199c6d55a81.orphaned-1790872925769-5a3ae8cc', 7, 0),
+      (1, '289d0000-0000-0000-0000-000000000000', 10, 0);
+  `)
+  expect(resolveSessionId(db, '289c4228', {})).toBe('289c4228-4ed5-4403-b5c5-6199c6d55a81')
+  // A stub is still reachable by its own full name.
+  expect(resolveSessionId(db, '289c4228-4ed5-4403-b5c5-6199c6d55a81.orphaned-1791409761454', {})).toBe(
+    '289c4228-4ed5-4403-b5c5-6199c6d55a81.orphaned-1791409761454-fe737cd3',
+  )
+  // Two DIFFERENT sessions behind a prefix stay ambiguous.
+  expect(() => resolveSessionId(db, '289', {})).toThrow(/ambiguous/)
 })

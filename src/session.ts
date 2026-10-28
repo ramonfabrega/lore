@@ -74,11 +74,20 @@ export function resolveSessionId(
         : `no indexed session matches "${idPrefix}"`,
     )
   }
-  if (ids.length > 1)
+  if (ids.length > 1) {
+    // The harness leaves `<id>.orphaned-<ms>-<hash>.jsonl` stubs beside a
+    // session it re-sharded, in the SAME well, so a prefix of the id matches
+    // the session and every stub, and `--well` cannot tell them apart (an
+    // ingest-#31 miner lost a session's opener to this). The unsuffixed id
+    // is the session; the stubs stay reachable by their full names.
+    const bare = ids.filter((r) => !/\.orphaned-/.test(r.session_id))
+    if (bare.length === 1 && ids.every((r) => r.session_id === bare[0]!.session_id || r.session_id.startsWith(`${bare[0]!.session_id}.orphaned-`)))
+      return bare[0]!.session_id
     throw new Error(
       `ambiguous prefix "${idPrefix}": ${ids.map((r) => r.session_id).join(', ')}` +
         (opts.well ? '' : ' (narrow with --well)'),
     )
+  }
   return ids[0]!.session_id
 }
 

@@ -126,12 +126,16 @@ describe('indexSpawns + listSpawns', () => {
     // A clean pre-2.1.285 run: every request completed.
     writeFileSync(join(sub, 'agent-ok.jsonl'), [line({ ts: '2026-10-07T18:41:00Z', msgId: 'q8', usage: { i: 2, cc: 46000, cr: 0, o: 500 } })].join('\n'))
     await indexSpawns(db, { projectsDir: dir })
-    const { spawns, partialTelemetry } = listSpawns(db, { limit: 50 })
+    const { spawns, partialTelemetry, partialFloors, partialInFlight } = listSpawns(db, { limit: 50 })
+    expect([partialFloors, partialInFlight]).toEqual([1, 1])
     const hb = spawns.find((s) => s.agentId === 'hb')!
     // Finished — the handback is the ending — but two of three requests
     // never got their completion record, so the output is a floor.
-    expect(hb).toMatchObject({ requests: 3, outputTokens: 77, telemetryPartial: true, lastStopReason: 'handback', openRequests: 2 })
-    expect(spawns.find((s) => s.agentId === 'cut')).toMatchObject({ telemetryPartial: true, lastStopReason: null, openRequests: 1 })
+    // `partialReason` tells the two floors apart: this one ENDED (the
+    // handback), its totals are low because requests lost their completion
+    // records — ingest #31 read 24 of these as a lore bug before the field.
+    expect(hb).toMatchObject({ requests: 3, outputTokens: 77, telemetryPartial: true, partialReason: 'floor', lastStopReason: 'handback', openRequests: 2 })
+    expect(spawns.find((s) => s.agentId === 'cut')).toMatchObject({ telemetryPartial: true, partialReason: 'in-flight', lastStopReason: null, openRequests: 1 })
     const ok = spawns.find((s) => s.agentId === 'ok')!
     expect(ok.telemetryPartial).toBeUndefined()
     expect(ok.openRequests).toBeUndefined()

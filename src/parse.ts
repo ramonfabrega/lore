@@ -86,6 +86,11 @@ export type Parsed = {
   entries: Entry[]
   // Present on assistant records that carry a message id and a usage block.
   request?: Request
+  // A 429 the harness wrote into the transcript (`apiError:
+  // usage_limit_reached`): which rate-limit window refused (`five_hour`,
+  // `seven_day`) and when it resets. The one instant a window is known to
+  // read 100 — the anchor the `limits` table calibrates on (db.ts v21).
+  limit?: { kind: string; resetsAt: string | null }
   // The transaction key: every `user` record (prompts and tool results) carries
   // the id of the prompt it belongs to; assistant records do not and inherit
   // the last one seen in file order (the indexer carries it forward).
@@ -128,6 +133,8 @@ const META_PROMPT =
 // from a peer — 15% of the rows and 54% of the VOLUME, because injected
 // bodies are long. Miners size buckets on that lane and read it as the user's
 // voice, so the peer half was a provenance bug on top of a sizing one.
+const RateLimitInfo = z.object({ rateLimitType: z.string(), resetsAt: z.number().nullish() }).loose()
+
 const Authorship = z.object({
   isMeta: z.boolean().nullish(),
   origin: z.object({ kind: z.string().nullish(), name: z.string().nullish(), msg_id: z.string().nullish() }).loose().nullish(),
@@ -226,6 +233,16 @@ export function parseLine(line: string): Parsed | null {
       break
     }
     case 'assistant': {
+      // The refusal record is `<synthetic>` (no request behind it) and carries
+      // the window in `apiErrorParams.rate_limit_info`: `resetsAt` is unix
+      // seconds. Verbatim shape from an attrition lane, 2026-10-20 12:44Z.
+      if (r.apiError === 'usage_limit_reached') {
+        const lim = RateLimitInfo.safeParse(r.apiErrorParams?.rate_limit_info)
+        if (lim.success) {
+          const { rateLimitType, resetsAt } = lim.data
+          p.limit = { kind: rateLimitType, resetsAt: typeof resetsAt === 'number' ? new Date(resetsAt * 1000).toISOString() : null }
+        }
+      }
       const req = RequestRecord.safeParse(r)
       // `<synthetic>` is the harness standing in for the model (interruption
       // markers, "no response requested" turns): zero tokens, no API request

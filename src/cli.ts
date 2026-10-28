@@ -1,7 +1,7 @@
 import { Cli, z } from 'incur'
 import { listAgents } from './agents'
 import { archive } from './archive'
-import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, PROJECTS_DIR, WIKI_DIR, selfArgv } from './config'
+import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, LIMITS_PATH, PROJECTS_DIR, WIKI_DIR, selfArgv } from './config'
 import { getConversation } from './conversation'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
@@ -9,6 +9,7 @@ import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } fro
 import { buildIndex } from './indexer'
 import { backfillJobNames, listJobs, resolveJob } from './job'
 import { indexJobs } from './jobs'
+import { readLimits } from './limits'
 import { cwdOf, getLoop, listTranches } from './loop'
 import type { Lane } from './parse'
 import { purgeSession } from './purge'
@@ -185,7 +186,7 @@ cli.command('thread', {
 // workflow runs, jobs). `lore index` runs it once; `lore serve` runs it on a
 // timer so the pages stop being "as of the last lore index".
 async function refreshIndex(db: ReturnType<typeof openDb>, full?: boolean) {
-  const stats = await buildIndex(db, { projectsDir: PROJECTS_DIR, historyPath: HISTORY_PATH, full })
+  const stats = await buildIndex(db, { projectsDir: PROJECTS_DIR, historyPath: HISTORY_PATH, limitsPath: LIMITS_PATH, full })
   const spawns = await indexSpawns(db, { projectsDir: PROJECTS_DIR, full })
   const workflows = await indexWorkflowRuns(db, { projectsDir: PROJECTS_DIR, full })
   const jobs = await indexJobs(db, { claudeDir: CLAUDE_DIR })
@@ -484,6 +485,21 @@ cli.command('usage', {
       until: options.until,
       limit: options.limit,
     })
+  },
+})
+
+cli.command('limits', {
+  description:
+    'The subscription as the account enforces it: each rate-limit window (`five_hour`, `seven_day`) at its latest reading — `pct` used, when it resets — beside the token ledger over the SAME window up to that reading (`usage`: requests, cacheRead, output, listUsd), and `implied`, that usage scaled to 100%. `lore usage` prices tokens at list rates and the user\'s budget is a PERCENT of a weekly allowance nobody publishes; the two never mapped (two recorded 429s said a week ≈ 4.8B cache-read tokens whatever the list price; a /usage reading the same month implied half) — so this measures the exchange rate instead of believing one. `usdPerPoint` is list dollars per percent between two readings of one window. Readings come from the `limits` table: the `limits` mod (mods repo) appends the status line\'s rate_limits to ~/.lore/limits.jsonl on every whole-point move, and every 429 a transcript carries is a reading of 100 (`hits`). The window is anchored on `resetsAt`, read off the data — nothing hardcodes a weekday. Populated by `lore index`; install the mod with `claude plugin install limits@mods`.',
+  options: z.object({
+    kind: z.string().optional().describe('One window: five_hour or seven_day'),
+    since: z.string().optional().describe('Only readings on/after this ISO instant'),
+    limit: z.coerce.number().default(20).describe('Max history rows and hits'),
+  }),
+  alias: { kind: 'k', limit: 'n' },
+  run: ({ options }) => {
+    const db = openDb(DB_PATH)
+    return readLimits(db, { kind: options.kind, since: options.since, limit: options.limit })
   },
 })
 

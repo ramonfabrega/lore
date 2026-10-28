@@ -23,12 +23,25 @@ export type IndexStats = {
   sessionsSkipped: number
   messages: number
   historyRows: number
+  // Rows of the `limits` table after this run: the mod's log plus the 429s
+  // the transcripts carry (db.ts v21).
+  limitRows: number
   durationMs: number
 }
 
+// One line of ~/.lore/limits.jsonl as the `limits` mod writes it (mods repo,
+// limits/hooks/line.ts): a window's reading at an instant, from a session.
+const LimitLine = z.object({
+  ts: z.string(),
+  session: z.string().nullish(),
+  kind: z.string(),
+  pct: z.number(),
+  resetsAt: z.string().nullish(),
+})
+
 export async function buildIndex(
   db: Database,
-  opts: { projectsDir: string; historyPath: string; full?: boolean },
+  opts: { projectsDir: string; historyPath: string; limitsPath?: string; full?: boolean },
 ): Promise<IndexStats> {
   const started = performance.now()
   const wells = await listWells(opts.projectsDir)
@@ -63,6 +76,12 @@ export async function buildIndex(
        thinking_tokens, stop_reason)
      VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
+  // A session's 429s are re-derived with its messages; the mod's rows are a
+  // different source and survive this (rebuilt wholesale below, like history).
+  const deleteLimits = db.prepare(`DELETE FROM limits WHERE session_id = ? AND source = 'transcript'`)
+  const insertLimit = db.prepare(
+    `INSERT OR IGNORE INTO limits(ts, session_id, kind, pct, resets_at, source) VALUES(?, ?, ?, ?, ?, ?)`,
+  )
 
   let sessionsIndexed = 0
   let sessionsSkipped = 0
@@ -87,6 +106,7 @@ export async function buildIndex(
         deleteFts.run(s.sessionId)
         deleteMsgs.run(s.sessionId)
         deleteRequests.run(s.sessionId)
+        deleteLimits.run(s.sessionId)
         // Every block line of a request repeats its usage under one
         // message.id, and output_tokens on an earlier line can be a partial
         // count. Keep the max of each field per id — same rule as spawns.ts
@@ -145,6 +165,8 @@ export async function buildIndex(
             insertFts.run(row.lastInsertRowid, e.text)
             messages++
           }
+          // A refusal is the one instant a window is known to read 100.
+          if (p.limit && p.timestamp) insertLimit.run(p.timestamp, s.sessionId, p.limit.kind, 100, p.limit.resetsAt, 'transcript')
           if (p.request) {
             const seen = requests.get(p.request.id)
             if (!seen) requests.set(p.request.id, { ...p.request, ts: p.timestamp ?? null })
@@ -205,12 +227,39 @@ export async function buildIndex(
     historyRows = rows.length
   }
 
+  // The `limits` mod's log: small (one line per whole-point move of a window,
+  // across every session) and appended live by many sessions at once, so it
+  // is read whole and rebuilt wholesale every run, torn tail tolerated, like
+  // history.jsonl. A line is a reading, not a session's property: no mtime
+  // skip applies.
+  if (opts.limitsPath && existsSync(opts.limitsPath)) {
+    const lines = (await Bun.file(opts.limitsPath).text()).split('\n')
+    const load = db.transaction(() => {
+      db.exec(`DELETE FROM limits WHERE source = 'mod'`)
+      for (const line of lines) {
+        if (!line.trim()) continue
+        let raw: unknown
+        try {
+          raw = JSON.parse(line)
+        } catch {
+          continue
+        }
+        const r = LimitLine.safeParse(raw)
+        if (!r.success) continue
+        insertLimit.run(r.data.ts, r.data.session ?? null, r.data.kind, r.data.pct, r.data.resetsAt ?? null, 'mod')
+      }
+    })
+    load()
+  }
+  const limitRows = z.object({ n: z.number() }).parse(db.prepare('SELECT COUNT(*) AS n FROM limits').get()).n
+
   return {
     wells: wells.length,
     sessionsIndexed,
     sessionsSkipped,
     messages,
     historyRows,
+    limitRows,
     durationMs: Math.round(performance.now() - started),
   }
 }

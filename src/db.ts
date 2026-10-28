@@ -107,8 +107,10 @@ import { z } from 'zod'
 // on a Sonnet sweep, 2026-10-07: 379 output tokens indexed against a
 // 2,600-char handback alone). The count of requests whose last record has
 // no stop_reason is the floor's size, and keeps the row partial.
-const SCHEMA_VERSION = 20
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs']
+// v21: limits — the subscription's rate-limit windows as the account enforces
+// them, the one budget the token ledger could never read (see the table).
+const SCHEMA_VERSION = 21
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -169,6 +171,27 @@ CREATE TABLE IF NOT EXISTS history(
   session_id TEXT
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS history_fts USING fts5(display);
+-- The subscription's rate-limit windows (schema v21). The token ledger prices
+-- requests at list rates and the user's week is a PERCENT of an allowance
+-- nobody publishes; two recorded 429s and one /usage reading disagreed 2x on
+-- what a week is in tokens (2026-10-28). Two sources: 'mod' rows come from
+-- ~/.lore/limits.jsonl, which the limits mod appends on every whole-point
+-- move of a window (kind five_hour or seven_day, pct 0-100, resets_at the
+-- window's end); 'transcript' rows are the 429s the harness wrote into a
+-- session (apiError usage_limit_reached, rate_limit_info.rateLimitType), the
+-- moment a window read 100. resets_at - 7d is the week's anchor, read off
+-- the data, never a hardcoded weekday.
+CREATE TABLE IF NOT EXISTS limits(
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  session_id TEXT,
+  kind TEXT NOT NULL,
+  pct REAL NOT NULL,
+  resets_at TEXT,
+  source TEXT NOT NULL,
+  UNIQUE(source, session_id, ts, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_limits_kind_ts ON limits(kind, ts);
 CREATE TABLE IF NOT EXISTS repos(
   id INTEGER PRIMARY KEY,
   path TEXT UNIQUE NOT NULL,

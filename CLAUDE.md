@@ -74,6 +74,18 @@ true, it is a design change, not a bug fix.
   (ingest #8: 3/3 drifted via cwd affordance; #9 with pins: 0/6).
 - Ledger every fan-out in the wiki log: per agent — scope, tokens, tools,
   duration, verified model.
+- The harness caps concurrent subagents at **20**
+  (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`), and a COMPLETED agent holds its
+  slot until reaped: the 21st spawn is refused ("Do not retry"), and so is
+  the next one until two have finished (ingest #31, n=24). Plan waves of at
+  most 20, or fatter buckets. Spawn ONE primer first and verify its model
+  from the JSONL (~20 s), then fire the rest: 23 of 23 later spawns reused
+  22,891 cached boot tokens (55%) against 0 of 10 when #30 fired all at once.
+- A finished spawn whose `lore spawns` row says `telemetryPartial` with
+  `partialReason: floor` is NOT in flight and NOT a bug: it ended (a
+  handback), and its output is a floor because the harness drops the
+  completion record of every tool_use-ended request in a subagent file
+  (db.ts v20). `in-flight` is the one still running or killed mid-tool.
 
 ## Code conventions (rationale in DESIGN.md)
 

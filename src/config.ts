@@ -69,4 +69,8 @@ export function selfArgv(): string[] {
 export const PROJECTS_DIR = join(CLAUDE_DIR, 'projects')
 export const HISTORY_PATH = join(CLAUDE_DIR, 'history.jsonl')
 export const DB_PATH = join(LORE_HOME, 'lore.db')
+// The `limits` mod (mods repo) appends the subscription's rate-limit windows
+// here — one JSON line per whole-point move, from every session it runs in.
+// lore reads it; nothing else writes under LORE_HOME but lore and that mod.
+export const LIMITS_PATH = join(LORE_HOME, 'limits.jsonl')
 export const ARCHIVE_DIR = join(LORE_HOME, 'archive')
