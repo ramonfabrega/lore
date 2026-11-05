@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
-import { listSessions } from '../src/sessions'
+import { listSessions, sessionsLimit } from '../src/sessions'
 import { day } from '../src/fmt'
 
 function seedDb(): Database {
@@ -74,6 +74,15 @@ test('workDir is the modal cwd across all lanes; workDirs counts distinct; no cw
   const noCwd = rows.find((r) => r.sessionId === 's-new')!
   expect(noCwd.workDir).toBeNull()
   expect(noCwd.workDirs).toBe(0)
+})
+
+describe('sessionsLimit', () => {
+  test('100 by default; none under --since; an explicit limit always wins', () => {
+    expect(sessionsLimit({})).toBe(100)
+    expect(sessionsLimit({ since: '2026-09-29' })).toBe(1_000_000)
+    expect(sessionsLimit({ since: '2026-09-29', limit: 5 })).toBe(5)
+    expect(sessionsLimit({ limit: 7 })).toBe(7)
+  })
 })
 
 describe('listSessions', () => {

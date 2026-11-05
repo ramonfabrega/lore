@@ -7,7 +7,7 @@ import type { AgentRow, JobState } from '../src/agents'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { indexJobs } from '../src/jobs'
-import { diffScore, getLoop, listTranches, parseQueueHead, parseScore, parseTrancheLog } from '../src/loop'
+import { diffScore, getLoop, listTranches, parseQueueHead, parseScore, parseTrancheLog, bookedItems, scoreMoves } from '../src/loop'
 
 // One loop in miniature: a commander in its worktree that spawned two lanes
 // through `ccc spawn --json`, a queue file whose opening line names the
@@ -88,6 +88,14 @@ async function repo(): Promise<{ dir: string; base: string; note: string }> {
   const note = (await $`git -C ${dir} rev-parse --short HEAD`.text()).trim()
   writeFileSync(join(dir, 'docs', 'QUEUE.md'), queueAt(base))
   await g('commit', '-q', '-am', 'Book 2: the peace pair 5400 -> 5499, census 1068 -> 1125', '--date', '2026-10-15T12:00:00Z')
+  // A co-booking (two items, one commit, the 59th tranche's shape) spelled
+  // `Booking` (the 40th's), then a second commit for one of them: four
+  // items landed on five booking commits.
+  writeFileSync(join(dir, 'b.txt'), 'b')
+  await g('add', '.')
+  await g('commit', '-q', '-m', 'Booking 3 and 4: two pairs whole on the first try', '--date', '2026-10-15T12:20:00Z')
+  writeFileSync(join(dir, 'b.txt'), 'bb')
+  await g('commit', '-q', '-am', 'Booking 3, second commit: cargo fmt', '--date', '2026-10-15T12:25:00Z')
   return { dir, base, note }
 }
 
@@ -162,6 +170,25 @@ const row = (o: Partial<AgentRow> & { cwd: string; state: string }): AgentRow =>
 })
 
 describe('lore loop', () => {
+  test('a booking subject books distinct items under either spelling; a second commit books none new', () => {
+    expect(bookedItems('Book 3674 and 3690: the Greeks at a held age')).toEqual([3674, 3690])
+    expect(bookedItems('Booking 3024, second commit: cargo fmt on the mod list')).toEqual([3024])
+    expect(bookedItems('Book 2997 at the drain (Opus 5.5 medium): the battery word')).toEqual([2997])
+    expect(bookedItems('Booking 3677/3678: two pairs')).toEqual([3677, 3678])
+    expect(bookedItems('Merge worktree-att-3049 (15 commits)')).toEqual([])
+    expect(bookedItems('The fortieth pass (Fable): five lanes scored')).toEqual([])
+  })
+
+  test('the moves of a score: changed items first, then the ones born since the base', () => {
+    const d = diffScore(parseScore(queueAt('abc1234') + 'Late ages: EastIndiesGermanAllTech w4175 of 4,175\n'), parseScore(QUEUE_OPEN))
+    expect(scoreMoves(d).map((m) => [m.label, m.delta, m.born])).toEqual([
+      ['GreatLakes', 72, false],
+      ['EastIndiesLakotaPeace', 184, false],
+      ['backed', 57, false],
+      ['EastIndiesGermanAllTech', null, true],
+    ])
+  })
+
   test('the queue head and score lines parse, and the base folds in as open and delta', () => {
     expect(parseQueueHead(queueAt('abc1234'))).toEqual({ label: 'the second tranche', base: 'abc1234' })
     expect(parseQueueHead(QUEUE_OPEN)).toEqual({ label: null, base: null })
@@ -190,24 +217,34 @@ describe('lore loop', () => {
 
     expect(loop.job).toMatchObject({ name: 'commander', jobId: 'cmd00000', state: 'working', tempo: 'busy', detail: '2 booked; gate running', ctx: 240_000, cwd: dir, sessions: 1 })
 
-    // The base is read off the queue; two bookings on the first-parent line,
-    // the merge and the note counted but not landings.
-    expect(loop.tranche).toMatchObject({ label: 'the second tranche', base, landings: 2, of: 20, merges: 1, commits: 4 })
+    // The base is read off the queue; four booking commits on the
+    // first-parent line booking four DISTINCT items (a co-booking counts
+    // two, a second commit none), the merge and the note counted but not
+    // landings.
+    expect(loop.tranche).toMatchObject({ label: 'the second tranche', base, landings: 4, of: 20, merges: 1, commits: 6 })
+    expect(loop.tranche?.booked.map((b) => b.items)).toEqual([[3], [3, 4], [2], [1]])
     expect(loop.tranche?.baseAt).toBe('2026-10-15T10:00:00.000Z')
-    expect(loop.tranche?.last).toBe('2026-10-15T12:00:00.000Z')
-    expect(loop.tranche?.sinceLastMs).toBe(30 * 60_000)
-    expect(loop.tranche?.perHour).toBe(0.8)
-    expect(loop.tranche?.etaMs).toBe(Math.round((18 / 0.8) * 3_600_000))
+    expect(loop.tranche?.last).toBe('2026-10-15T12:25:00.000Z')
+    expect(loop.tranche?.sinceLastMs).toBe(5 * 60_000)
+    expect(loop.tranche?.perHour).toBe(1.6)
+    expect(loop.tranche?.etaMs).toBe(Math.round((16 / 1.6) * 3_600_000))
 
-    // The score against the base commit's queue, not the previous landing's.
+    // The score against the base commit's queue, not the previous landing's;
+    // `moves` names what changed, then what was born since the base.
     const peace = loop.score.find((l) => l.line === 'Peace pair')?.items[0]
     expect(peace).toMatchObject({ value: 5499, open: 5315, delta: 184 })
+    expect(loop.moves.map((m) => [m.line, m.label, m.delta, m.born])).toEqual([
+      ['Scoreboard', 'GreatLakes', 72, false],
+      ['Peace pair', 'EastIndiesLakotaPeace', 184, false],
+      ['Census', 'backed', 57, false],
+    ])
 
     expect(loop.gate).toEqual({ running: true, since: new Date(now - 600_000).toISOString(), label: 'python3 tools/release_gate.py game --scope abc' })
     expect(loop.running).toHaveLength(1)
 
     // att-0 was spawned before the base and is not live: not this tranche's.
     expect(loop.lanes.map((l) => l.name)).toEqual(['att-2', 'att-1'])
+    expect(loop.lanesTotal).toBe(2)
     expect(loop.lanes[0]).toMatchObject({ item: 2, live: true, state: 'working', model: 'claude-opus-5-5', ctx: 310_000, deep: true, spawnedAt: '2026-10-15T11:05:00.000Z' })
     expect(loop.lanes[0]?.ageMs).toBe(85 * 60_000)
     expect(loop.lanes[1]).toMatchObject({ item: 1, live: false, state: 'done', model: 'claude-sonnet-5-5', ctx: null, deep: false })
@@ -217,7 +254,13 @@ describe('lore loop', () => {
     expect(loop.spend.jobUsd).toBeGreaterThan(0)
     expect(loop.spend.laneUsd).toBeGreaterThan(0)
     expect(loop.spend.totalUsd).toBe(Math.round(((loop.spend.jobUsd ?? 0) + (loop.spend.laneUsd ?? 0)) * 100) / 100)
-    expect(loop.spend.perLanding).toBe(Math.round(((loop.spend.totalUsd ?? 0) / 2) * 100) / 100)
+    expect(loop.spend.perLanding).toBe(Math.round(((loop.spend.totalUsd ?? 0) / 4) * 100) / 100)
+
+    // `--lanes` caps the rows listed, never the spend.
+    const capped = await getLoop(db, 'commander', { now, live, lanes: 1 })
+    expect(capped.lanes.map((l) => l.name)).toEqual(['att-2'])
+    expect(capped.lanesTotal).toBe(2)
+    expect(capped.spend.laneUsd).toBe(loop.spend.laneUsd)
 
     // Index instants pass through as the transcript wrote them, like every
     // other verb's; only what git or the daemon wrote is normalized.
@@ -232,7 +275,7 @@ describe('lore loop', () => {
     // base..note on the first-parent line: the merge, Book 1, and the note
     // itself; Book 2 is past the end.
     expect(loop.tranche).toMatchObject({ base, until: note, endAt: '2026-10-15T11:10:00.000Z', landings: 1, merges: 1, commits: 3, etaMs: null })
-    expect(loop.tranche?.booked).toEqual([{ sha: expect.any(String), at: '2026-10-15T11:00:00.000Z', item: 1, subject: 'Book 1: the peace pair 5315 -> 5400' }])
+    expect(loop.tranche?.booked).toEqual([{ sha: expect.any(String), at: '2026-10-15T11:00:00.000Z', item: 1, items: [1], subject: 'Book 1: the peace pair 5315 -> 5400' }])
     // Measured to the end, not to now: 1 landing in 70 minutes; 10 minutes
     // from the landing to the end.
     expect(loop.tranche?.perHour).toBe(0.86)

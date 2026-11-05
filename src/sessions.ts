@@ -56,6 +56,14 @@ export type SessionRow = Omit<z.infer<typeof Row>, 'openerId' | 'openerLane' | '
 // --limit takes the NEWEST n, then renders them oldest-first. Truncating the
 // other way (the pre-v11 behaviour) meant `-n 10` on a live well answered with
 // last month, which is how ingest #13 measured a 66-session backlog as ~8.
+// The listing's cap: 100 by default, none under --since. A delta ingest
+// sizes its backlog off `sessions --since`, and a silent 100 undercounted
+// it twice (#29 measured a 66-session backlog as ~8 the other way; #32's
+// sizing read the same window twice and got two numbers).
+export function sessionsLimit(opts: { limit?: number; since?: string }): number {
+  return opts.limit ?? (opts.since ? 1_000_000 : 100)
+}
+
 export function listSessions(
   db: Database,
   // byActivity: take the newest n by LAST ACTIVITY instead of by creation —
