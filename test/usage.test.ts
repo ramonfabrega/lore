@@ -146,10 +146,14 @@ describe('rateFor', () => {
     expect(rateFor('claude-opus-5-5', '2026-09-25')).toMatchObject({ input: 4, cacheRead: 0.2, output: 20 })
     expect(rateFor('claude-opus-5', '2026-09-25')).toMatchObject({ input: 5, cacheRead: 0.5, output: 25 })
     expect(rateFor('claude-sonnet-5-5', '2026-09-29')).toMatchObject({ input: 2, cacheRead: 0.2, output: 10 })
+    // Fable 5.2 (2.1.321): cheaper than 5.1 in every class; the base prefix would read it 25% high
+    expect(rateFor('claude-fable-5-2', '2026-11-09')).toMatchObject({ input: 8, cacheRead: 0.2, output: 40 })
+    expect(rateFor('claude-fable-5-1', '2026-11-09')).toMatchObject({ input: 10, cacheRead: 0.25, output: 50 })
+    expect(rateFor('claude-fable-5', '2026-11-09')).toMatchObject({ input: 10, cacheRead: 1, output: 50 })
   })
 
   test('a cache write has two prices: 1.25x input at 5m, 2x at 1h', () => {
-    for (const id of ['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5']) {
+    for (const id of ['claude-fable-5-2', 'claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-4-5']) {
       const r = rateFor(id, '2026-09-02')!
       expect(r.cacheWrite5m).toBeCloseTo(r.input * 1.25, 10)
       expect(r.cacheWrite1h).toBeCloseTo(r.input * 2, 10)

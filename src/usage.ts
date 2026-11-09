@@ -29,6 +29,11 @@ export type Grouping = (typeof GROUPINGS)[number]
 // 5-minute rate ran the whole ledger 6.5% low.
 type Rate = { from: string; input: number; cacheWrite5m: number; cacheWrite1h: number; cacheRead: number; output: number }
 const RATES: Record<string, Rate[]> = {
+  // 2.1.321 (2026-11-09): "Added Claude Fable 5.2, now the default Fable
+  // model — 1M context, $8/$40 per Mtok with $0.20/Mtok cache reads". Saved
+  // 5.1 picks move to it on install, so without this row the whole fleet
+  // would price as `claude-fable-5` ($10/$50, cache reads $1) from day one.
+  'claude-fable-5-2': [{ from: '2026-11-09', input: 8, cacheWrite5m: 10, cacheWrite1h: 16, cacheRead: 0.2, output: 40 }],
   'claude-fable-5-1': [{ from: '2026-09-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50 }],
   'claude-mythos-5-1': [{ from: '2026-09-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 0.25, output: 50 }],
   'claude-fable-5': [{ from: '2026-01-01', input: 10, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, output: 50 }],
