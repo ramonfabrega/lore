@@ -105,16 +105,28 @@ function wells(cmdCwd: string, w1: string, w2: string) {
     [slug(cmdCwd)]: {
       'cmd-1': [
         bridge('cmd-1', 'cse_CMD', '2026-10-15T09:00:00Z'),
-        prompt('cmd-1', 'cmd-root', '2026-10-15T09:00:01Z', 'P1', 'run the loop', cmdCwd),
-        reply('cmd-1', 'cmd-root', '2026-10-15T09:00:05Z', 'r0', 'reading the queue'),
+        prompt('cmd-1', 'c0dec0de', '2026-10-15T09:00:01Z', 'P1', 'run the loop', cmdCwd),
+        reply('cmd-1', 'c0dec0de', '2026-10-15T09:00:05Z', 'r0', 'reading the queue'),
         // Before the base: this tranche does not pay for it.
-        bash('cmd-1', 'cmd-root', '2026-10-15T09:30:00Z', 'tu_0', 'ccc spawn --worktree=att-0 --name att-0 --model sonnet --json - < brief.md'),
-        result('cmd-1', 'cmd-root', '2026-10-15T09:30:05Z', 'P1', 'tu_0', spawn(w1, '00000000', 'att-0')),
-        bash('cmd-1', 'cmd-root', '2026-10-15T10:05:00Z', 'tu_1', 'ccc spawn --worktree=att-1 --name att-1 --model sonnet --json - < brief.md'),
-        result('cmd-1', 'cmd-root', '2026-10-15T10:05:05Z', 'P1', 'tu_1', spawn(w1, 'deadbeef', 'att-1')),
-        bash('cmd-1', 'cmd-root', '2026-10-15T11:05:00Z', 'tu_2', 'ccc spawn --worktree=att-2 --name att-2 --model opus --json - < brief.md'),
-        result('cmd-1', 'cmd-root', '2026-10-15T11:05:05Z', 'P1', 'tu_2', spawn(w2, 'cafebabe', 'att-2')),
-        reply('cmd-1', 'cmd-root', '2026-10-15T12:01:00Z', 'r1', '2 booked; gate running'),
+        bash('cmd-1', 'c0dec0de', '2026-10-15T09:30:00Z', 'tu_0', 'ccc spawn --worktree=att-0 --name att-0 --model sonnet --json - < brief.md'),
+        result('cmd-1', 'c0dec0de', '2026-10-15T09:30:05Z', 'P1', 'tu_0', spawn(w1, '00000000', 'att-0')),
+        bash('cmd-1', 'c0dec0de', '2026-10-15T10:05:00Z', 'tu_1', 'ccc spawn --worktree=att-1 --name att-1 --model sonnet --json - < brief.md'),
+        result('cmd-1', 'c0dec0de', '2026-10-15T10:05:05Z', 'P1', 'tu_1', spawn(w1, 'deadbeef', 'att-1')),
+        bash('cmd-1', 'c0dec0de', '2026-10-15T11:05:00Z', 'tu_2', 'ccc spawn --worktree=att-2 --name att-2 --model opus --json - < brief.md'),
+        result('cmd-1', 'c0dec0de', '2026-10-15T11:05:05Z', 'P1', 'tu_2', spawn(w2, 'cafebabe', 'att-2')),
+        // The commander hands back to the steer that set it to work: the
+        // answer names the steer's ref inside the tranche, and is no spawn.
+        bash('cmd-1', 'c0dec0de', '2026-10-15T11:30:00Z', 'tu_3', 'ccc clear steer --then "the second pass" --json'),
+        result('cmd-1', 'c0dec0de', '2026-10-15T11:30:05Z', 'P1', 'tu_3', spawn(cmdCwd, 'beefbeef', 'steer')),
+        reply('cmd-1', 'c0dec0de', '2026-10-15T12:01:00Z', 'r1', '2 booked; gate running'),
+      ],
+      // The steer: it cleared the commander into this tranche (so it reads
+      // as the commander's parent) and worked inside it — never a lane.
+      'beefbeef-0000-4000-8000-000000000009': [
+        prompt('beefbeef-0000-4000-8000-000000000009', 'beefbeef-0000-4000-8000-000000000009', '2026-10-15T08:50:00Z', 'S1', 'the first pass', cmdCwd),
+        bash('beefbeef-0000-4000-8000-000000000009', 'beefbeef-0000-4000-8000-000000000009', '2026-10-15T08:55:00Z', 'tu_s', 'ccc clear commander --then "the second tranche" --json'),
+        result('beefbeef-0000-4000-8000-000000000009', 'beefbeef-0000-4000-8000-000000000009', '2026-10-15T08:55:05Z', 'S1', 'tu_s', spawn(cmdCwd, 'c0dec0de', 'commander')),
+        reply('beefbeef-0000-4000-8000-000000000009', 'beefbeef-0000-4000-8000-000000000009', '2026-10-15T11:40:00Z', 's1', 'the pass is written'),
       ],
     },
     [slug(w1)]: {
@@ -175,6 +187,10 @@ describe('lore loop', () => {
     expect(bookedItems('Booking 3024, second commit: cargo fmt on the mod list')).toEqual([3024])
     expect(bookedItems('Book 2997 at the drain (Opus 5.5 medium): the battery word')).toEqual([2997])
     expect(bookedItems('Booking 3677/3678: two pairs')).toEqual([3677, 3678])
+    // A count after the item is not a second item, at any width.
+    expect(bookedItems('Book 3939, 7 of 20 from 3cce22c2c: chapter 121 whole at 1000')).toEqual([3939])
+    expect(bookedItems('Book 3920, 17 of 20 from 02f72df7d: the take refused')).toEqual([3920])
+    expect(bookedItems('Book 3674 and 3690, 12 of 20: two pairs')).toEqual([3674, 3690])
     expect(bookedItems('Merge worktree-att-3049 (15 commits)')).toEqual([])
     expect(bookedItems('The fortieth pass (Fable): five lanes scored')).toEqual([])
   })
@@ -247,7 +263,11 @@ describe('lore loop', () => {
     expect(loop.lanesTotal).toBe(2)
     expect(loop.lanes[0]).toMatchObject({ item: 2, live: true, state: 'working', model: 'claude-opus-5-5', ctx: 310_000, deep: true, spawnedAt: '2026-10-15T11:05:00.000Z' })
     expect(loop.lanes[0]?.ageMs).toBe(85 * 60_000)
-    expect(loop.lanes[1]).toMatchObject({ item: 1, live: false, state: 'done', model: 'claude-sonnet-5-5', ctx: null, deep: false })
+    expect(loop.lanes[1]).toMatchObject({ item: 1, live: false, state: 'done', model: 'claude-sonnet-5-5', ctx: null, peak: 1000, deep: false })
+    // A lane that is gone has no live context: it is deep on what it
+    // REACHED, so a closed tranche still counts its deep lanes.
+    const shallow = await getLoop(db, 'commander', { now, live, deep: 1000 })
+    expect(shallow.lanes.map((l) => [l.name, l.deep])).toEqual([['att-2', true], ['att-1', true]])
 
     // The fee since the base: the commander's requests after 10:00 (two of
     // the three bash calls and the closing reply) and the two lanes'.

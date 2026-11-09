@@ -47,8 +47,12 @@ const LANE_ITEM = /(\d+)/
 // (its item is already counted), `Book 2997 at the drain: …` books one.
 // Commanders spell it `Book` or `Booking` — the 40th tranche's spelled it
 // `Booking` throughout and read as 1 landing of 20 under `^Book ` (ingest
-// #32), and a co-booking read as one (the 59th: 18 of 20).
-const BOOKED_ITEMS = /^Book(?:ing)?\s+(\d+(?:\s*(?:,|and|\/|&|\+)\s*\d+)*)/i
+// #32), and a co-booking read as one (the 59th: 18 of 20). A number that
+// opens a COUNT is not an item: `Book 3939, 7 of 20 from 3cce22c2c: …` books
+// one, and reading the `7` as a second doubled the 69th–72nd (40, 14, 26
+// and 30 landings for 21, 7, 13 and 15) and sent a per-item reader to the
+// well of item 7.
+const BOOKED_ITEMS = /^Book(?:ing)?\s+(\d+(?:\s*(?:,|and|\/|&|\+)\s*\d+(?!\d)(?!\s+of\b))*)/i
 const BASE_IN_QUEUE = /\bfrom `([0-9a-f]{7,40})`/
 const TRANCHE_LABEL = /\*\*(the [\w-]+ tranche)\b/
 const SCORE_LINE = /^([A-Z][A-Za-z ]+):\s+(.+)$/
@@ -68,9 +72,15 @@ export type LoopLane = {
   model: string | null
   spawnedAt: string | null
   ageMs: number | null
-  // The context the lane's next turn carries (agents.ts), and whether it
-  // is past `deep` — the threshold the loop asks a lane to clear at.
+  // The context the lane's next turn carries (agents.ts) — a LIVE reading,
+  // null once the daemon no longer lists the lane — and `peak`, the deepest
+  // request it made inside the tranche (input + cache read + cache write),
+  // which the index keeps. `deep` is the threshold the loop asks a lane to
+  // clear at: a live lane is deep on what its next turn carries, a lane
+  // that is gone on what it reached — a closed tranche read `deep: false`
+  // on every row while its own handoff counted twelve.
   ctx: number | null
+  peak: number | null
   deep: boolean
   requests: number
   listUsd: number | null
@@ -302,6 +312,22 @@ function feeOf(db: Database, sessions: string[], since: string | undefined, unti
   }
 }
 
+// The deepest context any request of a set of sessions carried inside a
+// window: what a lane REACHED, which outlives the roster's live reading.
+const Peak = z.object({ peak: z.number().nullable() })
+function peakOf(db: Database, sessions: string[], since: string | undefined, until?: string): number | null {
+  if (sessions.length === 0) return null
+  const marks = sessions.map(() => '?').join(',')
+  return Peak.parse(
+    db
+      .prepare(
+        `SELECT MAX(input_tokens + cache_read_tokens + cache_write_tokens) AS peak FROM requests
+         WHERE session_id IN (${marks}) AND (? IS NULL OR ts >= ?) AND (? IS NULL OR ts <= ?)`,
+      )
+      .get(...sessions, since ?? null, since ?? null, until ?? null, until ?? null),
+  ).peak
+}
+
 export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Promise<Loop> {
   const ref: JobRef | null = resolveJob(db, q)
   if (!ref) throw new Error(`no job matches "${q}" — a name from \`lore jobs\`, a bridge id, the daemon's id, or a session id`)
@@ -410,14 +436,25 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
   // The lanes: the jobs this one spawned (the edges in its own sessions'
   // transcripts), those of this tranche by spawn instant, plus any still
   // live. Each lane is a whole job: its sessions, its fee since the base.
+  // The edges are the WHOLE index's, where the first spawn of a job wins:
+  // read one session at a time, any answer naming another job's ref made
+  // that job a child. And a job's own PARENT is never its lane: a commander
+  // and its steer each end on `ccc clear <the other> --then …`, so each
+  // reads as the other's spawn, and the open tranche listed the steer as a
+  // 33-day-old live lane and billed the tranche for the pass.
+  const edges = spawnEdges(db)
+  const parent = edges.get(ref.key)?.key ?? null
   const spawnedAt = new Map<string, string | null>()
-  for (const sid of sessions) for (const [k, e] of spawnEdges(db, { sessionId: sid })) if (e.key === ref.key && !spawnedAt.has(k)) spawnedAt.set(k, e.ts)
+  for (const [k, e] of edges) if (e.key === ref.key && k !== parent) spawnedAt.set(k, e.ts)
   const allLanes: LoopLane[] = [...spawnedAt]
     .map(([key, at]): LoopLane => {
       const jr = jobsRowOf(db, key)
       const r = byKey.get(key) ?? (jr ? byId.get(jr.jobId) : undefined) ?? null
       const lsp = spanOf(db, key)
-      const fee = feeOf(db, sessionsOf(db, key), since, endAt ?? undefined)
+      const laneSessions = sessionsOf(db, key)
+      const fee = feeOf(db, laneSessions, since, endAt ?? undefined)
+      const peak = peakOf(db, laneSessions, since, endAt ?? undefined)
+      const live = r != null && LIVE.has(r.state)
       const ctx = r?.ctx ?? null
       const name = jr?.name ?? r?.name ?? null
       const item = LANE_ITEM.exec(name ?? '')?.[1]
@@ -427,12 +464,13 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
         name,
         item: item == null ? null : Number(item),
         state: r?.state ?? jr?.state ?? null,
-        live: r != null && LIVE.has(r.state),
+        live,
         model: r?.model ?? dominantModel(fee.models),
         spawnedAt: spawned,
         ageMs: spawned ? clock - Date.parse(spawned) : null,
         ctx,
-        deep: ctx != null && ctx >= deep,
+        peak,
+        deep: live && ctx != null ? ctx >= deep : peak != null && peak >= deep,
         requests: fee.requests,
         listUsd: fee.listUsd,
         last: lsp.last,
