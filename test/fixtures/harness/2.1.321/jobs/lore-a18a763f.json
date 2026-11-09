@@ -1,0 +1,354 @@
+{
+  "state": "blocked",
+  "detail": "fable 5.2 is locked and loaded, we're online",
+  "tempo": "active",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "fan": [
+    {
+      "id": "bsluujzhg",
+      "kind": "shell",
+      "label": "cd /Users/u/code/fun/lore/.claude/worktrees/loop-lan…",
+      "startedAt": 1794261096260
+    }
+  ],
+  "tokens": 1185105,
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "2",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "3",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "73",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "74",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "19",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "38",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "2",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "3",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "4",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "5",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "6",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "8",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "9",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "10",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "11",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "12",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "13",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "14",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "15",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "16",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "17",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "18",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "19",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "20",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "21",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "22",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "23",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "24",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "25",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "26",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "27",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "31",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "frame.html",
+      "href": "https://example.invalid/link",
+      "kind": "frame",
+      "title": "frame"
+    },
+    {
+      "id": "33",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "34",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 582267,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-lore--claude-worktrees-loop-landings/7d46aef7-42ab-475d-94a8-fde4e56a178b.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--name",
+    "lore",
+    "--model",
+    "fable",
+    "--effort",
+    "high"
+  ],
+  "intent": "",
+  "name": "lore",
+  "nameSource": "user",
+  "sessionId": "a18a763f-e9a6-4024-aeae-c29132dfc351",
+  "resumeSessionId": "7d46aef7-42ab-475d-94a8-fde4e56a178b",
+  "daemonShort": "a18a763f",
+  "cliVersion": "2.1.321",
+  "cwd": "/Users/u/code/fun/lore",
+  "createdAt": "2026-07-17T06:52:37.020Z",
+  "updatedAt": "2026-11-09T21:51:36.264Z",
+  "firstTerminalAt": "2026-10-01T16:02:22.032Z",
+  "worktreePath": "/Users/u/code/fun/lore/.claude/worktrees/loop-landings",
+  "worktreeBranch": "worktree-loop-landings",
+  "originCwd": "/Users/u/code/fun/lore",
+  "bridgeSessionId": "cse_0145QxeqUnB3uGTCNBWmAHea",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 68535,
+  "backend": "daemon"
+}

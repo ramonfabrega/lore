@@ -1,0 +1,47 @@
+{
+  "state": "blocked",
+  "detail": "4 decisions open: play order, Fable trial, compaction, pass 76",
+  "tempo": "blocked",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": [],
+    "drainableMonitors": 0
+  },
+  "tokens": 2572119,
+  "needs": "decide the four open items: order of play, one-lane Fable 5.2 trial, idle compac…",
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 1411881,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-attrition--claude-worktrees-replan-pdb/50721924-a531-43bf-9703-3b2eb3ff454e.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--name",
+    "steer",
+    "--rc",
+    "--permission-mode",
+    "auto",
+    "--model",
+    "fable"
+  ],
+  "intent": "Read docs/QUEUE.md's opener and run it: the twen…",
+  "name": "steer",
+  "nameSource": "user",
+  "sessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",
+  "resumeSessionId": "50721924-a531-43bf-9703-3b2eb3ff454e",
+  "daemonShort": "d388900a",
+  "cliVersion": "2.1.321",
+  "cwd": "/Users/u/code/fun/attrition/.claude/worktrees/replan-pdb",
+  "bridgeSessionId": "cse_0114sM7UAKyGLjPZBr5SG3wq",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 27876,
+  "backend": "daemon",
+  "createdAt": "2026-10-07T21:12:37.896Z",
+  "updatedAt": "2026-11-09T21:49:17.229Z",
+  "firstTerminalAt": "2026-10-13T04:07:38.532Z"
+}

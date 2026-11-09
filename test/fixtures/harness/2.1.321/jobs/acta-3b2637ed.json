@@ -1,0 +1,86 @@
+{
+  "state": "done",
+  "detail": "brain session cost analysis: wakeup volume drove spend, not cache or polling",
+  "tempo": "idle",
+  "inFlight": {
+    "tasks": 0,
+    "queued": 0,
+    "kinds": []
+  },
+  "tokens": 454249,
+  "children": [
+    {
+      "id": "1",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "2",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "3",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "4",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "5",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "6",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "7",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "8",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    },
+    {
+      "id": "9",
+      "href": "https://example.invalid/link",
+      "kind": "pr"
+    }
+  ],
+  "linkScanOffset": 713735,
+  "linkScanPath": "/Users/u/.claude/projects/-Users-u-code-fun-acta--claude-worktrees-spike-findings/4b48ba9d-c84a-4d72-9678-952381ac2a44.jsonl",
+  "template": "bg",
+  "respawnFlags": [
+    "--rc",
+    "--name",
+    "acta",
+    "--model",
+    "fable"
+  ],
+  "intent": "",
+  "name": "acta",
+  "nameSource": "user",
+  "sessionId": "3b2637ed-9d30-4e77-9203-237e2176fddf",
+  "resumeSessionId": "4b48ba9d-c84a-4d72-9678-952381ac2a44",
+  "daemonShort": "3b2637ed",
+  "cliVersion": "2.1.299",
+  "cwd": "/Users/u/code/fun/acta",
+  "createdAt": "2026-10-23T06:31:50.573Z",
+  "updatedAt": "2026-11-09T06:12:55.572Z",
+  "firstTerminalAt": "2026-10-23T06:47:19.820Z",
+  "lastTerminalAt": "2026-10-24T00:48:54.341Z",
+  "worktreePath": "/Users/u/code/fun/acta/.claude/worktrees/spike-findings",
+  "worktreeBranch": "worktree-spike-findings",
+  "bridgeSessionId": "cse_019H73SZtbq7VbQFHWSmWpnp",
+  "bridgeOutboundOnly": false,
+  "bridgeSessionSeq": 3036,
+  "backend": "daemon"
+}
