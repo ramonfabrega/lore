@@ -11,7 +11,7 @@ import { parseLine } from '../src/parse'
 // 2026-10-20 12:44Z: a `<synthetic>` assistant message (no request behind it)
 // with the window in `apiErrorParams.rate_limit_info`, `resetsAt` in unix
 // seconds (1792839600 = 2026-10-24T11:00:00Z, Saturday 06:00 Panama).
-function refusalLine(ts: string): string {
+function refusalLine(ts: string, rateLimitType = 'seven_day', resetsAt = 1792839600): string {
   return JSON.stringify({
     type: 'assistant',
     timestamp: ts,
@@ -26,7 +26,7 @@ function refusalLine(ts: string): string {
     requestId: 'req_x',
     apiError: 'usage_limit_reached',
     apiErrorParams: {
-      rate_limit_info: { status: 'rejected', resetsAt: 1792839600, rateLimitType: 'seven_day', overageStatus: 'rejected', isUsingOverage: false },
+      rate_limit_info: { status: 'rejected', resetsAt, rateLimitType, overageStatus: 'rejected', isUsingOverage: false },
     },
     error: 'rate_limit',
     isApiErrorMessage: true,
@@ -34,13 +34,13 @@ function refusalLine(ts: string): string {
   })
 }
 
-function requestLine(ts: string, id: string, cacheRead: number, output: number): string {
+function requestLine(ts: string, id: string, cacheRead: number, output: number, model = 'claude-opus-5-5'): string {
   return JSON.stringify({
     type: 'assistant',
     timestamp: ts,
     message: {
       id,
-      model: 'claude-opus-5-5',
+      model,
       role: 'assistant',
       stop_reason: 'end_turn',
       content: [{ type: 'text', text: 'ok' }],
@@ -139,5 +139,75 @@ describe('limits: the table and the verb', () => {
     const r = readLimits(db, { kind: 'five_hour', limit: 10 })
     expect(r.windows.map((w) => w.kind)).toEqual(['five_hour'])
     expect(r.count).toBe(1)
+  })
+})
+
+// Fable has its own weekly allowance, and the two sources name its window
+// differently: the mod by its model (`seven_day_fable`), the harness's 429 by
+// its billing rule (`seven_day_overage_included`). 1794654000 =
+// 2026-11-14T11:00:00Z.
+describe('limits: a week scoped to one model', () => {
+  async function seed(): Promise<ReturnType<typeof openDb>> {
+    const dir = mkdtempSync(join(tmpdir(), 'lore-limits-scoped-'))
+    const well = join(dir, 'projects', '-u-code-fun-app')
+    mkdirSync(well, { recursive: true })
+    // Inside the week: two Fable requests and two Opus ones, then Fable's wall.
+    writeFileSync(
+      join(well, 'sess-2.jsonl'),
+      [
+        requestLine('2026-11-08T10:00:00Z', 'f1', 2_000_000, 20_000, 'claude-fable-5-2'),
+        requestLine('2026-11-08T11:00:00Z', 'o1', 5_000_000, 50_000),
+        requestLine('2026-11-10T10:00:00Z', 'f2', 2_000_000, 20_000, 'claude-fable-5-2'),
+        requestLine('2026-11-10T11:00:00Z', 'o2', 5_000_000, 50_000),
+        refusalLine('2026-11-11T18:00:00.000Z', 'seven_day_overage_included', 1794654000),
+      ].join('\n'),
+    )
+    const limitsPath = join(dir, 'limits.jsonl')
+    writeFileSync(
+      limitsPath,
+      [
+        '{"ts":"2026-11-08T12:00:00.000Z","session":"sess-2","kind":"seven_day","pct":30,"resetsAt":"2026-11-14T11:00:00.000Z"}',
+        '{"ts":"2026-11-08T12:00:00.000Z","session":"sess-2","kind":"seven_day_fable","pct":40,"resetsAt":"2026-11-14T11:00:00.000Z"}',
+        '{"ts":"2026-11-11T12:00:00.000Z","session":"sess-2","kind":"seven_day","pct":85,"resetsAt":"2026-11-14T11:00:00.000Z"}',
+        '{"ts":"2026-11-11T12:00:00.000Z","session":"sess-2","kind":"seven_day_fable","pct":94,"resetsAt":"2026-11-14T11:00:00.000Z"}',
+        '{"ts":"2026-11-11T12:00:00.000Z","session":"sess-2","kind":"seven_day_cowork","pct":7,"resetsAt":"2026-11-14T11:00:00.000Z"}',
+      ].join('\n'),
+    )
+    const db = openDb(join(dir, 'lore.db'))
+    await buildIndex(db, { projectsDir: join(dir, 'projects'), historyPath: join(dir, 'none.jsonl'), limitsPath })
+    return db
+  }
+
+  test('it is a seven-day window whose ledger is that model alone, beside the all-models week', async () => {
+    const r = readLimits(await seed(), { limit: 10 })
+    expect(r.windows.map((w) => w.kind)).toEqual(['seven_day', 'seven_day_cowork', 'seven_day_fable'])
+    const [week, cowork, fable] = r.windows
+    expect(week).toMatchObject({ pct: 85, model: null, from: '2026-11-07T11:00:00.000Z', until: '2026-11-14T11:00:00.000Z' })
+    expect(week!.usage).toMatchObject({ requests: 4, cacheRead: 14_000_000, output: 140_000 })
+    // The latest reading of Fable's week is its 429, under the harness's name.
+    expect(fable).toMatchObject({ pct: 100, source: 'transcript', model: 'fable', from: '2026-11-07T11:00:00.000Z', until: '2026-11-14T11:00:00.000Z' })
+    expect(fable!.usage).toMatchObject({ requests: 2, cacheRead: 4_000_000, output: 40_000 })
+    expect(fable!.implied).toEqual(fable!.usage)
+    // Between the 40 and the 94 readings only f2 is Fable's: o2 is not counted.
+    const perPoint = fable!.usdPerPoint!
+    expect(perPoint).toBeGreaterThan(0)
+    expect(week!.usdPerPoint!).toBeGreaterThan(perPoint)
+    // A week scoped to a surface is a window with no ledger: nothing in a
+    // request says which surface made it.
+    expect(cowork).toMatchObject({ pct: 7, model: null, from: '2026-11-07T11:00:00.000Z', usage: null, implied: null, usdPerPoint: null })
+  })
+
+  test('the 429 is listed under the window it refused, and either spelling filters to it', async () => {
+    const db = await seed()
+    const r = readLimits(db, { limit: 10 })
+    expect(r.hits.map((h) => [h.kind, h.pct])).toEqual([['seven_day_fable', 100]])
+    // The table keeps what the harness said.
+    expect(db.prepare("SELECT kind FROM limits WHERE source = 'transcript'").all()).toEqual([{ kind: 'seven_day_overage_included' }])
+    for (const kind of ['seven_day_fable', 'seven_day_overage_included']) {
+      const one = readLimits(db, { kind, limit: 10 })
+      expect(one.windows.map((w) => w.kind)).toEqual(['seven_day_fable'])
+      expect(one.count).toBe(3)
+    }
+    expect(readLimits(db, { kind: 'seven_day', limit: 10 }).count).toBe(2)
   })
 })

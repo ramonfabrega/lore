@@ -176,10 +176,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS history_fts USING fts5(display);
 -- nobody publishes; two recorded 429s and one /usage reading disagreed 2x on
 -- what a week is in tokens (2026-10-28). Two sources: 'mod' rows come from
 -- ~/.lore/limits.jsonl, which the limits mod appends on every whole-point
--- move of a window (kind five_hour or seven_day, pct 0-100, resets_at the
--- window's end); 'transcript' rows are the 429s the harness wrote into a
+-- move of a window (kind five_hour, seven_day, or a week scoped to one model
+-- such as seven_day_fable; pct 0-100, resets_at the window's end);
+-- 'transcript' rows are the 429s the harness wrote into a
 -- session (apiError usage_limit_reached, rate_limit_info.rateLimitType), the
--- moment a window read 100. resets_at - 7d is the week's anchor, read off
+-- moment a window read 100 — under the HARNESS's name for it, which for the
+-- Fable week is seven_day_overage_included (limits.ts aliases it on read; the
+-- table keeps what each source said). resets_at - 7d is the week's anchor, read off
 -- the data, never a hardcoded weekday.
 CREATE TABLE IF NOT EXISTS limits(
   id INTEGER PRIMARY KEY,

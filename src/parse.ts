@@ -88,7 +88,8 @@ export type Parsed = {
   request?: Request
   // A 429 the harness wrote into the transcript (`apiError:
   // usage_limit_reached`): which rate-limit window refused (`five_hour`,
-  // `seven_day`) and when it resets. The one instant a window is known to
+  // `seven_day`, or a scoped week by the harness's own name — the Fable week
+  // is `seven_day_overage_included`, kept verbatim) and when it resets. The one instant a window is known to
   // read 100 — the anchor the `limits` table calibrates on (db.ts v21).
   limit?: { kind: string; resetsAt: string | null }
   // The transaction key: every `user` record (prompts and tool results) carries
