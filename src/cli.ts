@@ -119,6 +119,8 @@ cli.command('session', {
       .boolean()
       .optional()
       .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
+    since: z.string().optional().describe('Seek: only messages on/after this — an ISO instant (2026-11-13T20:01:00Z) or a date (the local day). --limit then counts from here, not from the session\'s first message'),
+    until: z.string().optional().describe('Only messages BEFORE this — an ISO instant or a date (its local midnight)'),
     limit: z.coerce.number().default(500).describe('Max messages'),
   }),
   alias: { lane: 'l', well: 'w', limit: 'n' },
@@ -130,6 +132,8 @@ cli.command('session', {
       limit: options.limit,
       well: options.well,
       exact: options.exact,
+      since: options.since,
+      until: options.until,
     })
     return { ...dump.session, workDirs: dump.workDirs, lanes, count: dump.messages.length, messages: dump.messages }
   },

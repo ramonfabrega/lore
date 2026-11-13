@@ -71,6 +71,20 @@ describe('getSession', () => {
     expect(dump.messages.map((m) => m.text)).toEqual(['i just init a new repo'])
   })
 
+  // `--limit` counts from the first message, so a long session's later
+  // hours were reachable only by paging. A seek moves the start.
+  test('since seeks: the limit counts from there, and until closes the window', () => {
+    const all = ['prompt', 'text', 'thinking'] as const
+    const texts = (o: { since?: string; until?: string; limit?: number }) =>
+      getSession(seedDb(), 'abc-111', { lanes: [...all], limit: o.limit ?? 500, since: o.since, until: o.until }).messages.map((m) => m.text)
+    expect(texts({ since: '2026-07-01T21:00:00Z' })).toEqual(['push and keep going', 'hmm'])
+    expect(texts({ since: '2026-07-01T19:14:00Z', limit: 1 })).toEqual(['here is a plan'])
+    expect(texts({ since: '2026-07-01T19:14:00Z', until: '2026-07-01T21:01:00Z' })).toEqual(['here is a plan', 'push and keep going'])
+    expect(texts({ since: '2026-07-03T00:00:00Z' })).toEqual([])
+    // The session's own header is not windowed: it is still the whole session.
+    expect(getSession(seedDb(), 'abc-111', { lanes: ['prompt'], limit: 500, since: '2026-07-01T21:00:00Z' }).session.first).toBe('2026-07-01T19:00:00Z')
+  })
+
   test('--well narrows an ambiguous prefix instead of erroring', () => {
     const db = seedDb()
     db.exec(`

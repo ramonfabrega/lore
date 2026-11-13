@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { dayStart } from './fmt'
 import { resolveBridge } from './jobs'
 import type { Lane } from './parse'
 
@@ -94,7 +95,12 @@ export function resolveSessionId(
 export function getSession(
   db: Database,
   idPrefix: string,
-  opts: { lanes: Lane[]; limit: number; well?: string; exact?: boolean },
+  // `since`/`until`: a seek. `--limit` counts from the session's first
+  // message, so the tool lane of a long session was readable only from its
+  // start — a miner after what a session did at 20:01 paged 500 rows at a
+  // time to get there. A date is the local day, an instant passes through,
+  // `until` is exclusive (search.ts, the same window).
+  opts: { lanes: Lane[]; limit: number; well?: string; exact?: boolean; since?: string; until?: string },
 ): SessionDump {
   const sessionId = resolveSessionId(db, idPrefix, opts)
 
@@ -123,15 +129,25 @@ export function getSession(
   )
 
   const placeholders = opts.lanes.map(() => '?').join(', ')
+  const window: string[] = []
+  const bounds: string[] = []
+  if (opts.since) {
+    window.push('AND m.ts >= ?')
+    bounds.push(dayStart(opts.since))
+  }
+  if (opts.until) {
+    window.push('AND m.ts < ?')
+    bounds.push(dayStart(opts.until))
+  }
   const messages = z.array(Msg).parse(
     db
       .prepare(
         `SELECT m.ts, m.lane, m.type, m.git_branch AS gitBranch, m.peer, f.text
          FROM messages m JOIN messages_fts f ON f.rowid = m.id
-         WHERE m.session_id = ? AND m.lane IN (${placeholders})
+         WHERE m.session_id = ? AND m.lane IN (${placeholders}) ${window.join(' ')}
          ORDER BY m.id LIMIT ?`,
       )
-      .all(sessionId, ...opts.lanes, opts.limit),
+      .all(sessionId, ...opts.lanes, ...bounds, opts.limit),
   )
   return { session, workDirs, messages }
 }
