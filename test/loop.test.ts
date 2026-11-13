@@ -2,18 +2,17 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { $ } from 'bun'
 import type { AgentRow, JobState } from '../src/agents'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { indexJobs } from '../src/jobs'
-import { diffScore, getLoop, listTranches, parseQueueHead, parseScore, parseTrancheLog, bookedItems, scoreMoves } from '../src/loop'
+import { getLoop } from '../src/loop'
 
-// One loop in miniature: a commander in its worktree that spawned two lanes
-// through `ccc spawn --json`, a queue file whose opening line names the
-// tranche's base, three first-parent commits from it of which two are
-// bookings, and the daemon's side (the roster and a state.json with a gate
-// in flight) handed in rather than read — the kit has no daemon.
+// One job that runs others, in miniature: a commander in its worktree that
+// spawned three lanes through `ccc spawn --json` (one before the window),
+// the steer that set it to work and that it hands back to, and the daemon's
+// side (the roster and a state.json with a shell in flight) handed in
+// rather than read — the kit has no daemon.
 
 type Rec = Record<string, unknown>
 const line = (r: Rec) => JSON.stringify(r)
@@ -33,71 +32,7 @@ const bash = (s: string, root: string, ts: string, id: string, command: string) 
 const result = (s: string, root: string, ts: string, promptId: string, id: string, text: string) =>
   line({ type: 'user', timestamp: ts, promptId, sessionId: s, session_id: root, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text }] } })
 
-const QUEUE_OPEN = `# The queue
-
-## Where things stand
-
-*2026-10-15, **the first pass is done** (DECISIONS 1): nothing yet.*
-
-Scoreboard: EastIndies 1851/1850 w1850 · GreatLakes 1700/1772 w1850
-Peace pair: EastIndiesLakotaPeace w5315 of 6,822
-Census: simulation backed 1068 of 3611
-Golden: every chapter closed · ch1 closed
-`
-const queueAt = (base: string) => `# The queue
-
-## Where things stand
-
-*2026-10-15, **the second tranche at two landings** from \`${base}\` (the first pass, DECISIONS 1): two lanes.*
-
-Scoreboard: EastIndies 1851/1850 w1850 · GreatLakes 1772/1772 w1850
-Peace pair: EastIndiesLakotaPeace w5499 of 6,822
-Census: simulation backed 1125 of 3611
-Golden: every chapter closed · ch1 closed · ch2 closed
-`
-
-async function repo(): Promise<{ dir: string; base: string; note: string }> {
-  const dir = mkdtempSync(join(tmpdir(), 'lore-loop-repo-'))
-  // Both dates: `--date` sets the author's alone, and a landing is read off
-  // the committer's (%cI), which is what the loop's own commits carry.
-  const g = (...args: string[]) => {
-    const i = args.indexOf('--date')
-    const date = i >= 0 ? args[i + 1] : undefined
-    const argv = i >= 0 ? args.filter((_, j) => j !== i && j !== i + 1) : args
-    const env = { ...process.env, ...(date ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : {}) }
-    return $`git -C ${dir} -c user.name=t -c user.email=t@t -c commit.gpgsign=false ${argv}`.env(env).quiet()
-  }
-  await g('init', '-q', '-b', 'main')
-  mkdirSync(join(dir, 'docs'))
-  writeFileSync(join(dir, 'docs', 'QUEUE.md'), QUEUE_OPEN)
-  await g('add', '.')
-  await g('commit', '-q', '-m', 'The first pass, second commit: the whole gate is green', '--date', '2026-10-15T10:00:00Z')
-  const base = (await $`git -C ${dir} rev-parse --short HEAD`.text()).trim()
-  // A merge (a lane's tree), its booking, a note, a second booking.
-  await g('checkout', '-q', '-b', 'worktree-att-1')
-  writeFileSync(join(dir, 'a.txt'), 'a')
-  await g('add', '.')
-  await g('commit', '-q', '-m', 'the lane did a thing', '--date', '2026-10-15T10:30:00Z')
-  await g('checkout', '-q', 'main')
-  await g('merge', '-q', '--no-ff', '-m', 'Merge worktree-att-1 (1 commit)', 'worktree-att-1', '--date', '2026-10-15T10:50:00Z')
-  writeFileSync(join(dir, 'docs', 'QUEUE.md'), queueAt(base).replace('5499', '5400'))
-  await g('commit', '-q', '-am', 'Book 1: the peace pair 5315 -> 5400', '--date', '2026-10-15T11:00:00Z')
-  writeFileSync(join(dir, 'note.txt'), 'n')
-  await g('add', '.')
-  await g('commit', '-q', '-m', 'The handoff names the next number', '--date', '2026-10-15T11:10:00Z')
-  const note = (await $`git -C ${dir} rev-parse --short HEAD`.text()).trim()
-  writeFileSync(join(dir, 'docs', 'QUEUE.md'), queueAt(base))
-  await g('commit', '-q', '-am', 'Book 2: the peace pair 5400 -> 5499, census 1068 -> 1125', '--date', '2026-10-15T12:00:00Z')
-  // A co-booking (two items, one commit, the 59th tranche's shape) spelled
-  // `Booking` (the 40th's), then a second commit for one of them: four
-  // items landed on five booking commits.
-  writeFileSync(join(dir, 'b.txt'), 'b')
-  await g('add', '.')
-  await g('commit', '-q', '-m', 'Booking 3 and 4: two pairs whole on the first try', '--date', '2026-10-15T12:20:00Z')
-  writeFileSync(join(dir, 'b.txt'), 'bb')
-  await g('commit', '-q', '-am', 'Booking 3, second commit: cargo fmt', '--date', '2026-10-15T12:25:00Z')
-  return { dir, base, note }
-}
+const CMD_CWD = '/u/code/fun/app/.claude/worktrees/cmd'
 
 function wells(cmdCwd: string, w1: string, w2: string) {
   const spawn = (cwd: string, ref: string, name: string) => `{"cwd":"${cwd}","draft":false,"ref":"${ref}","said":"backgrounded · ${ref} · ${name}\\n  claude attach ${ref}","worktree":{"base":"worktree-cmd"}}`
@@ -107,7 +42,7 @@ function wells(cmdCwd: string, w1: string, w2: string) {
         bridge('cmd-1', 'cse_CMD', '2026-10-15T09:00:00Z'),
         prompt('cmd-1', 'c0dec0de', '2026-10-15T09:00:01Z', 'P1', 'run the loop', cmdCwd),
         reply('cmd-1', 'c0dec0de', '2026-10-15T09:00:05Z', 'r0', 'reading the queue'),
-        // Before the base: this tranche does not pay for it.
+        // Before the window: it does not pay for it.
         bash('cmd-1', 'c0dec0de', '2026-10-15T09:30:00Z', 'tu_0', 'ccc spawn --worktree=att-0 --name att-0 --model sonnet --json - < brief.md'),
         result('cmd-1', 'c0dec0de', '2026-10-15T09:30:05Z', 'P1', 'tu_0', spawn(w1, '00000000', 'att-0')),
         bash('cmd-1', 'c0dec0de', '2026-10-15T10:05:00Z', 'tu_1', 'ccc spawn --worktree=att-1 --name att-1 --model sonnet --json - < brief.md'),
@@ -115,12 +50,12 @@ function wells(cmdCwd: string, w1: string, w2: string) {
         bash('cmd-1', 'c0dec0de', '2026-10-15T11:05:00Z', 'tu_2', 'ccc spawn --worktree=att-2 --name att-2 --model opus --json - < brief.md'),
         result('cmd-1', 'c0dec0de', '2026-10-15T11:05:05Z', 'P1', 'tu_2', spawn(w2, 'cafebabe', 'att-2')),
         // The commander hands back to the steer that set it to work: the
-        // answer names the steer's ref inside the tranche, and is no spawn.
+        // answer names the steer's ref inside the window, and is no spawn.
         bash('cmd-1', 'c0dec0de', '2026-10-15T11:30:00Z', 'tu_3', 'ccc clear steer --then "the second pass" --json'),
         result('cmd-1', 'c0dec0de', '2026-10-15T11:30:05Z', 'P1', 'tu_3', spawn(cmdCwd, 'beefbeef', 'steer')),
         reply('cmd-1', 'c0dec0de', '2026-10-15T12:01:00Z', 'r1', '2 booked; gate running'),
       ],
-      // The steer: it cleared the commander into this tranche (so it reads
+      // The steer: it cleared the commander into this window (so it reads
       // as the commander's parent) and worked inside it — never a lane.
       'beefbeef-0000-4000-8000-000000000009': [
         prompt('beefbeef-0000-4000-8000-000000000009', 'beefbeef-0000-4000-8000-000000000009', '2026-10-15T08:50:00Z', 'S1', 'the first pass', cmdCwd),
@@ -182,166 +117,85 @@ const row = (o: Partial<AgentRow> & { cwd: string; state: string }): AgentRow =>
 })
 
 describe('lore loop', () => {
-  test('a booking subject books distinct items under either spelling; a second commit books none new', () => {
-    expect(bookedItems('Book 3674 and 3690: the Greeks at a held age')).toEqual([3674, 3690])
-    expect(bookedItems('Booking 3024, second commit: cargo fmt on the mod list')).toEqual([3024])
-    expect(bookedItems('Book 2997 at the drain (Opus 5.5 medium): the battery word')).toEqual([2997])
-    expect(bookedItems('Booking 3677/3678: two pairs')).toEqual([3677, 3678])
-    // A count after the item is not a second item, at any width.
-    expect(bookedItems('Book 3939, 7 of 20 from 3cce22c2c: chapter 121 whole at 1000')).toEqual([3939])
-    expect(bookedItems('Book 3920, 17 of 20 from 02f72df7d: the take refused')).toEqual([3920])
-    expect(bookedItems('Book 3674 and 3690, 12 of 20: two pairs')).toEqual([3674, 3690])
-    expect(bookedItems('Merge worktree-att-3049 (15 commits)')).toEqual([])
-    expect(bookedItems('The fortieth pass (Fable): five lanes scored')).toEqual([])
+  const now = Date.parse('2026-10-15T12:30:00Z')
+  const liveSide = (w2: string) => ({
+    rows: [
+      row({ id: 'cmd00000', name: 'commander', state: 'working', tempo: 'busy', detail: '2 booked; gate running', cwd: CMD_CWD, sessionId: 'cmd-1', ctx: 240_000, model: 'claude-opus-5-5' }),
+      row({ id: 'cafebabe', name: 'att-2', state: 'working', cwd: w2, sessionId: 'cafebabe-0000-4000-8000-000000000002', ctx: 310_000, model: 'claude-opus-5-5' }),
+    ],
+    states: new Map<string, JobState | null>([
+      ['cmd00000', { fan: [{ id: 'g1', kind: 'shell', label: 'python3 tools/release_gate.py game --scope abc', startedAt: now - 600_000 }, { id: 'w1', kind: 'shell', label: 'python3 tools/lanewait.py att-2', startedAt: now - 60_000, doneAt: now - 30_000 }] }],
+    ]),
   })
 
-  test('the moves of a score: changed items first, then the ones born since the base', () => {
-    const d = diffScore(parseScore(queueAt('abc1234') + 'Late ages: EastIndiesGermanAllTech w4175 of 4,175\n'), parseScore(QUEUE_OPEN))
-    expect(scoreMoves(d).map((m) => [m.label, m.delta, m.born])).toEqual([
-      ['GreatLakes', 72, false],
-      ['EastIndiesLakotaPeace', 184, false],
-      ['backed', 57, false],
-      ['EastIndiesGermanAllTech', null, true],
-    ])
-  })
+  test('one job: its row at the daemon, what is running, the lanes of the window plus the live ones, the fee, who spoke last', async () => {
+    const { db, w2 } = await corpus(CMD_CWD)
+    const live = liveSide(w2)
+    const loop = await getLoop(db, 'commander', { now, live, since: '2026-10-15T10:00:00.000Z' })
 
-  test('the queue head and score lines parse, and the base folds in as open and delta', () => {
-    expect(parseQueueHead(queueAt('abc1234'))).toEqual({ label: 'the second tranche', base: 'abc1234' })
-    expect(parseQueueHead(QUEUE_OPEN)).toEqual({ label: null, base: null })
-    const now = parseScore(queueAt('abc1234'))
-    expect(now.map((l) => l.line)).toEqual(['Scoreboard', 'Peace pair', 'Census'])
-    const d = diffScore(now, parseScore(QUEUE_OPEN))
-    expect(d[1]?.items[0]).toEqual({ label: 'EastIndiesLakotaPeace', value: 5499, of: 6822, open: 5315, delta: 184 })
-    expect(d[2]?.items[0]).toEqual({ label: 'backed', value: 1125, of: 3611, open: 1068, delta: 57 })
-    expect(d[0]?.items[1]).toEqual({ label: 'GreatLakes', value: 1772, of: 1772, open: 1700, delta: 72 })
-  })
+    expect(loop.job).toMatchObject({ name: 'commander', jobId: 'cmd00000', state: 'working', tempo: 'busy', detail: '2 booked; gate running', ctx: 240_000, cwd: CMD_CWD, sessions: 1 })
+    expect(loop.window).toEqual({ since: '2026-10-15T10:00:00.000Z', until: null })
 
-  test('one loop: the tranche from the base, the lanes of the tranche plus the live ones, the gate, the fee, who spoke last', async () => {
-    const { dir, base } = await repo()
-    const { db, w2 } = await corpus(dir)
-    const now = Date.parse('2026-10-15T12:30:00Z')
-    const live = {
-      rows: [
-        row({ id: 'cmd00000', name: 'commander', state: 'working', tempo: 'busy', detail: '2 booked; gate running', cwd: dir, sessionId: 'cmd-1', ctx: 240_000, model: 'claude-opus-5-5' }),
-        row({ id: 'cafebabe', name: 'att-2', state: 'working', cwd: w2, sessionId: 'cafebabe-0000-4000-8000-000000000002', ctx: 310_000, model: 'claude-opus-5-5' }),
-      ],
-      states: new Map<string, JobState | null>([
-        ['cmd00000', { fan: [{ id: 'g1', kind: 'shell', label: 'python3 tools/release_gate.py game --scope abc', startedAt: now - 600_000 }, { id: 'w1', kind: 'shell', label: 'python3 tools/lanewait.py att-2', startedAt: now - 60_000, doneAt: now - 30_000 }] }],
-      ]),
-    }
-    const loop = await getLoop(db, 'commander', { now, live })
+    // The daemon's fan, unfinished shells only — every one, under its own
+    // label: what a shell IS (a gate, a wait) is the caller's to read.
+    expect(loop.running).toEqual([{ kind: 'shell', label: 'python3 tools/release_gate.py game --scope abc', since: new Date(now - 600_000).toISOString() }])
 
-    expect(loop.job).toMatchObject({ name: 'commander', jobId: 'cmd00000', state: 'working', tempo: 'busy', detail: '2 booked; gate running', ctx: 240_000, cwd: dir, sessions: 1 })
-
-    // The base is read off the queue; four booking commits on the
-    // first-parent line booking four DISTINCT items (a co-booking counts
-    // two, a second commit none), the merge and the note counted but not
-    // landings.
-    expect(loop.tranche).toMatchObject({ label: 'the second tranche', base, landings: 4, of: 20, merges: 1, commits: 6 })
-    expect(loop.tranche?.booked.map((b) => b.items)).toEqual([[3], [3, 4], [2], [1]])
-    expect(loop.tranche?.baseAt).toBe('2026-10-15T10:00:00.000Z')
-    expect(loop.tranche?.last).toBe('2026-10-15T12:25:00.000Z')
-    expect(loop.tranche?.sinceLastMs).toBe(5 * 60_000)
-    expect(loop.tranche?.perHour).toBe(1.6)
-    expect(loop.tranche?.etaMs).toBe(Math.round((16 / 1.6) * 3_600_000))
-
-    // The score against the base commit's queue, not the previous landing's;
-    // `moves` names what changed, then what was born since the base.
-    const peace = loop.score.find((l) => l.line === 'Peace pair')?.items[0]
-    expect(peace).toMatchObject({ value: 5499, open: 5315, delta: 184 })
-    expect(loop.moves.map((m) => [m.line, m.label, m.delta, m.born])).toEqual([
-      ['Scoreboard', 'GreatLakes', 72, false],
-      ['Peace pair', 'EastIndiesLakotaPeace', 184, false],
-      ['Census', 'backed', 57, false],
-    ])
-
-    expect(loop.gate).toEqual({ running: true, since: new Date(now - 600_000).toISOString(), label: 'python3 tools/release_gate.py game --scope abc' })
-    expect(loop.running).toHaveLength(1)
-
-    // att-0 was spawned before the base and is not live: not this tranche's.
+    // att-0 was spawned before the window and is not live: not in it. The
+    // steer the commander cleared is its parent, never a lane.
     expect(loop.lanes.map((l) => l.name)).toEqual(['att-2', 'att-1'])
     expect(loop.lanesTotal).toBe(2)
-    expect(loop.lanes[0]).toMatchObject({ item: 2, live: true, state: 'working', model: 'claude-opus-5-5', ctx: 310_000, deep: true, spawnedAt: '2026-10-15T11:05:00.000Z' })
+    expect(loop.lanes[0]).toMatchObject({ live: true, state: 'working', model: 'claude-opus-5-5', ctx: 310_000, deep: true, spawnedAt: '2026-10-15T11:05:00.000Z' })
     expect(loop.lanes[0]?.ageMs).toBe(85 * 60_000)
-    expect(loop.lanes[1]).toMatchObject({ item: 1, live: false, state: 'done', model: 'claude-sonnet-5-5', ctx: null, peak: 1000, deep: false })
+    expect(loop.lanes[1]).toMatchObject({ live: false, state: 'done', model: 'claude-sonnet-5-5', ctx: null, peak: 1000, deep: false })
     // A lane that is gone has no live context: it is deep on what it
-    // REACHED, so a closed tranche still counts its deep lanes.
-    const shallow = await getLoop(db, 'commander', { now, live, deep: 1000 })
+    // REACHED, so a closed window still counts its deep lanes.
+    const shallow = await getLoop(db, 'commander', { now, live, since: '2026-10-15T10:00:00.000Z', deep: 1000 })
     expect(shallow.lanes.map((l) => [l.name, l.deep])).toEqual([['att-2', true], ['att-1', true]])
 
-    // The fee since the base: the commander's requests after 10:00 (two of
-    // the three bash calls and the closing reply) and the two lanes'.
+    // The fee inside the window: the commander's requests after 10:00 and
+    // the two lanes'. Less than the whole job's, which also paid for att-0.
     expect(loop.spend.jobUsd).toBeGreaterThan(0)
     expect(loop.spend.laneUsd).toBeGreaterThan(0)
     expect(loop.spend.totalUsd).toBe(Math.round(((loop.spend.jobUsd ?? 0) + (loop.spend.laneUsd ?? 0)) * 100) / 100)
-    expect(loop.spend.perLanding).toBe(Math.round(((loop.spend.totalUsd ?? 0) / 4) * 100) / 100)
+    const whole = await getLoop(db, 'commander', { now, live })
+    expect(whole.spend.jobUsd ?? 0).toBeGreaterThan(loop.spend.jobUsd ?? 0)
+    expect(whole.lanesTotal).toBe(3)
+    expect(whole.lanes.reduce((n, l) => n + l.requests, 0)).toBeGreaterThan(loop.lanes.reduce((n, l) => n + l.requests, 0))
 
     // `--lanes` caps the rows listed, never the spend.
-    const capped = await getLoop(db, 'commander', { now, live, lanes: 1 })
+    const capped = await getLoop(db, 'commander', { now, live, since: '2026-10-15T10:00:00.000Z', lanes: 1 })
     expect(capped.lanes.map((l) => l.name)).toEqual(['att-2'])
     expect(capped.lanesTotal).toBe(2)
     expect(capped.spend.laneUsd).toBe(loop.spend.laneUsd)
 
     // Index instants pass through as the transcript wrote them, like every
-    // other verb's; only what git or the daemon wrote is normalized.
+    // other verb's; only what the daemon wrote is normalized.
     expect(loop.spoke).toEqual({ lastPrompt: '2026-10-15T09:00:01Z', lastText: '2026-10-15T12:01:00Z', lastSent: null })
   })
 
-  test('--until closes the tranche: landings stop at the end commit, the clock is its instant, the score is the last landing\'s queue', async () => {
-    const { dir, base, note } = await repo()
-    const { db } = await corpus(dir)
-    const now = Date.parse('2026-10-15T12:30:00Z')
-    const loop = await getLoop(db, 'commander', { now, live: { rows: [], states: new Map() }, base, until: note })
-    // base..note on the first-parent line: the merge, Book 1, and the note
-    // itself; Book 2 is past the end.
-    expect(loop.tranche).toMatchObject({ base, until: note, endAt: '2026-10-15T11:10:00.000Z', landings: 1, merges: 1, commits: 3, etaMs: null })
-    expect(loop.tranche?.booked).toEqual([{ sha: expect.any(String), at: '2026-10-15T11:00:00.000Z', item: 1, items: [1], subject: 'Book 1: the peace pair 5315 -> 5400' }])
-    // Measured to the end, not to now: 1 landing in 70 minutes; 10 minutes
-    // from the landing to the end.
-    expect(loop.tranche?.perHour).toBe(0.86)
-    expect(loop.tranche?.sinceLastMs).toBe(10 * 60_000)
-    // The score as Book 1 left it, against the base.
-    const peace = loop.score.find((l) => l.line === 'Peace pair')?.items[0]
-    expect(peace).toMatchObject({ value: 5400, open: 5315, delta: 85 })
-    // Lanes by spawn instant inside base..end (att-2 at 11:05 is in; att-0
-    // before the base is not), newest first; nothing is live in a closed one.
-    expect(loop.lanes.map((l) => [l.name, l.live])).toEqual([['att-2', false], ['att-1', false]])
+  test('--until closes the window: lanes by spawn instant inside it, nothing live, ages to its end', async () => {
+    const { db, w2 } = await corpus(CMD_CWD)
+    const loop = await getLoop(db, 'commander', { now, live: liveSide(w2), since: '2026-10-15T10:00:00.000Z', until: '2026-10-15T11:00:00.000Z' })
+    expect(loop.window).toEqual({ since: '2026-10-15T10:00:00.000Z', until: '2026-10-15T11:00:00.000Z' })
+    // att-1 at 10:05 is in; att-2 at 11:05 is past the end though it is live
+    // now; att-0 before the start is not.
+    expect(loop.lanes.map((l) => l.name)).toEqual(['att-1'])
+    // Measured to the end, not to now: 55 minutes old at 11:00.
+    expect(loop.lanes[0]?.ageMs).toBe(55 * 60_000)
   })
 
-  test('the tranches off the queue file\'s history: one row per base change, oldest first', async () => {
-    const log = [
-      '\x01cccccccc3333\t2026-10-21T16:01:10Z\n+*2026-10-21, **the forty-ninth tranche (commander, Opus): 1 of 20 landed from `11da5dd81`** — x',
-      '\x01bbbbbbbb2222\t2026-10-21T13:41:25Z\n+*2026-10-21, **the forty-eighth tranche (commander, Opus): 7 of 20 landed from `28f48612`** — y',
-      '\x01bbbbbbbb1111\t2026-10-21T11:53:59Z\n+*2026-10-21, **the forty-eighth tranche (commander, Opus): 1 of 20 landed from `28f48612`** — y\n-*2026-10-20, **the forty-seventh tranche** from `56f23ba5`',
-      '\x01aaaaaaaa0000\t2026-10-20T21:13:30Z\n+++ b/docs/QUEUE.md\n+*2026-10-20, **the forty-seventh tranche (commander, Opus): 1 of 20 landed from `56f23ba5`**',
-    ].join('\n')
-    expect(parseTrancheLog(log)).toEqual([
-      { sha: 'aaaaaaaa', at: '2026-10-20T21:13:30.000Z', label: 'the forty-seventh tranche', base: '56f23ba5' },
-      { sha: 'bbbbbbbb', at: '2026-10-21T11:53:59.000Z', label: 'the forty-eighth tranche', base: '28f48612' },
-      { sha: 'cccccccc', at: '2026-10-21T16:01:10.000Z', label: 'the forty-ninth tranche', base: '11da5dd8' },
-    ])
-    // Against a real repo: the fixture's queue names one base, once.
-    const { dir, base } = await repo()
-    const rows = await listTranches(dir)
-    expect(rows.map((t) => [t.label, t.base])).toEqual([['the second tranche', base]])
-  })
-
-  test('a job without a queue or a daemon still answers: no tranche, no score, the ledger side alone', async () => {
-    const { dir } = await repo()
-    const { db } = await corpus(dir)
-    const loop = await getLoop(db, 'commander', { now: Date.parse('2026-10-15T12:30:00Z'), live: { rows: [], states: new Map() }, queue: 'docs/NOPE.md' })
-    expect(loop.tranche).toBeNull()
-    expect(loop.score).toEqual([])
-    expect(loop.gate).toBeNull()
+  test('no window is the whole job, and no daemon still answers: the ledger side alone', async () => {
+    const { db } = await corpus(CMD_CWD)
+    const loop = await getLoop(db, 'commander', { now, live: { rows: [], states: new Map() } })
+    expect(loop.window).toEqual({ since: null, until: null })
+    expect(loop.running).toEqual([])
     expect(loop.job).toMatchObject({ name: 'commander', state: 'working', tempo: null, ctx: null })
-    // No base: every lane the job ever spawned, newest first.
+    // Every lane the job ever spawned, newest first.
     expect(loop.lanes.map((l) => l.name)).toEqual(['att-2', 'att-1', 'att-0'])
-    expect(loop.spend.perLanding).toBeNull()
   })
 
   test('a name nothing matches is an error, never an empty loop', async () => {
-    const { dir } = await repo()
-    const { db } = await corpus(dir)
+    const { db } = await corpus(CMD_CWD)
     await expect(getLoop(db, 'nobody', { live: { rows: [], states: new Map() } })).rejects.toThrow(/no job matches/)
   })
 })

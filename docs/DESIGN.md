@@ -629,6 +629,31 @@ the hazard above, and the stamp and the warming would need a channel back to the
 server); the Bun GC and allocator knobs (`--smol`, forcing `Bun.gc(true)` after a
 refresh — treats the high-water mark as the bug when the bug is where the work runs).
 
+### 2026-11-13 — A loop's grammar lives in the loop's repo (`lore loop` cut, `lore tranches` removed)
+
+`lore loop` (10-15) read attrition's `docs/QUEUE.md` for a tranche's base and
+scoreboard, counted landings by a commit-subject regex, and pulled item numbers
+out of subjects and lane names; `lore tranches` walked the queue file's history;
+the run page drew all of it. The defaults were one repo's spellings and each was
+the shape of prose, in a tool whose own rule is that a fact is a field. It broke
+on `Book` vs `Booking`, on a count read as an item, and for good when attrition's
+queue stopped naming a base on 11-13 — by which time attrition had not called it
+for a week (0 calls against 114 of `limits`, 53 of `api job`) and kept its own
+table on lore's general verbs (`tools/tranche.py`). Removed: `tranche`, `score`,
+`moves`, `gate`, `--base`, `--queue`, `--landing`, `--of`, `lore tranches`, the
+page's picker, landings, scoreboard and `landed` column. Kept: the job, what is
+running under it, the lanes it spawned with model, context and fee, the spend,
+over a window of instants (`--since`/`--until`). Rule, for the next verb that
+wants to read a repo's file: lore reads what the harness and its own index
+record; a project's conventions are that project's tool, built on lore's verbs.
+Rejected: keeping the grammar behind options (`--queue`, `--landing`) — options
+with one repo's defaults are that repo's code wearing a general name.
+The same change found that a NAME is not a key in practice either: twelve names
+in the index belonged to several jobs and the lookup took the first row in table
+order; a name now resolves to the job the daemon still lists, then the one
+active last. Still prose, and owed a field: the spawn edge (EXPLORER.md §The run
+page) — asked of ccc as a ledger `ccc spawn` appends.
+
 ## Privacy redline
 
 Transcripts span work/client repos and personal projects. Graduation must be loud

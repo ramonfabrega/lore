@@ -7,10 +7,10 @@ import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
 import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
 import { buildIndex } from './indexer'
-import { backfillJobNames, listJobs, resolveJob } from './job'
+import { backfillJobNames, listJobs } from './job'
 import { indexJobs } from './jobs'
 import { readLimits } from './limits'
-import { cwdOf, getLoop, listTranches } from './loop'
+import { getLoop } from './loop'
 import type { Lane } from './parse'
 import { purgeSession } from './purge'
 import { searchHistory, searchMessages } from './search'
@@ -407,43 +407,19 @@ cli.command('polls', {
 
 cli.command('loop', {
   description:
-    'One unattended loop as numbers — the five things a peek at a running commander asks, every one read off disk, zero model: `job` (the daemon\'s row: state, `tempo`, its own `detail` line, the context its next turn carries), `tranche` (the base commit the queue names and the LANDINGS from it on the first-parent line — `landings` of `of`, when the last one was, `sinceLastMs`, the tranche\'s own `perHour` and the `etaMs` it implies — a loop with four lanes working and two hours since a landing is the stuck shape, and nothing else computes that gap), `score` (the queue\'s scoreboard lines, each number with its value at the base as `open` and the `delta` — "+184 this tranche" was narrated by hand until this), `gate` and `running` (the shells the daemon has in flight, the release gate first, with when it started), `lanes` (the jobs this one spawned, this tranche\'s plus any still live, never the job that spawned IT — a commander and its steer clear each other, and the steer is no lane: item, model, age since spawn, `ctx` the context its next turn carries while live, `peak` the deepest request it made inside the tranche, and `deep` past the clear threshold — on `ctx` for a live lane and on `peak` for one that is gone, so a closed tranche counts its deep lanes — requests, fee), `spend` (the job\'s own fee since the base plus EVERY lane\'s — `lanesTotal` counts them; `--lanes` caps only the rows listed — and `perLanding`), `moves` (the score items that changed this tranche, then the ones BORN inside it with `open: null` — a pair stood up and closed whole in one tranche shows no delta, only a birth) and `spoke` (the last human prompt, the last assistant text, the last SendMessage). Two readings are the loop\'s grammar and are options with attrition\'s spellings as defaults: `--landing \'^Book(?:ing)? \'` (the first-parent commits that count — 186 commits, 33 merges and 19 bookings stood between one base and HEAD; a landing is a DISTINCT item booked, so `Book 3674 and 3690:` is two, `Booking 3024, second commit:` is none and the count in `Book 3939, 7 of 20 from …` is not an item, and a regex that names no item counts commits) and `--queue docs/QUEUE.md` (the file whose opening line names the base as ``from `<sha>` `` and whose `Name: label 5499 of 6,822` lines are the score). A repo without them still gets the job, lanes, shells and fee; `tranche` is null and `score` empty. Live fields are the roster\'s (`lore agents`) and read null without a daemon; ledger fields are as of the last `lore index` (`job.indexedUntil`). Built for a band or a page to poll, so the commander writes nothing new.',
+    'One job and the jobs it spawned, as numbers — what a peek at an agent that runs others asks, every one read off disk, zero model: `job` (the daemon\'s row: state, `tempo`, its own `detail` line, the context its next turn carries), `running` (the shells the daemon has in flight under it, with when each started), `lanes` (the jobs this one spawned, read off the spawn edges, never the job that spawned IT: model, age since spawn, `ctx` the context its next turn carries while live, `peak` the deepest request it made inside the window, and `deep` past the clear threshold — on `ctx` for a live lane and on `peak` for one that is gone — requests, fee), `spend` (the job\'s own fee plus EVERY lane\'s — `lanesTotal` counts them; `--lanes` caps only the rows listed) and `spoke` (when it was last prompted, last wrote, last sent a message). `--since`/`--until` bound it to a window of instants: the lanes spawned inside it (plus any still live when it is open-ended) and the fee inside it; with neither it is the job\'s whole life. A caller that thinks in commits turns one into an instant itself (`git show -s --format=%cI <sha>`). This verb used to read one repo\'s queue file, count its landings by a commit-subject regex and print its scoreboard; that was attrition\'s grammar, it lives in attrition (`tools/tranche.py`), and `tranche`, `score`, `moves`, `gate`, `--base`, `--queue`, `--landing`, `--of` and the `tranches` verb are gone (2026-11-13).',
   args: z.object({
     job: z.string().describe('The job: its name (`commander`), a bridge id, the daemon\'s id, or a session id'),
   }),
   options: z.object({
-    base: z.string().optional().describe('The tranche\'s base commit; default: what the queue file names'),
-    until: z.string().optional().describe('The tranche\'s end commit (the next tranche\'s base, from `lore tranches`): landings, lanes and fee stop there and the rates are measured to its instant, not to now — a closed tranche reads as it was'),
-    queue: z.string().optional().describe('The queue file, relative to the job\'s cwd (default docs/QUEUE.md)'),
-    landing: z.string().optional().describe('Regex a first-parent commit subject must match to count as a landing (default `^Book(?:ing)? `; the items it books are read off the subject, distinct)'),
-    of: z.coerce.number().default(20).describe('Landings per tranche, for `etaMs`'),
+    since: z.string().optional().describe('Window start — an ISO instant or a date (the local day). Lanes spawned on/after it, and the fee from it'),
+    until: z.string().optional().describe('Window end — an ISO instant or a date (its local midnight). Lanes, fee and ages stop there: a closed window reads as it was'),
     deep: z.coerce.number().default(300000).describe('Context at which a lane reads `deep`'),
     lanes: z.coerce.number().default(12).describe('Max lanes LISTED, live first; `lanesTotal` and `spend` count every lane'),
   }),
-  alias: { base: 'b', of: 'n' },
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
-    return getLoop(db, args.job, { base: options.base, until: options.until, queue: options.queue, landing: options.landing, of: options.of, deep: options.deep, lanes: options.lanes })
-  },
-})
-
-cli.command('tranches', {
-  description:
-    'The tranches of an unattended loop, oldest first, off the queue file\'s own history: the loop rewrites the queue\'s head at every booking (`13 of 20 landed from `11da5dd8``) and the base changes once per tranche, at the handoff, so every commit that moved the base line opens a tranche. Each row: `sha` (the commit that opened it) and `at`, `label` (the queue\'s own words, `the forty-ninth tranche`), `base`, and `until` — the next tranche\'s base, null for the open one — which is what `lore loop --base <base> --until <until>` takes to read a closed tranche as it was. Nothing is read off session openers or prose. The run page (`/run/<job>`, docs/EXPLORER.md) is this list as a picker.',
-  args: z.object({
-    job: z.string().describe('The job: its name (`commander`), a bridge id, the daemon\'s id, or a session id'),
-  }),
-  options: z.object({
-    queue: z.string().optional().describe('The queue file, relative to the job\'s cwd (default docs/QUEUE.md)'),
-  }),
-  run: async ({ args, options }) => {
-    const db = openDb(DB_PATH)
-    const ref = resolveJob(db, args.job)
-    if (!ref) throw new Error(`no job matches "${args.job}" — a name from \`lore jobs\`, a bridge id, the daemon's id, or a session id`)
-    const cwd = cwdOf(db, ref.key)
-    if (!cwd) throw new Error(`job ${ref.key} has no cwd at the daemon — the queue's history is read from the repo it runs in`)
-    const rows = await listTranches(cwd, options.queue)
-    return { job: { key: ref.key, cwd }, tranches: rows.map((t, i) => ({ ...t, until: rows[i + 1]?.base ?? null })) }
+    return getLoop(db, args.job, { since: options.since, until: options.until, deep: options.deep, lanes: options.lanes })
   },
 })
 

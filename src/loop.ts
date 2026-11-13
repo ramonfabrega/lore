@@ -1,71 +1,51 @@
 import type { Database } from 'bun:sqlite'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { $ } from 'bun'
 import { z } from 'zod'
 import { type AgentRow, iso, type JobState, listAgents, readJobState } from './agents'
+import { dayStart } from './fmt'
 import { JOB_KEY_SQL, type JobRef, jobsOfSessions, resolveJob, spawnEdges } from './job'
 import { dominantModel } from './model'
 import { listUsage } from './usage'
 
-// One unattended loop, read as numbers (the attrition commander, 2026-10-15).
+// One job and the jobs it spawned, read as numbers.
 //
-// A peek at a running loop asks five things — is it alive, did the number
-// move, how far into the tranche, what are the lanes doing, what has it
-// cost — and every answer was already on disk, written by someone other
-// than the model: the daemon's state.json (`detail`, `tempo`, the running
-// shells in `fan`), the queue file the loop rewrites at each booking (the
-// tranche's base commit and its scoreboard), `git log` from that base (the
-// landings), the roster (each lane's state and context), and lore's own
-// ledger (the spawn edges, the fee). Nobody computed them together: the
-// recap narrated "+184 this tranche" by hand, and nothing anywhere said how
-// long since the last landing. This verb is that computation, zero model,
-// so a band or a page can poll it and the commander writes nothing new.
+// A peek at an agent that runs others asks four things — is it alive, what
+// is it running, what are its lanes doing, what has it cost — and every
+// answer is already on disk, written by someone other than the model: the
+// daemon's state.json (`detail`, `tempo`, the running shells in `fan`), the
+// roster (each lane's state and context), and lore's own ledger (the spawn
+// edges, the fee). This verb is that computation, zero model, so a band or
+// a page can poll it and the agent writes nothing new.
 //
-// Two of the readings are a loop's own grammar, not the harness's, and are
-// options with attrition's spellings as defaults: a LANDING is a
-// first-parent commit whose subject matches `--landing` (`^Book `: the
-// booking commit after each merge — 186 commits, 33 merges and 19 bookings
-// stood between one base and HEAD, and only the last is the count the queue
-// states), and the queue file (`--queue docs/QUEUE.md`) names the base in
-// its opening line (``from `<sha>` ``) and carries score lines of the form
-// `Name: label 5499 of 6,822 · label 1851/1850`. A repo that keeps neither
-// still gets the job, the lanes, the running shells and the fee; `tranche`
-// and `score` are null and empty, never guessed.
+// It used to do more, and what it did was attrition's (2026-10-15 →
+// 11-13): it read the repo's queue file for a tranche's base commit and
+// its scoreboard, counted landings by a commit-subject regex (`^Book `),
+// pulled item numbers out of subjects and lane names, and `lore tranches`
+// walked the queue file's history. Every one of those was the SHAPE OF ONE
+// REPO'S PROSE, with defaults spelled for it, inside a tool whose rule is
+// that a fact is a field (CLAUDE.md). It broke each time the prose moved —
+// `Book` against `Booking`, a count read as an item, and for good on
+// 2026-11-13 when the queue stopped naming a base at all — and attrition
+// itself had stopped calling it a week earlier (0 calls that week, against
+// 114 of `limits` and 53 of `api job`) for a table of its own on lore's
+// general verbs (`tools/tranche.py`, on `trace --steps` and `sessions`).
+// That is the right split and now the only one: the loop's grammar lives
+// in the loop's repo, and this reads what lore alone knows. The window is
+// an instant (`--since`, `--until`), which any caller with a commit can
+// make (`git show -s --format=%cI <sha>`).
 //
 // Built to be polled, so it reads narrowly: `listJobs` folds the fee of
 // every session in the index to answer for one key (500 ms, and the first
 // cut called it twice); this folds the fee of the job's own sessions and
-// its lanes' since the base, and the spawn edges of the job's sessions
+// its lanes' inside the window, and the spawn edges of the job's sessions
 // alone. The roster (`claude agents`, plus a tail read per live transcript
 // for the context) is the one cost that stays, the same one `lore agents`
 // pays.
 
-const LANE_ITEM = /(\d+)/
-// The items a booking commit books, off its subject's head: `Book 3674 and
-// 3690: …` books two, `Booking 3024, second commit: …` books one again
-// (its item is already counted), `Book 2997 at the drain: …` books one.
-// Commanders spell it `Book` or `Booking` — the 40th tranche's spelled it
-// `Booking` throughout and read as 1 landing of 20 under `^Book ` (ingest
-// #32), and a co-booking read as one (the 59th: 18 of 20). A number that
-// opens a COUNT is not an item: `Book 3939, 7 of 20 from 3cce22c2c: …` books
-// one, and reading the `7` as a second doubled the 69th–72nd (40, 14, 26
-// and 30 landings for 21, 7, 13 and 15) and sent a per-item reader to the
-// well of item 7.
-const BOOKED_ITEMS = /^Book(?:ing)?\s+(\d+(?:\s*(?:,|and|\/|&|\+)\s*\d+(?!\d)(?!\s+of\b))*)/i
-const BASE_IN_QUEUE = /\bfrom `([0-9a-f]{7,40})`/
-const TRANCHE_LABEL = /\*\*(the [\w-]+ tranche)\b/
-const SCORE_LINE = /^([A-Z][A-Za-z ]+):\s+(.+)$/
-// `label 5499 of 6,822`, `label w5499 of 6,822`, `label 1851/1850`.
-const OF = /([A-Za-z][\w-]*)\s+w?(\d[\d,]*)\s+of\s+(\d[\d,]*)/g
-const SLASH = /([A-Za-z][\w-]*)\s+(\d[\d,]*)\/(\d[\d,]*)\b/g
 const LIVE = new Set(['working', 'blocked'])
 
 export type LoopLane = {
   key: string
   name: string | null
-  // The item number in the lane's name (`att-2761` → 2761); null when none.
-  item: number | null
   // The daemon's state now when it lists the lane, else the last indexed.
   state: string | null
   live: boolean
@@ -74,11 +54,10 @@ export type LoopLane = {
   ageMs: number | null
   // The context the lane's next turn carries (agents.ts) — a LIVE reading,
   // null once the daemon no longer lists the lane — and `peak`, the deepest
-  // request it made inside the tranche (input + cache read + cache write),
-  // which the index keeps. `deep` is the threshold the loop asks a lane to
-  // clear at: a live lane is deep on what its next turn carries, a lane
-  // that is gone on what it reached — a closed tranche read `deep: false`
-  // on every row while its own handoff counted twelve.
+  // request it made inside the window (input + cache read + cache write),
+  // which the index keeps. `deep` is the threshold a lane is asked to clear
+  // at: a live lane is deep on what its next turn carries, a lane that is
+  // gone on what it reached.
   ctx: number | null
   peak: number | null
   deep: boolean
@@ -86,9 +65,6 @@ export type LoopLane = {
   listUsd: number | null
   last: string | null
 }
-
-export type ScoreItem = { label: string; value: number; of: number | null; open: number | null; delta: number | null }
-export type ScoreLine = { line: string; items: ScoreItem[] }
 
 export type Loop = {
   asOf: string
@@ -110,156 +86,31 @@ export type Loop = {
     // ledger side (requests, fee, edges) is.
     indexedUntil: string | null
   }
-  tranche: {
-    label: string | null
-    base: string
-    baseAt: string | null
-    // The tranche's end: `--until` (the next tranche's base) and its
-    // instant; null for the open tranche, which runs to HEAD and now.
-    until: string | null
-    endAt: string | null
-    // DISTINCT items booked by the landing commits — not the commit count:
-    // a co-booking is two landings, a second commit for the same item is
-    // none.
-    landings: number
-    // Each booking commit, when, the items it books (`item` the first),
-    // the subject's head.
-    booked: { sha: string; at: string | null; item: number | null; items: number[]; subject: string }[]
-    of: number
-    first: string | null
-    last: string | null
-    sinceLastMs: number | null
-    perHour: number | null
-    // Time to `of` landings at the tranche's own rate; null at the rate's
-    // zero or once there.
-    etaMs: number | null
-    merges: number
-    commits: number
-  } | null
-  score: ScoreLine[]
-  // The score items that MOVED this tranche, changed first, then the ones
-  // BORN inside it (absent at the base, `open: null` — a pair stood up and
-  // closed whole in one tranche never shows a delta, which is how ingest
-  // #32's miners read a closed tranche as "delta 0 on every row").
-  moves: ScoreMove[]
-  gate: { running: boolean; since: string | null; label: string | null } | null
+  // The window the lanes and the fee are read inside, as instants; both
+  // null is the job's whole life.
+  window: { since: string | null; until: string | null }
+  // What is running under the job now: the daemon's `fan`, unfinished.
   running: { kind: string | null; label: string | null; since: string | null }[]
   // The lanes listed (`--lanes`, live first); `lanesTotal` counts every
-  // lane of the tranche and `spend` sums every one, not the listed ones
-  // (the 59th read 104 USD at the default cap and 145.50 whole).
+  // lane in the window and `spend` sums every one, not the listed ones.
   lanes: LoopLane[]
   lanesTotal: number
-  spend: { jobUsd: number | null; laneUsd: number | null; totalUsd: number | null; perLanding: number | null }
+  spend: { jobUsd: number | null; laneUsd: number | null; totalUsd: number | null }
   spoke: { lastPrompt: string | null; lastText: string | null; lastSent: string | null }
 }
 
-export type ScoreMove = { line: string; label: string; open: number | null; value: ScoreItem['value']; of: ScoreItem['of']; delta: number | null; born: boolean }
-
-// The distinct items a booking subject books; empty when it is not one.
-export function bookedItems(subject: string): number[] {
-  const m = BOOKED_ITEMS.exec(subject)
-  if (!m?.[1]) return []
-  return [...new Set(m[1].match(/\d+/g)?.map(Number) ?? [])]
-}
-
-// The items that moved between the base and now, changed first.
-export function scoreMoves(score: ScoreLine[]): ScoreMove[] {
-  const out: ScoreMove[] = []
-  for (const l of score) for (const i of l.items) if (i.delta != null && i.delta !== 0) out.push({ line: l.line, label: i.label, open: i.open, value: i.value, of: i.of, delta: i.delta, born: false })
-  for (const l of score) for (const i of l.items) if (i.open == null) out.push({ line: l.line, label: i.label, open: null, value: i.value, of: i.of, delta: null, born: true })
-  return out
-}
-
 export type LoopOpts = {
-  base?: string
-  // The tranche's end commit (the next tranche's base): landings, lanes and
-  // fee stop there, and the clock the rates use is its instant, not now —
-  // a closed tranche's per-hour is what it was.
+  // The window: a date (the local day) or an ISO instant. Lanes spawned
+  // inside it (plus any still live when it is open-ended) and the fee
+  // inside it; `until` closes it, and the clock ages run to is then its
+  // instant, not now.
+  since?: string
   until?: string
-  queue?: string
-  landing?: string
-  of?: number
   deep?: number
   lanes?: number
   now?: number
   // The live side, injected by a test: the roster and each job's state.
   live?: { rows: AgentRow[]; states: Map<string, JobState | null> }
-}
-
-async function git(cwd: string, args: string[]): Promise<string | null> {
-  const r = await $`git -C ${cwd} ${args}`.quiet().nothrow()
-  return r.exitCode === 0 ? r.text() : null
-}
-
-function num(s: string): number {
-  return Number(s.replace(/,/g, ''))
-}
-
-// The score lines of a queue file, with their numeric items.
-export function parseScore(text: string): ScoreLine[] {
-  const out: ScoreLine[] = []
-  for (const raw of text.split('\n')) {
-    const m = SCORE_LINE.exec(raw.trim())
-    if (!m?.[1] || !m[2]) continue
-    const items: ScoreItem[] = []
-    for (const t of m[2].matchAll(OF)) if (t[1] && t[2] && t[3]) items.push({ label: t[1], value: num(t[2]), of: num(t[3]), open: null, delta: null })
-    for (const t of m[2].matchAll(SLASH)) if (t[1] && t[2] && t[3]) items.push({ label: t[1], value: num(t[2]), of: num(t[3]), open: null, delta: null })
-    if (items.length) out.push({ line: m[1], items })
-  }
-  return out
-}
-
-// The same lines at the tranche's base, folded in as `open` and `delta`.
-export function diffScore(now: ScoreLine[], open: ScoreLine[]): ScoreLine[] {
-  const at = new Map(open.flatMap((l) => l.items.map((i) => [`${l.line}\t${i.label}`, i.value] as const)))
-  return now.map((l) => ({
-    line: l.line,
-    items: l.items.map((i) => {
-      const o = at.get(`${l.line}\t${i.label}`) ?? null
-      return { ...i, open: o, delta: o == null ? null : i.value - o }
-    }),
-  }))
-}
-
-export function parseQueueHead(text: string): { label: string | null; base: string | null } {
-  return { label: TRANCHE_LABEL.exec(text)?.[1] ?? null, base: BASE_IN_QUEUE.exec(text)?.[1] ?? null }
-}
-
-// The tranches, off the queue file's own history: every commit that moved
-// the base line is a tranche's opening (`lore tranches`). The loop rewrites
-// the queue's head at every booking — `13 of 20 landed from \`11da5dd8\`` —
-// and the base changes once per tranche, at the handoff; `git log -p` on
-// the file, read oldest first, and a row wherever the `+` side names a new
-// base. The rows carry the commit that opened the tranche and when, its
-// label, and its base; the next row's base is its end. Nothing is
-// inferred from session openers or prose: the queue is the loop's own
-// record of where each tranche began.
-export type Tranche = { sha: string; at: string | null; label: string | null; base: string }
-const PATCH_HEAD = /^\+(?!\+\+).*?\*\*(the [\w-]+ tranche)\b[^\n]*?from `([0-9a-f]{7,40})`/m
-export function parseTrancheLog(log: string): Tranche[] {
-  const out: Tranche[] = []
-  // Chunks are newest first (git's order); read oldest first.
-  for (const chunk of log.split('\x01').slice(1).reverse()) {
-    const nl = chunk.indexOf('\n')
-    const [sha, at] = chunk.slice(0, nl).split('\t')
-    const m = PATCH_HEAD.exec(chunk.slice(nl + 1))
-    if (!sha || !m?.[2]) continue
-    const base = m[2].slice(0, 8)
-    if (out.at(-1)?.base === base) continue
-    out.push({ sha: sha.slice(0, 8), at: iso(at ?? null), label: m[1] ?? null, base })
-  }
-  return out
-}
-
-export async function listTranches(cwd: string, queueRel = 'docs/QUEUE.md'): Promise<Tranche[]> {
-  const log = await git(cwd, ['log', '--format=%x01%H%x09%cI', '-p', '--', queueRel])
-  return log == null ? [] : parseTrancheLog(log)
-}
-
-// The job's working directory, for the readers that need the repo (the
-// tranches, the queue): the daemon's row, else its latest session's cwd.
-export function cwdOf(db: Database, key: string): string | null {
-  return jobsRowOf(db, key)?.cwd ?? null
 }
 
 const Ts = z.object({ ts: z.string().nullable() })
@@ -298,7 +149,7 @@ function lastTs(db: Database, sessions: string[], where: string): string | null 
   return Ts.parse(db.prepare(`SELECT MAX(ts) AS ts FROM messages WHERE session_id IN (${marks}) AND ${where}`).get(...sessions)).ts
 }
 
-// The fee of a set of sessions from an instant: requests, list price, and
+// The fee of a set of sessions inside a window: requests, list price, and
 // the models that served them.
 function feeOf(db: Database, sessions: string[], since: string | undefined, until?: string): { requests: number; listUsd: number | null; models: { model: string; requests: number }[] } {
   if (sessions.length === 0) return { requests: 0, listUsd: 0, models: [] }
@@ -332,7 +183,6 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
   const ref: JobRef | null = resolveJob(db, q)
   if (!ref) throw new Error(`no job matches "${q}" — a name from \`lore jobs\`, a bridge id, the daemon's id, or a session id`)
   const now = opts.now ?? Date.now()
-  const of = opts.of ?? 20
   const deep = opts.deep ?? 300_000
   const laneCap = opts.lanes ?? 12
   const own = jobsRowOf(db, ref.key)
@@ -354,94 +204,20 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
   const state = me?.id ? (live.states.get(me.id) ?? null) : null
   const cwd = me?.cwd ?? own?.cwd ?? null
 
-  // The tranche: the base named by the queue (or `--base`), and the
-  // landings from it on the first-parent line.
-  let tranche: Loop['tranche'] = null
-  let score: ScoreLine[] = []
-  let moves: ScoreMove[] = []
-  const queueRel = opts.queue ?? 'docs/QUEUE.md'
-  const queuePath = cwd ? join(cwd, queueRel) : null
-  const queueText = queuePath && existsSync(queuePath) ? await Bun.file(queuePath).text() : null
-  const head = queueText ? parseQueueHead(queueText) : { label: null, base: null }
-  const base = opts.base ?? head.base
-  if (queueText) score = parseScore(queueText)
-  const until = opts.until ?? null
-  if (cwd && base) {
-    const landing = new RegExp(opts.landing ?? '^Book(?:ing)? ')
-    const [log, baseAtRaw, open, endAtRaw] = await Promise.all([
-      git(cwd, ['log', '--first-parent', '--format=%H%x09%cI%x09%P%x09%s', `${base}..${until ?? 'HEAD'}`]),
-      git(cwd, ['show', '-s', '--format=%cI', base]),
-      queueText ? git(cwd, ['show', `${base}:${queueRel}`]) : Promise.resolve(null),
-      until ? git(cwd, ['show', '-s', '--format=%cI', until]) : Promise.resolve(null),
-    ])
-    if (log != null) {
-      const rows = log
-        .split('\n')
-        .filter(Boolean)
-        .map((l) => l.split('\t'))
-        .map(([sha, at, parents, subject]) => ({ sha: (sha ?? '').slice(0, 8), at: iso(at ?? null), merge: (parents ?? '').split(' ').length > 1, subject: subject ?? '' }))
-      const landings = rows.filter((r) => landing.test(r.subject))
-      const items = new Set(landings.flatMap((r) => bookedItems(r.subject)))
-      // A landing regex that names no item (another repo's grammar) counts
-      // commits; attrition's counts distinct items.
-      const landed = items.size || landings.length
-      // A closed tranche's label and score are the queue as its LAST LANDING
-      // left it. Not the end commit: that is the next tranche's base, and
-      // not the commit before it either — the steer's pass between the last
-      // booking and the base rewrites the queue's head for the next tranche
-      // (28f48612..11da5dd8 read "the forty-ninth" off both).
-      const closed = until && queueText && landings[0] ? await git(cwd, ['show', `${landings[0].sha}:${queueRel}`]) : null
-      const first = landings.at(-1)?.at ?? null
-      const last = landings[0]?.at ?? null
-      const baseAt = iso(baseAtRaw?.trim() ?? null)
-      const endAt = iso(endAtRaw?.trim() ?? null)
-      // A closed tranche is measured to its end, not to now.
-      const clock = endAt ? Date.parse(endAt) : now
-      const hours = baseAt ? (clock - Date.parse(baseAt)) / 3_600_000 : null
-      const perHour = hours && hours > 0 ? round2(landed / hours) : null
-      const left = of - landed
-      tranche = {
-        label: (closed != null ? parseQueueHead(closed).label : null) ?? head.label,
-        base,
-        baseAt,
-        until,
-        endAt,
-        landings: landed,
-        booked: landings.map((r) => {
-          const booked = bookedItems(r.subject)
-          const first = LANE_ITEM.exec(r.subject)?.[1]
-          return { sha: r.sha, at: r.at, item: booked[0] ?? (first != null ? Number(first) : null), items: booked, subject: r.subject.slice(0, 160) }
-        }),
-        of,
-        first,
-        last,
-        sinceLastMs: last ? clock - Date.parse(last) : null,
-        perHour,
-        etaMs: !endAt && perHour && left > 0 ? Math.round((left / perHour) * 3_600_000) : null,
-        merges: rows.filter((r) => r.merge).length,
-        commits: rows.length,
-      }
-      if (closed != null) score = parseScore(closed)
-      if (open != null) {
-        score = diffScore(score, parseScore(open))
-        moves = scoreMoves(score)
-      }
-    }
-  }
-  const baseAt = tranche?.baseAt ?? null
-  const endAt = tranche?.endAt ?? null
-  const since = baseAt ?? undefined
-  const clock = endAt ? Date.parse(endAt) : now
+  // The window, as instants. A closed one is measured to its end, not to now.
+  const since = opts.since ? dayStart(opts.since) : null
+  const until = opts.until ? dayStart(opts.until) : null
+  const clock = until ? Date.parse(until) : now
 
   // The lanes: the jobs this one spawned (the edges in its own sessions'
-  // transcripts), those of this tranche by spawn instant, plus any still
-  // live. Each lane is a whole job: its sessions, its fee since the base.
+  // transcripts), those of the window by spawn instant, plus any still
+  // live. Each lane is a whole job: its sessions, its fee inside the window.
   // The edges are the WHOLE index's, where the first spawn of a job wins:
   // read one session at a time, any answer naming another job's ref made
   // that job a child. And a job's own PARENT is never its lane: a commander
   // and its steer each end on `ccc clear <the other> --then …`, so each
-  // reads as the other's spawn, and the open tranche listed the steer as a
-  // 33-day-old live lane and billed the tranche for the pass.
+  // reads as the other's spawn, and a steer was once listed as a 33-day-old
+  // live lane and billed for the pass.
   const edges = spawnEdges(db)
   const parent = edges.get(ref.key)?.key ?? null
   const spawnedAt = new Map<string, string | null>()
@@ -452,17 +228,14 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
       const r = byKey.get(key) ?? (jr ? byId.get(jr.jobId) : undefined) ?? null
       const lsp = spanOf(db, key)
       const laneSessions = sessionsOf(db, key)
-      const fee = feeOf(db, laneSessions, since, endAt ?? undefined)
-      const peak = peakOf(db, laneSessions, since, endAt ?? undefined)
+      const fee = feeOf(db, laneSessions, since ?? undefined, until ?? undefined)
+      const peak = peakOf(db, laneSessions, since ?? undefined, until ?? undefined)
       const live = r != null && LIVE.has(r.state)
       const ctx = r?.ctx ?? null
-      const name = jr?.name ?? r?.name ?? null
-      const item = LANE_ITEM.exec(name ?? '')?.[1]
       const spawned = iso(at ?? lsp.first)
       return {
         key,
-        name,
-        item: item == null ? null : Number(item),
+        name: jr?.name ?? r?.name ?? null,
         state: r?.state ?? jr?.state ?? null,
         live,
         model: r?.model ?? dominantModel(fee.models),
@@ -476,24 +249,18 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
         last: lsp.last,
       }
     })
-    .filter((l) => (l.live && !endAt) || !baseAt || (l.spawnedAt != null && l.spawnedAt >= baseAt && (!endAt || l.spawnedAt <= endAt)))
+    .filter((l) => (l.live && !until) || !since || (l.spawnedAt != null && l.spawnedAt >= since && (!until || l.spawnedAt <= until)))
     .sort((a, b) => Number(b.live) - Number(a.live) || (b.spawnedAt ?? '').localeCompare(a.spawnedAt ?? ''))
   const lanes = allLanes.slice(0, laneCap)
 
-  // What is running under the job now: the daemon's `fan`, the gate first.
-  const fan = (state?.fan ?? []).map((f) => ({ kind: f.kind ?? null, label: f.label ?? null, since: iso(f.startedAt ?? null), done: f.doneAt != null }))
-  const running = fan.filter((f) => !f.done).map(({ kind, label, since }) => ({ kind, label, since }))
-  const gateRun = fan.find((f) => !f.done && /gate/i.test(f.label ?? ''))
-  const gateLast = fan.find((f) => /gate/i.test(f.label ?? ''))
-  const gate = gateRun ? { running: true, since: gateRun.since, label: gateRun.label } : gateLast ? { running: false, since: null, label: gateLast.label } : null
+  const running = (state?.fan ?? []).filter((f) => f.doneAt == null).map((f) => ({ kind: f.kind ?? null, label: f.label ?? null, since: iso(f.startedAt ?? null) }))
 
-  // The fee since the base: the job's own sessions, and its lanes' (whole
-  // jobs, each inside the tranche); the whole job when there is no base.
-  const ownFee = feeOf(db, sessions, since, endAt ?? undefined)
+  // The fee inside the window: the job's own sessions, and its lanes'
+  // (whole jobs); the whole job when there is no window.
+  const ownFee = feeOf(db, sessions, since ?? undefined, until ?? undefined)
   const jobUsd = sessions.length ? ownFee.listUsd : null
   const laneUsd = allLanes.length ? (allLanes.every((l) => l.listUsd != null) ? round2(allLanes.reduce((n, l) => n + (l.listUsd ?? 0), 0)) : null) : 0
   const totalUsd = jobUsd == null || laneUsd == null ? null : round2(jobUsd + laneUsd)
-  const landings = tranche?.landings ?? 0
 
   return {
     asOf: new Date(now).toISOString(),
@@ -513,14 +280,11 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
       sessions: span.n,
       indexedUntil: span.last,
     },
-    tranche,
-    score,
-    moves,
-    gate,
+    window: { since, until },
     running,
     lanes,
     lanesTotal: allLanes.length,
-    spend: { jobUsd, laneUsd, totalUsd, perLanding: totalUsd != null && landings > 0 ? round2(totalUsd / landings) : null },
+    spend: { jobUsd, laneUsd, totalUsd },
     spoke: {
       lastPrompt: lastTs(db, sessions, "lane = 'prompt' AND type = 'user'"),
       lastText: lastTs(db, sessions, "lane = 'text'"),

@@ -734,71 +734,77 @@ fold away. `peers` on a job row is now ordered by messages exchanged.
 Nothing is classified on the shape of a name. The session head does the
 same with its own lanes (`10 lanes in thread` → the ledger).
 
-## The run page (landed 2026-10-21)
+## The run page (landed 2026-10-21; cut to the general half 2026-11-13)
 
-The second page of the revamp: `/run/<job>` answers "how is the loop
-doing" on one screen, for the loop scope the sync named (one tranche of a
-commander, with the steer and the lanes). `lore loop` was the numbers
-(zero model, read off disk: the daemon's row, the queue's base and
-scoreboard, `git log` from the base, the roster, the ledger); the page is
-those numbers as a head, plus the two panels the sync asked for under it
-with nothing linked out — "watching attrition means reading what steer
-said and what the lanes are doing in one glance".
+`/run/<job>` answers "how is this agent and the agents it runs doing" on
+one screen. `lore loop` is the numbers (zero model, read off disk: the
+daemon's row, the roster, the spawn edges, the ledger); the page is those
+numbers as a head, plus two panels under it with nothing linked out —
+"watching attrition means reading what steer said and what the lanes are
+doing in one glance".
 
-- **The head.** `14 of 20 landed from 11da5dd8 · 10:28 → 16:47 · last
-  landing 16:24 (23min ago) · 2.22/h · at this rate the twentieth lands
-  19:29 · opus-5.5 ctx 192k · <the daemon's detail line>`. A picker across
-  the tranches. Tiles for the same numbers plus running shells, the gate,
-  spend and spend per landing. The scoreboard lines with their deltas
-  against the base, a line of more than six items (the 28-item battery)
-  folded to `28 · 28 at their mark · no change this tranche`.
-- **The tranche timeline.** Landings as green ticks with a faint rule down
-  the plot, the commander's turns as bands (a relay in the relay tint) with
-  its replies as ticks, then the lanes packed so concurrent ones stack —
-  each a bar from spawn to last activity in its state's hue, labelled by
-  item, with a dark mark where it reported back — and a dashed line at
-  now on the open tranche.
+- **The head.** `@commander · run working · 09:35 → 13:32 · the last day ·
+  opus-5.5 ctx 192k · <the daemon's detail line> · spawned by @steer`.
+  Tiles: lanes and how many are live, the shells running under the job,
+  spend, the job's own share and the lanes'.
+- **The timeline.** The job's turns as bands (a relay in the relay tint)
+  with its replies as ticks, then the lanes packed so concurrent ones
+  stack — each a bar from spawn to last activity in its state's hue,
+  labelled by name, with a dark mark where it reported back — and a dashed
+  line at now on an open window.
 - **`said`**, the dialogue strip: the rail's rows (§The conversation view)
-  for the steer pass that armed the tranche and then the commander across
-  its /clears, each session under a rule naming whose voice it is, every
-  row opening the voice on that session's conversation page.
-- **`lanes`**: one row per lane of the tranche, live first then newest —
+  for the job that set this one to work and then the job across its
+  /clears, each session under a rule naming whose voice it is, every row
+  opening the voice on that session's conversation page.
+- **`lanes`**: one row per lane in the window, live first then newest —
   state, model, spawned, wall, context (`warn` past the deep threshold),
-  requests, price, messages back, and `landed`: the booking commit joined
-  by item number, with its sha.
+  requests, price, messages back.
 
-**The tranches are the queue's own history** (`lore tranches <job>`,
-`parseTrancheLog`): the loop rewrites the queue's head at every booking
-(`13 of 20 landed from \`11da5dd8\``) and the base changes once per
-tranche, at the handoff, so every commit that moved the base line opens a
-tranche and the next one's base ends it. Thirteen for the attrition
-commander as of 10-21. Nothing is read off session openers or prose.
-`?base=<sha>` picks one; `lore loop --until <next base>` reads it closed:
-landings, lanes and fee stop at the end commit, the rates are measured to
-its instant (a closed tranche's per-hour is what it was, and `sinceLast`
-reads "before the end"), and the label and score are the queue as the
-tranche's LAST LANDING left it — not as the end commit has it, which is
-the next tranche's head, and not the commit before that either, since the
-steer's pass between the last booking and the base rewrites the head for
-the next one (both read "the forty-ninth" for the forty-eighth). The live
-side — state, tempo, context, the detail line — is now's and is left off a
-closed tranche's page.
+**The window is instants.** `?since=` and `?until=` take an ISO instant or
+a date (the local day, through `dayStart`); with neither the page reads
+the job's last 24 hours and says so, because a job can be months and
+hundreds of sessions long and every session in the window is traced.
+`lore loop --since/--until` is the same window on the verb, where no
+window is the job's whole life. A closed window is measured to its end:
+lanes by spawn instant inside it, nothing live, the job's state, context
+and detail line (which are now's) left off.
 
-**Which sessions are the tranche's** is by instant against its window,
-never by prose: the job's sessions that STARTED in the window (its
-previous session ended at the handoff), and the sessions of the job that
-spawned it (`parent`, the spawn edge) whose span touches the window
-reaching thirty minutes before the base — the pass that measures the
-forty-eighth tranche arms the forty-ninth and ends a minute before its
-base. The steer arms the clear through ccc, not a shell call in its own
-transcript, so there is no exact edge to read; the reach is the rule and
-it is stated.
+**Which sessions are the window's** is by instant, never by prose: the
+job's sessions whose span touches it, and the sessions of the job that
+spawned it (`parent`, the spawn edge) whose span touches it reaching
+thirty minutes before its start — the session that sets a job to work
+ends a minute before the job's first turn. The reach is the rule and it
+is stated.
 
-Costs: the live side (the roster, a tail read per live transcript, the
-repo's git) per call, memoized ten seconds like the roster; the traces
-without their lane ledgers. 1.7 s cold for the attrition commander.
+**What it was, and why that left** (2026-11-13). Until then this was a
+TRANCHE's page: a picker across the tranches a queue file's history
+named (`lore tranches`), `14 of 20 landed from 11da5dd8`, the last
+landing and a rate and an ETA, landings as green ticks, a scoreboard
+with deltas against the base, a `landed` column joined by item number.
+Every one of those read the shape of one repo's prose — attrition's
+`docs/QUEUE.md` head line, its `Book`/`Booking` commit subjects, its
+score lines, the digits in its lane names — with attrition's spellings
+as the defaults, inside a tool whose rule is that a fact is a field. It
+broke each time the prose moved (`Book` against `Booking`, a count read
+as an item) and for good when the queue stopped naming a base. Attrition
+had already stopped calling the verb (0 calls the week of 11-11, against
+114 of `limits` and 53 of `api job`) for its own table on lore's general
+verbs (`tools/tranche.py`, on `trace --steps` and `sessions`). That is
+the split: a loop's grammar lives in the loop's repo; lore reads what
+lore alone knows. What a caller with a commit needs from lore is an
+instant, and it can make one (`git show -s --format=%cI <sha>`).
 
-Not yet: `lore tree`, `lore timeline`, and the skin pass.
+**Still read off prose, and owed a field**: the spawn edge itself. A
+lane's parent is found by `"ref":"<id>"` or `backgrounded · <id>` in a
+tool result (`job.ts`), and a commander that redirects `ccc spawn
+--json` into a file leaves nothing to find — attrition's lanes have had
+no parent since 2026-11-13. The fix is not a wider regex: `ccc spawn`
+knows its caller and its child, and a ledger it appends (the limits
+mod's pattern) is a field lore can index. Asked of ccc 2026-11-13.
+
+Costs: the live side (the roster, a tail read per live transcript) per
+call, memoized ten seconds like the roster; the traces without their
+lane ledgers.
 
 ## The console (layout pass, landed 2026-09-01)
 

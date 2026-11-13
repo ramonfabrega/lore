@@ -111,14 +111,32 @@ type JobsRow = z.infer<typeof JobsRow>
 
 // Every jobs row, addressable by the keys a session carries: its bridge id,
 // its root, or the root's first eight characters (the daemon's id).
+//
+// And by NAME, which is not a key (CLAUDE.md): a name is whatever the user
+// or a spawner typed, and it repeats. Twelve names in the index belonged to
+// more than one job on 2026-11-13 — `ccc` twice, `golf`, `pickem` and
+// `site` three times, `commander` five — some because a session was named
+// the same on another day, some because a seat is respawned under its name
+// at every handover. The lookup kept the first row it met, in table order,
+// so `lore loop commander` read a job that had been gone for sixteen hours
+// while its namesake was working. A name now means the job that holds it
+// NOW: one the daemon still lists before one it has deleted, a row the
+// daemon wrote before one a peer remembered, and among equals the job that
+// was active last. The older ones stay reachable by their own ids.
+const LastSeen = z.array(z.object({ key: z.string(), last: z.string().nullable() }))
 function jobsIndex(db: Database) {
   const rows = z.array(JobsRow).parse(db.prepare('SELECT job_id, session_id, bridge_key, name, cwd, state, source FROM jobs').all())
   const byBridge = new Map<string, JobsRow>()
   const byRoot = new Map<string, JobsRow>()
   const byJobId = new Map<string, JobsRow>()
   const byName = new Map<string, JobsRow>()
+  const lastSeen = new Map(
+    LastSeen.parse(db.prepare(`SELECT ${JOB_KEY_SQL} AS key, MAX(COALESCE(s.last_activity_ts, s.last_ts)) AS last FROM sessions s GROUP BY 1`).all()).map((r) => [r.key, r.last ?? ''] as const),
+  )
+  const seen = (r: JobsRow) => lastSeen.get(r.bridge_key ?? '') ?? lastSeen.get(r.session_id ?? '') ?? ''
+  const rank = (r: JobsRow) => (r.source !== 'state' ? 2 : r.state === 'gone' ? 1 : 0)
   // state.json rows first, so a name the daemon still holds beats a peer's.
-  for (const r of rows.sort((a, b) => (a.source === b.source ? 0 : a.source === 'state' ? -1 : 1))) {
+  for (const r of rows.sort((a, b) => rank(a) - rank(b) || seen(b).localeCompare(seen(a)))) {
     if (r.bridge_key && !byBridge.has(r.bridge_key)) byBridge.set(r.bridge_key, r)
     if (r.session_id && !byRoot.has(r.session_id)) byRoot.set(r.session_id, r)
     if (r.source === 'state' && !byJobId.has(r.job_id)) byJobId.set(r.job_id, r)

@@ -328,27 +328,26 @@ export function createApp(
     return c.html(page(`${title} · job · lore`, body, { ...chrome(c), layout: 'head', nav: 'agents' }))
   })
 
-  // The run page (run.ts, runview.ts): one tranche of an unattended loop.
-  // `?base=<sha>` picks a tranche from the queue's history (its end is the
-  // next tranche's base); none means the open one. The live side (the
-  // roster, the repo) is read per call, memoized ten seconds like the
-  // roster. `?json=1` is the run without the traces, which are the page's.
+  // The run page (run.ts, runview.ts): a job and the lanes it spawned, on
+  // one screen. `?since=` / `?until=` (an instant, or a date as the local
+  // day) bound it; with neither it is the last 24 hours of the job, since a
+  // job can be months long and the page traces every session in its window.
+  // The live side (the roster) is read per call, memoized ten seconds like
+  // the roster. `?json=1` is the run without the traces, which are the page's.
   app.get('/run/:id', async (c) => {
     const db = getDb()
     const ref = resolveJob(db, c.req.param('id'))
     if (!ref) return c.notFound()
-    const base = c.req.query('base') || undefined
-    const queue = c.req.query('queue') || undefined
-    const landing = c.req.query('landing') || undefined
+    const since = c.req.query('since') || undefined
+    const until = c.req.query('until') || undefined
     let data: Awaited<ReturnType<typeof getRun>>
     try {
-      data = await cached(`run.${ref.key}.${base ?? 'head'}.${queue ?? ''}.${landing ?? ''}`, 10_000, 'live', () => getRun(db, ref.key, { base, queue, landing }))
+      data = await cached(`run.${ref.key}.${since ?? ''}.${until ?? ''}`, 10_000, 'live', () => getRun(db, ref.key, { since, until }))
     } catch (e) {
       return c.text(e instanceof Error ? e.message : String(e), 404)
     }
     if (wantsJson(c.req.raw)) return c.json(data.run)
-    const tr = data.run.loop.tranche
-    const title = tr?.label ?? `@${data.run.loop.job.name ?? ref.key.slice(0, 8)} · run`
+    const title = `@${data.run.loop.job.name ?? ref.key.slice(0, 8)} · run`
     return c.html(page(`${title} · lore`, runBody(data.run, data.traces), { ...chrome(c), layout: 'run', nav: 'agents' }))
   })
 
@@ -387,7 +386,7 @@ export function createApp(
     return html`
       <div class="page-head">
         <p class="crumbs"><a href="/">lore</a> / <a href="/agents">agents</a> / job
-          <span class="views">${sw('sessions', 'sessions')} · ${sw('conversation', 'conversation')}${lanes.length ? html` · <a href="/run/${encodeURIComponent(job.key)}" title="the loop this job runs: one tranche as a page">run</a>` : ''}</span></p>
+          <span class="views">${sw('sessions', 'sessions')} · ${sw('conversation', 'conversation')}${lanes.length ? html` · <a href="/run/${encodeURIComponent(job.key)}" title="this job and the lanes it spawned, on one timeline">run</a>` : ''}</span></p>
         <h1 class="mono">${job.name ? html`<span class="kind side-a">@${job.name}</span> ` : ''}<span class="muted" title="${kindText}">${job.key}</span></h1>
         <p class="muted">${kindText}${job.nameSource === 'peer' ? html` · <span class="kind peer" title="the daemon has forgotten this job; its peers called it this">named by its peers</span>` : ''}${
           job.jobId ? html` · daemon ${job.jobId} · <span class="kind st-${job.state ?? ''}">${job.state ?? '?'}</span> as of the last index${

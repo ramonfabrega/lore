@@ -284,4 +284,37 @@ describe('resolveJob', () => {
     expect(resolveJob(db, 'solo-1')).toEqual({ key: 'solo-1', kind: 'session' })
     expect(resolveJob(db, 'nope')).toBeNull()
   })
+
+  // A name repeats: a session named the same on another day, or a seat
+  // respawned under its name at every handover (five `commander`s on
+  // 2026-11-13, and `lore loop commander` read the one gone for sixteen
+  // hours). A name is the job that holds it now.
+  test('a name several jobs have carried is the one the daemon still lists, then the one active last', () => {
+    const db = openDb(':memory:')
+    db.exec("INSERT INTO wells(id, dir) VALUES (1, '-u-code-fun-x')")
+    const session = db.prepare('INSERT INTO sessions(well_id, session_id, size, mtime_ms, last_ts, bridge_key) VALUES (1, ?, 1, 0, ?, ?)')
+    const job = db.prepare('INSERT INTO jobs(job_id, session_id, bridge_key, name, state, source) VALUES (?, ?, ?, ?, ?, ?)')
+    // Table order is oldest first — the order the old lookup trusted.
+    job.run('aaaa0001', 's-old', 'OLD', 'commander', 'gone', 'state')
+    job.run('aaaa0002', 's-mid', 'MID', 'commander', 'gone', 'state')
+    job.run('aaaa0003', 's-now', 'NOW', 'commander', 'working', 'state')
+    session.run('s-old', '2026-11-13T06:30:00Z', 'OLD')
+    session.run('s-mid', '2026-11-13T18:32:00Z', 'MID')
+    session.run('s-now', '2026-11-13T22:00:00Z', 'NOW')
+    expect(resolveJob(db, 'commander')).toEqual({ key: 'NOW', kind: 'bridge' })
+    // Every one the daemon has deleted: the one that was active last.
+    job.run('bbbb0001', 't-old', 'T1', 'steer', 'gone', 'state')
+    job.run('bbbb0002', 't-new', 'T2', 'steer', 'gone', 'state')
+    session.run('t-old', '2026-11-13T14:35:00Z', 'T1')
+    session.run('t-new', '2026-11-13T20:18:00Z', 'T2')
+    expect(resolveJob(db, 'steer')).toEqual({ key: 'T2', kind: 'bridge' })
+    // A row the daemon wrote beats one only a peer remembered, however recent.
+    job.run('peer:P1', null, 'P1', 'golf', null, 'peer')
+    job.run('cccc0001', 'g-state', 'G1', 'golf', 'gone', 'state')
+    session.run('g-peer', '2026-11-13T23:00:00Z', 'P1')
+    session.run('g-state', '2026-11-01T00:00:00Z', 'G1')
+    expect(resolveJob(db, 'golf')).toEqual({ key: 'G1', kind: 'bridge' })
+    // The older namesakes are still reachable by their own ids.
+    expect(resolveJob(db, 'aaaa0001')).toEqual({ key: 'OLD', kind: 'bridge' })
+  })
 })
