@@ -115,8 +115,17 @@ import { z } from 'zod'
 // finished spawn since 2.1.321 read in flight). A spawn row is skipped while
 // its file's size and mtime hold, so without the bump every finished file
 // keeps the old reading forever.
+// (no version) spawn_ledger — ccc's spawn ledger (ledger.ts). A NEW TABLE
+// takes no bump: the schema below is `IF NOT EXISTS` and runs at every open,
+// so the table appears on the next one, and an older build that meets it
+// reads past it. The version is for a change to what an EXISTING table
+// holds, where the stored rows are wrong until re-derived. That distinction
+// is worth keeping because a bump is not free: it rebuilds a 3 GB index, and
+// it drops the one table that has no source to rebuild from — `jobs` rows
+// for jobs the daemon has deleted (371 on 2026-11-13: 25 names, 7 parent
+// edges and every gone job's daemon id, carried by hand at v22).
 const SCHEMA_VERSION = 22
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits']
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits', 'spawn_ledger']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -201,6 +210,33 @@ CREATE TABLE IF NOT EXISTS limits(
   UNIQUE(source, session_id, ts, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_limits_kind_ts ON limits(kind, ts);
+-- ccc's spawn ledger, one row per line (ledger.ts): child is the daemon id
+-- of the job a ccc spawn minted, parent_* the caller as its environment
+-- said (the daemon job id, which survives /clear; the session live at the
+-- spawn; the bridge id in the trailer spelling), all null for a spawn a
+-- person typed. model and effort are what was ASKED. Rows are appended and
+-- kept: the index outlives ccc's file.
+CREATE TABLE IF NOT EXISTS spawn_ledger(
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  child TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  host TEXT,
+  via TEXT,
+  name TEXT,
+  model TEXT,
+  effort TEXT,
+  cwd TEXT,
+  worktree TEXT,
+  branch TEXT,
+  replaced TEXT,
+  draft INTEGER,
+  parent_job TEXT,
+  parent_session TEXT,
+  parent_bridge TEXT,
+  UNIQUE(child, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_spawn_ledger_parent_session ON spawn_ledger(parent_session);
 CREATE TABLE IF NOT EXISTS repos(
   id INTEGER PRIMARY KEY,
   path TEXT UNIQUE NOT NULL,

@@ -237,6 +237,7 @@ const GroupRow = z.object({
 })
 const SessionKey = z.object({ sessionId: z.string(), key: z.string() })
 const SpawnRow = z.object({ key: z.string(), sessionId: z.string(), ts: z.string().nullable(), result: z.string() })
+const LedgerRow = z.array(z.object({ child: z.string(), ts: z.string(), job: z.string().nullable(), session: z.string().nullable(), bridge: z.string().nullable() }))
 
 // The repo a path belongs to: a worktree's checkout is its base repo's
 // (`<repo>/.claude/worktrees/<name>` → `<repo>`), so a commander in one
@@ -255,6 +256,11 @@ export function repoOf(p: string | null | undefined): string | null {
 // is the root session's first eight characters, so the child's job key is
 // read off its sessions. Exact from the ledger, no inference: a child whose
 // transcript is not indexed yet has no edge until it is.
+//
+// Since 2026-11-13 that reading is the FALLBACK. ccc writes each spawn to
+// a ledger of its own (ledger.ts) and those edges are taken first; what
+// follows about results and the FTS is how the edges older than the ledger,
+// and the ones that never went through ccc, are still found.
 //
 // The candidate rows are picked on the RESULT's text, never the call's: the
 // index caps a tool call at TOOL_TEXT_CAP (parse.ts), and a commander's
@@ -311,13 +317,47 @@ export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map
   )
   const childKey = db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE substr(s.job_session_id, 1, 8) = ? OR substr(s.session_id, 1, 8) = ? LIMIT 1`)
   const parentOf = new Map<string, SpawnEdge>()
+  const Key = z.object({ key: z.string() }).nullable()
+
+  // The ledger first (ledger.ts): ccc wrote down who spawned whom, so these
+  // edges are fields and need no answer in a transcript — the redirect that
+  // hid attrition's lanes on 2026-11-13 hides nothing from a line ccc wrote
+  // itself. The parent is the caller as its environment said: the SESSION
+  // live at the spawn when that is indexed (it also says which /clear of
+  // the job drove the lane), else the bridge id, else the daemon id. A
+  // child whose own transcript is not indexed yet has no edge until it is,
+  // as below; a child minted on another machine never resolves here.
+  const sessionKey = db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE s.session_id = ?`)
+  const bridgeHeld = db.prepare('SELECT 1 AS n FROM sessions WHERE bridge_key = ? UNION ALL SELECT 1 FROM jobs WHERE bridge_key = ? LIMIT 1')
+  for (const l of LedgerRow.parse(
+    db
+      .prepare(
+        `SELECT child, ts, parent_job AS job, parent_session AS session, parent_bridge AS bridge FROM spawn_ledger
+         WHERE (parent_job IS NOT NULL OR parent_session IS NOT NULL OR parent_bridge IS NOT NULL) ${opts.sessionId ? 'AND parent_session = ?' : ''}
+         ORDER BY ts`,
+      )
+      .all(...(opts.sessionId ? [opts.sessionId] : [])),
+  )) {
+    const child = Key.parse(childKey.get(l.child, l.child) ?? null)
+    if (!child || parentOf.has(child.key)) continue
+    const viaSession = l.session ? Key.parse(sessionKey.get(l.session) ?? null)?.key : undefined
+    const bridge = l.bridge ? bridgeKey(l.bridge) : null
+    const viaBridge = bridge && bridgeHeld.get(bridge, bridge) ? bridge : undefined
+    const viaJob = l.job ? Key.parse(childKey.get(l.job, l.job) ?? null)?.key : undefined
+    const key = viaSession ?? viaBridge ?? viaJob
+    if (key && key !== child.key) parentOf.set(child.key, { key, sessionId: l.session ?? '', ts: l.ts })
+  }
+
+  // Then the transcripts, for every edge the ledger does not hold: all of
+  // history before it existed, and a spawn that never went through ccc (the
+  // harness's own `backgrounded · <id>`).
   for (const r of rows) {
     // `said` repeats the ref of its own answer (`backgrounded · <ref>`); the
     // set folds the echo, and keeps two lanes spawned by one call apart.
     const ids = new Set([...r.result.matchAll(CHILD_ID)].map((m) => m[1] ?? m[2]).filter((id): id is string => id != null))
     for (const id of ids) {
-      const child = z.object({ key: z.string() }).nullable().parse(childKey.get(id, id) ?? null)
-      // The first spawn wins: a respawn of the same job by the same parent is
+      const child = Key.parse(childKey.get(id, id) ?? null)
+      // The first spawn wins (and the ledger's before any read off a result): a respawn of the same job by the same parent is
       // the same edge, and a different parent reusing a name is a new job.
       if (child && child.key !== r.key && !parentOf.has(child.key)) parentOf.set(child.key, { key: r.key, sessionId: r.sessionId, ts: r.ts })
     }

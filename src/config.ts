@@ -11,6 +11,9 @@ const env = z
     LORE_CODE_DIR: z.string().default(join(homedir(), 'code')),
     LORE_DOCS_EXCLUDE: z.string().default(''),
     LORE_DOCS_ASSISTED: z.string().default(''),
+    // ccc's own override for where its spawn ledger lives (`ccc spawns
+    // --path`); lore reads the same variable so the two cannot disagree.
+    CCC_SPAWN_LEDGER: z.string().default(join(homedir(), 'Library', 'Application Support', 'ccc', 'spawns.jsonl')),
   })
   .parse(process.env)
 
@@ -74,3 +77,6 @@ export const DB_PATH = join(LORE_HOME, 'lore.db')
 // lore reads it; nothing else writes under LORE_HOME but lore and that mod.
 export const LIMITS_PATH = join(LORE_HOME, 'limits.jsonl')
 export const ARCHIVE_DIR = join(LORE_HOME, 'archive')
+// ccc's spawn ledger (ledger.ts): one JSON line per `ccc spawn`, written by
+// ccc under its own home. lore reads it; ccc alone writes it.
+export const SPAWN_LEDGER_PATH = env.CCC_SPAWN_LEDGER

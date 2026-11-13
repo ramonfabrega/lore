@@ -651,8 +651,14 @@ with one repo's defaults are that repo's code wearing a general name.
 The same change found that a NAME is not a key in practice either: twelve names
 in the index belonged to several jobs and the lookup took the first row in table
 order; a name now resolves to the job the daemon still lists, then the one
-active last. Still prose, and owed a field: the spawn edge (EXPLORER.md §The run
-page) — asked of ccc as a ledger `ccc spawn` appends.
+active last. The last piece of prose was the spawn edge itself, and it became a
+field the same day: ccc appends a spawn ledger and lore indexes it (`ledger.ts`,
+EXPLORER.md §The run page), the transcript reading kept only for history. The
+table took NO schema bump — a new `IF NOT EXISTS` table appears at the next open,
+and a bump is not free (a 3 GB rebuild that drops the one table with no source,
+`jobs` rows for jobs the daemon deleted). The version is for a change to what an
+existing table holds. Rejected: resolving the edge at query time from ccc's file
+— the index outlives its sources, and an edge must not vanish with a rotated log.
 
 ## Privacy redline
 

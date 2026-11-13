@@ -794,13 +794,24 @@ the split: a loop's grammar lives in the loop's repo; lore reads what
 lore alone knows. What a caller with a commit needs from lore is an
 instant, and it can make one (`git show -s --format=%cI <sha>`).
 
-**Still read off prose, and owed a field**: the spawn edge itself. A
-lane's parent is found by `"ref":"<id>"` or `backgrounded · <id>` in a
-tool result (`job.ts`), and a commander that redirects `ccc spawn
---json` into a file leaves nothing to find — attrition's lanes have had
-no parent since 2026-11-13. The fix is not a wider regex: `ccc spawn`
-knows its caller and its child, and a ledger it appends (the limits
-mod's pattern) is a field lore can index. Asked of ccc 2026-11-13.
+**The spawn edge is a field since 2026-11-13** (`ledger.ts`). A lane's
+parent used to be found only by `"ref":"<id>"` or `backgrounded · <id>`
+in a tool result (`job.ts`), and a commander that redirects `ccc spawn
+--json` into a file leaves nothing to find — attrition's lanes 4199 to
+4216 had no parent. The fix was not a wider regex: `ccc spawn` knows its
+caller and its child, so ccc appends one JSON line per spawn to a ledger
+under its own home (`~/Library/Application Support/ccc/spawns.jsonl`,
+`CCC_SPAWN_LEDGER` overrides for both tools; ccc `cbeadc8`) and `lore
+index` reads it into `spawn_ledger`, the limits mod's pattern.
+`spawnEdges` takes the ledger first — the parent is the caller's session
+when that is indexed, else its bridge id, else its daemon id — and reads
+transcripts only for what the ledger does not hold: everything before it
+existed, and spawns that never went through ccc. Rows are kept, not
+reloaded: the index outlives ccc's file. Two things the ledger does not
+say, by ccc's own account: a successor from a lane (a handover's next
+seat and a worker are both a named spawn by a session — `cwd` and
+`worktree` are recorded, a role is not), and a spawn made from another
+machine onto this one (the line is on the machine that ran `ccc`).
 
 Costs: the live side (the roster, a tail read per live transcript) per
 call, memoized ten seconds like the roster; the traces without their
