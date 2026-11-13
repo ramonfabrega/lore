@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { relayHead } from './envelope'
-import { day } from './fmt'
+import { day, dayStart } from './fmt'
 import { ftsMatch } from './fts'
 import type { Lane } from './parse'
 
@@ -28,10 +28,42 @@ const HistoryHit = z.object({
 })
 export type HistoryHit = z.infer<typeof HistoryHit>
 
+// A window and a session, as SQL over a table that has `ts` and
+// `session_id`. A mining bucket is "these sessions, these days", and the
+// search had neither: nine miners across ingests #32 and #33 typed
+// `--since` and got "Unknown flag", then searched the whole index and
+// filtered by eye. A bare date is the reader's local day (`dayStart`:
+// CLAUDE.md, a day is local); a full instant passes through. `session` is
+// an id prefix, the ergonomics of `lore session` and `spawns --session`.
+//
+// `epoch` is for the history table, which keeps history.jsonl's own
+// `timestamp` — epoch milliseconds, as text — where every other table holds
+// an ISO instant; the window is compared in the column's unit.
+export type SearchScope = { since?: string; until?: string; session?: string }
+function scopeClause(alias: string, s: SearchScope, epoch = false): { sql: string; params: (string | number)[] } {
+  const parts: string[] = []
+  const params: (string | number)[] = []
+  const col = epoch ? `CAST(${alias}.ts AS INTEGER)` : `${alias}.ts`
+  const bound = (d: string) => (epoch ? Date.parse(dayStart(d)) : dayStart(d))
+  if (s.since) {
+    parts.push(`AND ${col} >= ?`)
+    params.push(bound(s.since))
+  }
+  if (s.until) {
+    parts.push(`AND ${col} < ?`)
+    params.push(bound(s.until))
+  }
+  if (s.session) {
+    parts.push(`AND ${alias}.session_id LIKE ?`)
+    params.push(`${s.session}%`)
+  }
+  return { sql: parts.join(' '), params }
+}
+
 export function searchMessages(
   db: Database,
   query: string,
-  opts: { lanes: Lane[]; well?: string; exact?: boolean; limit: number },
+  opts: { lanes: Lane[]; well?: string; exact?: boolean; limit: number } & SearchScope,
 ): Hit[] {
   const laneMarks = opts.lanes.map(() => '?').join(',')
   const wellClause = opts.well
@@ -39,6 +71,7 @@ export function searchMessages(
       ? 'AND (w.dir = ? OR w.real_path = ?)'
       : 'AND (w.dir LIKE ? OR w.real_path LIKE ?)'
     : ''
+  const scope = scopeClause('m', opts)
   const sql = `
     SELECT w.dir AS well, w.real_path AS realPath, m.session_id AS sessionId, m.prompt_id AS promptId, m.ts,
            m.lane, m.git_branch AS gitBranch,
@@ -47,26 +80,35 @@ export function searchMessages(
     JOIN messages m ON m.id = f.rowid
     JOIN sessions s ON s.session_id = m.session_id
     JOIN wells w ON w.id = s.well_id
-    WHERE messages_fts MATCH ? AND m.lane IN (${laneMarks}) ${wellClause}
+    WHERE messages_fts MATCH ? AND m.lane IN (${laneMarks}) ${wellClause} ${scope.sql}
     ORDER BY rank LIMIT ?`
   const params: (string | number)[] = [...opts.lanes]
   if (opts.well) {
     const v = opts.exact ? opts.well : `%${opts.well}%`
     params.push(v, v)
   }
-  params.push(opts.limit)
+  params.push(...scope.params, opts.limit)
   return ftsMatch(query, (q) => z.array(Hit).parse(db.prepare(sql).all(q, ...params)))
 }
 
-export function searchHistory(db: Database, query: string, opts: { limit: number }): HistoryHit[] {
+export function searchHistory(db: Database, query: string, opts: { limit: number } & SearchScope): HistoryHit[] {
+  const scope = scopeClause('h', opts, true)
   const sql = `
     SELECT h.ts, h.project, h.session_id AS sessionId,
            snippet(history_fts, 0, '«', '»', ' … ', 24) AS snippet
     FROM history_fts f
     JOIN history h ON h.id = f.rowid
-    WHERE history_fts MATCH ?
+    WHERE history_fts MATCH ? ${scope.sql}
     ORDER BY rank LIMIT ?`
-  return ftsMatch(query, (q) => z.array(HistoryHit).parse(db.prepare(sql).all(q, opts.limit)))
+  // The row's `ts` goes out as an instant like every other one lore prints:
+  // it left as "1794606629229" until someone had to filter on it.
+  const iso = (ts: string | null) => (ts != null && /^\d+$/.test(ts) ? new Date(Number(ts)).toISOString() : ts)
+  return ftsMatch(query, (q) =>
+    z
+      .array(HistoryHit)
+      .parse(db.prepare(sql).all(q, ...scope.params, opts.limit))
+      .map((h) => ({ ...h, ts: iso(h.ts) })),
+  )
 }
 
 // ---- the explorer's search: sessions first ---------------------------------

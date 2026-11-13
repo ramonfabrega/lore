@@ -231,6 +231,9 @@ cli.command('search', {
       .boolean()
       .optional()
       .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
+    since: z.string().optional().describe('Only messages on/after this — a date (2026-11-05, the local day) or an ISO instant'),
+    until: z.string().optional().describe('Only messages BEFORE this — a date (its local midnight, so the day itself is excluded) or an ISO instant'),
+    session: z.string().optional().describe('Only this session — id or unique prefix (see the sessions listing). A mining bucket is a list of these'),
     limit: z.coerce.number().default(20).describe('Max results'),
     history: z.boolean().optional().describe('Also search history.jsonl (every prompt ever typed, survives retention)'),
   }),
@@ -238,8 +241,9 @@ cli.command('search', {
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
     const lanes = (options.lane ?? ['prompt', 'text']) as Lane[]
-    const hits = searchMessages(db, args.query, { lanes, well: options.well, exact: options.exact, limit: options.limit })
-    const history = options.history ? searchHistory(db, args.query, { limit: options.limit }) : undefined
+    const scope = { since: options.since, until: options.until, session: options.session }
+    const hits = searchMessages(db, args.query, { lanes, well: options.well, exact: options.exact, limit: options.limit, ...scope })
+    const history = options.history ? searchHistory(db, args.query, { limit: options.limit, ...scope }) : undefined
     return { query: args.query, lanes, count: hits.length, hits, ...(history ? { history } : {}) }
   },
 })
