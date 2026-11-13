@@ -29,10 +29,23 @@ function assistantLine(opts: {
         cache_read_input_tokens: opts.usage.cr,
         output_tokens: opts.usage.o,
       },
-      content: opts.toolUse ? [{ type: 'tool_use', name: typeof opts.toolUse === 'string' ? opts.toolUse : 'Bash' }] : [{ type: 'text', text: 'hi' }],
+      // A tool call's id is its request's: one call per request in these fixtures.
+      content: opts.toolUse ? [{ type: 'tool_use', id: `toolu_${opts.msgId}`, name: typeof opts.toolUse === 'string' ? opts.toolUse : 'Bash' }] : [{ type: 'text', text: 'hi' }],
     },
   })
 }
+
+// The `user` record that answers a tool call. `ack` is the tool's own
+// `toolUseResult` — SubagentHandback's is `{success, message}`.
+function resultLine(opts: { ts: string; msgId: string; ack?: unknown; isError?: boolean }): string {
+  return JSON.stringify({
+    type: 'user',
+    timestamp: opts.ts,
+    ...(opts.ack === undefined ? {} : { toolUseResult: opts.ack }),
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_${opts.msgId}`, content: 'x', ...(opts.isError ? { is_error: true } : {}) }] },
+  })
+}
+const DELIVERED = { success: true, message: 'Report delivered to your caller.' }
 
 // A well with one session and two spawns: a defined agent (no model param in
 // meta, sonnet served) and an ad-hoc spawn whose requested model drifted.
@@ -119,6 +132,7 @@ describe('indexSpawns + listSpawns', () => {
         line({ ts: '2026-10-07T18:35:20Z', msgId: 'q1', usage: { i: 2, cc: 46000, cr: 0, o: 3 }, toolUse: true, stop: null }),
         line({ ts: '2026-10-07T18:36:00Z', msgId: 'q2', usage: { i: 2, cc: 400, cr: 46000, o: 48 }, stop: 'end_turn' }),
         line({ ts: '2026-10-07T18:37:00Z', msgId: 'q3', usage: { i: 2, cc: 413, cr: 46400, o: 26 }, toolUse: 'SubagentHandback', stop: null }),
+        resultLine({ ts: '2026-10-07T18:37:01Z', msgId: 'q3', ack: DELIVERED }),
       ].join('\n'),
     )
     // The same shape cut off mid-tool, no handback: still in flight / killed.
@@ -140,6 +154,53 @@ describe('indexSpawns + listSpawns', () => {
     expect(ok.telemetryPartial).toBeUndefined()
     expect(ok.openRequests).toBeUndefined()
     expect(partialTelemetry).toBe(2)
+  })
+
+  // Harness 2.1.307 started writing the completion record of every request
+  // in a subagent file, so from 2.1.321 the handback's own record says
+  // `tool_use` with its real usage. The rule read "stop_reason null AND a
+  // handback", and 24 of 24 finished spawns of ingest #33 came back
+  // `in-flight`. The ending is the handback that was DELIVERED, whatever
+  // its record's stop_reason says.
+  test('a delivered handback is the ending whatever its stop_reason; a refused, unanswered or resumed one is not', async () => {
+    const db = openDb(':memory:')
+    const dir = mkdtempSync(join(tmpdir(), 'lore-spawns-321-'))
+    const sub = join(dir, '-u-code-fun-app--claude-worktrees-z', 'sess-3', 'subagents')
+    mkdirSync(sub, { recursive: true })
+    const line = (o: Omit<Parameters<typeof assistantLine>[0], 'model'>) => assistantLine({ model: 'claude-sonnet-5-5', ...o })
+    const work = [
+      line({ ts: '2026-11-13T20:01:18Z', msgId: 'r1', usage: { i: 2, cc: 46000, cr: 0, o: 349 }, toolUse: true, stop: 'tool_use' }),
+      resultLine({ ts: '2026-11-13T20:01:20Z', msgId: 'r1', ack: { stdout: 'ok', stderr: '', interrupted: false } }),
+    ]
+    const handback = line({ ts: '2026-11-13T20:03:25Z', msgId: 'r2', usage: { i: 2, cc: 8606, cr: 83577, o: 8377 }, toolUse: 'SubagentHandback', stop: 'tool_use' })
+    const write = (id: string, lines: string[]) => writeFileSync(join(sub, `agent-${id}.jsonl`), lines.join('\n'))
+    // 2.1.321 as written: every request complete, the report delivered.
+    write('done', [...work, handback, resultLine({ ts: '2026-11-13T20:03:26Z', msgId: 'r2', ack: DELIVERED })])
+    // The same file read between the call and its result.
+    write('calling', [...work, handback])
+    // The harness refused the report: not a tool error in its eyes, and the
+    // spawn goes on — the ack is what says so (CLAUDE.md, the failed send).
+    write('refused', [...work, handback, resultLine({ ts: '2026-11-13T20:03:26Z', msgId: 'r2', ack: { success: false, message: 'No caller.' } })])
+    write('errored', [...work, handback, resultLine({ ts: '2026-11-13T20:03:26Z', msgId: 'r2', isError: true })])
+    // A result that answers some OTHER call is not the handback's.
+    write('other', [...work, handback, resultLine({ ts: '2026-11-13T20:03:26Z', msgId: 'r1', ack: DELIVERED })])
+    // Resumed after its handback (SendMessage): running again.
+    write('resumed', [
+      ...work,
+      handback,
+      resultLine({ ts: '2026-11-13T20:03:26Z', msgId: 'r2', ack: DELIVERED }),
+      line({ ts: '2026-11-13T20:10:00Z', msgId: 'r3', usage: { i: 2, cc: 100, cr: 92000, o: 60 }, toolUse: true, stop: 'tool_use' }),
+    ])
+    await indexSpawns(db, { projectsDir: dir })
+    const { spawns, partialTelemetry, partialFloors, partialInFlight } = listSpawns(db, { limit: 50 })
+    const row = (id: string) => spawns.find((s) => s.agentId === id)!
+    // Finished AND measured: no flag at all, and the output is the real one.
+    expect(row('done')).toMatchObject({ requests: 2, outputTokens: 8726, toolUses: 2 })
+    expect(row('done').telemetryPartial).toBeUndefined()
+    expect(row('done').partialReason).toBeUndefined()
+    for (const id of ['calling', 'refused', 'errored', 'other', 'resumed'])
+      expect(row(id), id).toMatchObject({ telemetryPartial: true, partialReason: 'in-flight', lastStopReason: 'tool_use', openRequests: 0 })
+    expect([partialFloors, partialInFlight, partialTelemetry]).toEqual([0, 5, 5])
   })
 
   test('byWeek trend groups boot cost by ISO week and agentType', async () => {

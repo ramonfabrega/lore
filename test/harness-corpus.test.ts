@@ -64,14 +64,31 @@ function keys(v: unknown, out: string[] = []): string[] {
 // on tool_use-ended requests (2 of 6 here, the Bash and the handback) and
 // still closed on a text turn; 2.1.285 drops it on EVERY tool_use-ended
 // request but the first (20 of 21) and ends on the `SubagentHandback` tool
-// call — the ending lore names `handback`. A new version lands here WITHOUT
-// a row and fails: say how it records completions, then add the row. Both
-// the sweep-trial pricing (attrition, 2026-10-07) and `lore spawns` lean on
-// this, and nothing but a page read wrong said so for a week.
-const COMPLETIONS: Record<string, { requests: number; open: number; last: string | null; partial: boolean }> = {
-  '2.1.260': { requests: 11, open: 0, last: 'end_turn', partial: false },
-  '2.1.280': { requests: 6, open: 2, last: 'end_turn', partial: true },
-  '2.1.285': { requests: 21, open: 20, last: 'handback', partial: true },
+// call — the ending lore names `handback`; 2.1.299 drops all 13 of 13.
+// 2.1.307 fixed it upstream ("subagent transcripts recording placeholder
+// token usage and an empty stop reason for streamed responses"), so on
+// 2.1.321 every request carries its stop_reason and its real usage: the
+// handback's record now says `tool_use`, a finished spawn is a MEASUREMENT
+// (open 0, no flag), and meta.json gained `finished: true` — absent while
+// the spawn runs, which the second 2.1.321 file is: a copy taken mid-flight,
+// ending on a complete tool_use request with no result after it. That one
+// is the only shape lore still calls `in-flight`. `partial` is the
+// `partialReason` the row must carry, null for none; `finished` is what the
+// harness's own meta says, which lore does not read and must not contradict.
+//
+// A file lands here WITHOUT a row and fails: say how its version records
+// completions, then add the row — and a version snapshotted without any
+// subagent file fails too (2.1.299 and 2.1.321 were, and the stop_reason
+// move went four days unseen with this suite green). Both the sweep-trial
+// pricing (attrition, 2026-10-07) and `lore spawns` lean on this.
+type Completion = { requests: number; open: number; last: string | null; partial: 'floor' | 'in-flight' | null; finished?: true }
+const COMPLETIONS: Record<string, Completion> = {
+  '2.1.260/a4f9cab5e2d5f56ad': { requests: 11, open: 0, last: 'end_turn', partial: null },
+  '2.1.280/a857ec397ebacf76f': { requests: 6, open: 2, last: 'end_turn', partial: 'floor' },
+  '2.1.285/aaf774965de61fa92': { requests: 21, open: 20, last: 'handback', partial: 'floor' },
+  '2.1.299/a862351c631a10a00': { requests: 13, open: 13, last: 'handback', partial: 'floor' },
+  '2.1.321/abae2d1f7ee57aa09': { requests: 9, open: 0, last: 'handback', partial: null, finished: true },
+  '2.1.321/a6412fdd2263f79bb': { requests: 2, open: 0, last: 'tool_use', partial: 'in-flight' },
 }
 
 describe('harness corpus', () => {
@@ -80,16 +97,24 @@ describe('harness corpus', () => {
   })
 
   describe('subagent transcripts', () => {
-    test('at least one is snapshotted', () => {
+    test('every snapshotted version holds one', () => {
       expect(subagents.length).toBeGreaterThan(0)
+      for (const v of versions)
+        expect(
+          subagents.some((s) => s.version === v),
+          `${v}: no subagent transcript — bun scripts/harness-corpus.ts --subagent <agent-*.jsonl of that version>`,
+        ).toBe(true)
     })
     for (const { version, file, agentId } of subagents) {
-      test(`claude ${version}: the skeleton held — ids and shapes, never words; home and work trees scrubbed`, () => {
+      test(`claude ${version} ${agentId}: the skeleton held — ids and shapes, never words; home and work trees scrubbed`, () => {
         const lines = readFileSync(join(ROOT, version, file), 'utf8').trim().split('\n')
         expect(lines.length).toBeGreaterThan(0)
         for (const line of lines) {
           const r = JSON.parse(line) as unknown
-          for (const k of keys(r)) expect(k).not.toMatch(/^(text|input|thinking|result|toolUseResult|output)$/)
+          for (const k of keys(r)) expect(k).not.toMatch(/^(text|input|thinking|result|output|params|shape|tail|base)$/)
+          // A tool's ack is kept as ONE boolean and nothing else of the result.
+          const ack = z.object({ toolUseResult: z.unknown().optional() }).loose().parse(r).toolUseResult
+          if (ack !== undefined) expect(z.strictObject({ success: z.boolean() }).safeParse(ack).success, 'toolUseResult carries more than its success flag').toBe(true)
           for (const s of strings(r)) {
             expect(s).not.toMatch(/\/Users\/(?!u\/)[^/]+\//)
             expect(s).not.toMatch(/-Users-(?!u-)[A-Za-z0-9]+-/)
@@ -101,9 +126,9 @@ describe('harness corpus', () => {
         }
       })
 
-      test(`claude ${version}: the spawn observatory reads it the way the table says`, async () => {
-        const expected = COMPLETIONS[version]
-        expect(expected, `${version}: no COMPLETIONS row — say how this version records subagent completions`).toBeDefined()
+      test(`claude ${version} ${agentId}: the spawn observatory reads it the way the table says`, async () => {
+        const expected = COMPLETIONS[`${version}/${agentId}`]
+        expect(expected, `${version}/${agentId}: no COMPLETIONS row — say how this version records subagent completions`).toBeDefined()
         if (!expected) return
         // Lay the skeleton out the way the harness does: <well>/<session>/subagents/agent-<id>.jsonl.
         const projectsDir = mkdtempSync(join(tmpdir(), 'lore-harness-sub-'))
@@ -121,11 +146,19 @@ describe('harness corpus', () => {
         expect(row.model).toMatch(/^claude-/)
         expect(row.requests).toBe(expected.requests)
         if (expected.partial) {
-          expect(row).toMatchObject({ telemetryPartial: true, lastStopReason: expected.last, openRequests: expected.open })
+          expect(row).toMatchObject({ telemetryPartial: true, partialReason: expected.partial, lastStopReason: expected.last, openRequests: expected.open })
         } else {
           expect(row.telemetryPartial).toBeUndefined()
+          expect(row.partialReason).toBeUndefined()
           expect(row.openRequests).toBeUndefined()
         }
+        // The harness's own word (2.1.321): `finished: true` once the spawn
+        // ended, the key absent before. lore reads the transcript, not this —
+        // but the two must never disagree, and the day they do is the day to
+        // look at which one moved.
+        const finished = existsSync(meta) ? z.object({ finished: z.boolean().optional() }).loose().parse(read(version, `subagent-${agentId}.meta.json`)).finished : undefined
+        expect(finished).toBe(expected.finished)
+        if (finished) expect(row.partialReason).not.toBe('in-flight')
       })
     }
   })

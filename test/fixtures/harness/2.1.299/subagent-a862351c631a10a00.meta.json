@@ -1,0 +1,8 @@
+{
+  "agentType": "lore-miner",
+  "description": "Mine lore L1 09-29→10-07",
+  "toolUseId": "toolu_01PL4MPZTbhCE95dZv2jiQ9Z",
+  "spawnDepth": 1,
+  "requestShape": "background",
+  "requestNonInteractive": true
+}

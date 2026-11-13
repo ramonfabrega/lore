@@ -109,7 +109,13 @@ import { z } from 'zod'
 // no stop_reason is the floor's size, and keeps the row partial.
 // v21: limits — the subscription's rate-limit windows as the account enforces
 // them, the one budget the token ledger could never read (see the table).
-const SCHEMA_VERSION = 21
+// v22: no column — spawns.last_stop_reason is DERIVED, and the derivation
+// moved: `handback` is a delivered SubagentHandback whatever stop_reason its
+// record carries (harness 2.1.307 started writing `tool_use` there, and every
+// finished spawn since 2.1.321 read in flight). A spawn row is skipped while
+// its file's size and mtime hold, so without the bump every finished file
+// keeps the old reading forever.
+const SCHEMA_VERSION = 22
 const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(

@@ -365,7 +365,28 @@ ending in `end_turn` was a floor too, with every tool request's output missing).
 whose last record carries no stop_reason) is the size of the hole; the row stays
 partial while it is above zero. What the parent's task notification carries
 (`subagent_tokens`) is not the missing figure: on both spawns checked it is the
-final request's whole envelope, input plus cache plus output — a context size. Also
+final request's whole envelope, input plus cache plus output — a context size.
+Revisited again 2026-11-13 (v22), when ingest #33 found 24 of 24 finished spawns
+reading `in-flight` on harness 2.1.321. Upstream had fixed the hole in 2.1.307
+("subagent transcripts recording placeholder token usage and an empty stop reason
+for streamed responses"): every request now carries its stop_reason and its real
+usage (one miner: 17,898 output tokens over 9 requests, against 318 over 13 for
+its 2.1.299 twin), so the handback's record says `tool_use` and v20's test —
+"stop_reason null AND the last block is a handback" — no longer matched. It had
+been too narrow all along: 56 of 760 handbacks on 2.1.285 – 2.1.299 already carried
+`tool_use` and were filed as in flight. The ending is now the handback that was
+DELIVERED — the tool result that answers that call's id, not an error, its ack not
+refused — and the record's own stop_reason is not consulted. `open_requests` is
+unchanged and reads zero for all 179 finished files on 2.1.321, so there a finished
+spawn is a measurement with no flag, and `floor` is a reading of the two-month
+window in between. Rejected: keying on `meta.json`'s new `finished: true` (absent
+while a spawn runs — checked on a spawn copied mid-flight). It is the harness's
+own word and right on every file seen, but it does not exist before 2.1.321 and
+is one more undocumented field; the corpus test asserts lore's reading never
+contradicts it instead. The reason this took four days to notice is the other
+half of the change: the 2.1.299 and 2.1.321 snapshots held no subagent file,
+because `--subagent` was a second command. A plain snapshot now takes one, and a
+version without one fails the suite. Also
 killed a sibling silent-zero: `lore stats` now emits `warnings[]` when a corpus reads
 empty, after the v9 bump's drop-and-rebuild left the docs corpus at 0 for days
 (`lore docs index` is a separate command `lore index` does not chain) — canon lint

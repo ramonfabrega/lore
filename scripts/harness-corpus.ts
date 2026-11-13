@@ -11,16 +11,20 @@
 // on the day it is snapshotted, not a page a week later.
 //
 // Usage: bun scripts/harness-corpus.ts   → test/fixtures/harness/<cliVersion>/
+//          (the daemon files, plus the newest finished subagent transcript
+//          of that version when the dir holds none yet)
 //        bun scripts/harness-corpus.ts --subagent <agent-*.jsonl>
 //          → subagent-<agentId>.jsonl (+ .meta.json) under the version the FILE
 //            records, as a skeleton: every record keeps its type, timestamp
 //            and ids, an assistant record its message id, model, stop_reason
-//            and usage, and every content block its type, tool name and
-//            length in chars — never the text, the input or the result. The
-//            spawn observatory (spawns.ts) reads exactly these fields, and
-//            2.1.280 → 2.1.285 moved them: the completion record of a
-//            tool_use-ended request (the one with the real usage) stopped
-//            being written, and nothing but a page read wrong said so.
+//            and usage, every content block its type, tool name, tool-call id
+//            and length in chars, and a tool's ack its `success` — never the
+//            text, the input or the result. The spawn observatory (spawns.ts)
+//            reads exactly these fields, and the harness has moved them
+//            twice: 2.1.280 → 2.1.285 stopped writing the completion record
+//            of a tool_use-ended request (the one with the real usage), and
+//            2.1.307 started again. Nothing but a page read wrong said so
+//            either time.
 //        bun scripts/harness-corpus.ts --probe <jobId> [--note "…"] -- <the argv as typed>
 //          → jobs/probe-<name>-<id>.json (the state.json, scrubbed) beside
 //            jobs/probe-<name>-<id>.launch.json ({ typed, note }): a PROBE is a
@@ -35,7 +39,7 @@
 // `detail` and fan labels cut to a fragment; `output` dropped; link hrefs
 // replaced. The test re-checks the scrub — a fixture is the one file that
 // must never carry what the live record carries.
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -99,33 +103,34 @@ function scrub(v: unknown, key = ''): unknown {
 
 const argv = process.argv.slice(2)
 
-// --subagent: one subagent transcript, as a skeleton, under the version it
-// records. A record's shape is the fixture; its words never are.
-const subAt = argv.indexOf('--subagent')
-if (subAt >= 0) {
-  const path = argv[subAt + 1]
-  if (!path) {
-    console.error('usage: harness-corpus.ts --subagent <agent-*.jsonl>')
-    process.exit(2)
-  }
-  const Rec = z.object({ type: z.string(), timestamp: z.string().optional(), version: z.string().optional(), cwd: z.string().optional() }).loose()
-  const records: z.infer<typeof Rec>[] = []
+// One subagent transcript, as a skeleton, under the version it records. A
+// record's shape is the fixture; its words never are.
+const SubRec = z.object({ type: z.string(), timestamp: z.string().optional(), version: z.string().optional(), cwd: z.string().optional() }).loose()
+type SubRec = z.infer<typeof SubRec>
+
+// Read a transcript and say whether it may be snapshotted: it must name a
+// version, and every cwd it worked in must sit under a personal tree.
+async function readSubagent(path: string): Promise<{ records: SubRec[]; version: string; cwds: Set<string> } | { refused: string }> {
+  const records: SubRec[] = []
   for (const line of (await Bun.file(path).text()).split('\n')) {
     if (!line.trim()) continue
-    const parsed = Rec.safeParse(JSON.parse(line))
+    let raw: unknown
+    try {
+      raw = JSON.parse(line)
+    } catch {
+      continue // a torn tail: the file is appended live
+    }
+    const parsed = SubRec.safeParse(raw)
     if (parsed.success) records.push(parsed.data)
   }
-  const fileVersion = records.find((r) => r.version)?.version
-  if (!fileVersion) {
-    console.error(`${path}: no record carries a version`)
-    process.exit(2)
-  }
+  const version = records.find((r) => r.version)?.version
+  if (!version) return { refused: 'no record carries a version' }
   const cwds = new Set(records.map((r) => r.cwd).filter((c): c is string => typeof c === 'string'))
-  for (const c of cwds)
-    if (!eligible(c)) {
-      console.error(`${path}: cwd ${c} is not under a personal tree — refusing`)
-      process.exit(2)
-    }
+  for (const c of cwds) if (!eligible(c)) return { refused: `cwd ${c} is not under a personal tree` }
+  return { records, version, cwds }
+}
+
+function writeSubagent(path: string, records: SubRec[], fileVersion: string, meta: Record<string, unknown> | null): string {
   const chars = (b: Record<string, unknown>): number => {
     if (typeof b.text === 'string') return b.text.length
     if (typeof b.thinking === 'string') return b.thinking.length
@@ -137,12 +142,31 @@ if (subAt >= 0) {
   const block = (b: unknown): unknown => {
     if (!b || typeof b !== 'object') return { type: typeof b, chars: typeof b === 'string' ? b.length : 0 }
     const o = b as Record<string, unknown>
-    return { type: o.type, ...(typeof o.name === 'string' ? { name: o.name } : {}), chars: chars(o) }
+    // A tool call keeps its id and a tool result the id it answers (and its
+    // error flag): the pairing is how spawns.ts knows a handback was
+    // DELIVERED, and an id is not a word.
+    return {
+      type: o.type,
+      ...(typeof o.name === 'string' ? { name: o.name } : {}),
+      ...(o.type === 'tool_use' && typeof o.id === 'string' ? { id: o.id } : {}),
+      ...(o.type === 'tool_result' && typeof o.tool_use_id === 'string' ? { tool_use_id: o.tool_use_id } : {}),
+      ...(o.type === 'tool_result' && typeof o.is_error === 'boolean' ? { is_error: o.is_error } : {}),
+      chars: chars(o),
+    }
   }
-  const skeleton = (r: z.infer<typeof Rec>): unknown => {
+  const skeleton = (r: SubRec): unknown => {
     const out: Record<string, unknown> = { type: r.type }
     for (const k of ['timestamp', 'version', 'agentId', 'sessionId', 'isSidechain', 'cwd', 'gitBranch', 'sessionKind', 'entrypoint'] as const)
       if (k in r) out[k] = scrub(r[k])
+    // 2.1.300 records every API request beside the conversation
+    // (`api-request`, `api-request-shape`, `api-request-blob`: the system
+    // prompt, the tool list, the parameters). The fixture keeps the fact
+    // that they are there and nothing of what they hold.
+    if (r.type.startsWith('api-request')) return out
+    // A tool's ack, as one boolean: `SubagentHandback` answers
+    // `{success, message}` and the observatory reads the first.
+    const ack = z.object({ success: z.boolean() }).loose().safeParse(r.toolUseResult)
+    if (ack.success) out.toolUseResult = { success: ack.data.success }
     const m = r.message
     if (m && typeof m === 'object') {
       const msg = m as Record<string, unknown>
@@ -162,13 +186,36 @@ if (subAt >= 0) {
   const vdir = join(root, 'test', 'fixtures', 'harness', fileVersion)
   mkdirSync(vdir, { recursive: true })
   writeFileSync(join(vdir, `subagent-${agentId}.jsonl`), `${records.map((r) => JSON.stringify(skeleton(r))).join('\n')}\n`)
-  const metaFile = Bun.file(path.replace(/\.jsonl$/, '.meta.json'))
-  if (await metaFile.exists()) {
-    const meta = JSON.parse(await metaFile.text()) as Record<string, unknown>
-    // `description` is the opener of the spawn: a fragment, like `intent`.
-    writeFileSync(join(vdir, `subagent-${agentId}.meta.json`), `${JSON.stringify(scrub({ ...meta, description: cutTo(meta.description, 48) }), null, 2)}\n`)
+  // `description` is the opener of the spawn: a fragment, like `intent`.
+  if (meta) writeFileSync(join(vdir, `subagent-${agentId}.meta.json`), `${JSON.stringify(scrub({ ...meta, description: cutTo(meta.description, 48) }), null, 2)}\n`)
+  return agentId
+}
+
+async function readMeta(path: string): Promise<Record<string, unknown> | null> {
+  const f = Bun.file(path.replace(/\.jsonl$/, '.meta.json'))
+  if (!(await f.exists())) return null
+  try {
+    return z.record(z.string(), z.unknown()).parse(JSON.parse(await f.text()))
+  } catch {
+    return null
   }
-  console.error(`harness corpus: claude ${fileVersion} subagent ${agentId} → ${records.length} records, ${cwds.size} cwd`)
+}
+
+// --subagent: the file named, whatever version it records.
+const subAt = argv.indexOf('--subagent')
+if (subAt >= 0) {
+  const path = argv[subAt + 1]
+  if (!path) {
+    console.error('usage: harness-corpus.ts --subagent <agent-*.jsonl>')
+    process.exit(2)
+  }
+  const sub = await readSubagent(path)
+  if ('refused' in sub) {
+    console.error(`${path}: ${sub.refused} — refusing`)
+    process.exit(2)
+  }
+  const agentId = writeSubagent(path, sub.records, sub.version, await readMeta(path))
+  console.error(`harness corpus: claude ${sub.version} subagent ${agentId} → ${sub.records.length} records, ${sub.cwds.size} cwd`)
   process.exit(0)
 }
 
@@ -237,4 +284,51 @@ if (await rosterFile.exists()) {
   write('roster.json', scrub({ ...roster, workers: kept }))
 }
 
-console.error(`harness corpus: claude ${version} → ${dir}: ${rows.length} listing rows, ${jobs} jobs, ${workers} roster workers`)
+// A subagent transcript of THIS version, picked without being asked. The
+// 2.1.299 and 2.1.321 snapshots were taken without one — `--subagent` was a
+// second command, and the day it mattered nobody typed it: 2.1.307 moved the
+// stop_reason of every tool_use-ended request and every finished spawn read
+// as in flight for four days, with the corpus green. The newest finished
+// spawn under a personal tree is the one taken; a version dir that already
+// holds one is left alone, and none found is said out loud (the test fails a
+// version without one).
+let subagent = readdirSync(dir).some((f) => f.startsWith('subagent-') && f.endsWith('.jsonl')) ? 'kept' : 'none'
+if (subagent === 'none') {
+  const candidates: { path: string; mtimeMs: number }[] = []
+  const projects = join(CLAUDE, 'projects')
+  for (const well of existsSync(projects) ? readdirSync(projects) : []) {
+    let sessions: string[]
+    try {
+      sessions = readdirSync(join(projects, well))
+    } catch {
+      continue // a transcript file, not a well dir
+    }
+    for (const session of sessions) {
+      const sub = join(projects, well, session, 'subagents')
+      if (!existsSync(sub)) continue
+      for (const f of readdirSync(sub)) {
+        if (!f.startsWith('agent-') || !f.endsWith('.jsonl')) continue
+        const path = join(sub, f)
+        candidates.push({ path, mtimeMs: statSync(path).mtimeMs })
+      }
+    }
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
+  // Newest first, and a bounded look: a version's spawns are its newest files.
+  for (const { path } of candidates.slice(0, 200)) {
+    const meta = await readMeta(path)
+    // `finished` is the harness's own word since 2.1.321 (absent while the
+    // spawn runs). A file still being written is not a fixture.
+    if (meta?.finished !== true) continue
+    const sub = await readSubagent(path)
+    if ('refused' in sub || sub.version !== version) continue
+    subagent = writeSubagent(path, sub.records, sub.version, meta)
+    break
+  }
+}
+if (subagent === 'none')
+  console.error(
+    `harness corpus: NO subagent transcript of claude ${version} under a personal tree — spawn one (any subagent, from a session in ~/code/fun or ~/code/personal) and run: bun scripts/harness-corpus.ts --subagent <its agent-*.jsonl>`,
+  )
+
+console.error(`harness corpus: claude ${version} → ${dir}: ${rows.length} listing rows, ${jobs} jobs, ${workers} roster workers, subagent ${subagent}`)

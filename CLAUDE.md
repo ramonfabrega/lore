@@ -81,11 +81,17 @@ true, it is a design change, not a bug fix.
   most 20, or fatter buckets. Spawn ONE primer first and verify its model
   from the JSONL (~20 s), then fire the rest: 23 of 23 later spawns reused
   22,891 cached boot tokens (55%) against 0 of 10 when #30 fired all at once.
-- A finished spawn whose `lore spawns` row says `telemetryPartial` with
-  `partialReason: floor` is NOT in flight and NOT a bug: it ended (a
-  handback), and its output is a floor because the harness drops the
-  completion record of every tool_use-ended request in a subagent file
-  (db.ts v20). `in-flight` is the one still running or killed mid-tool.
+- A finished spawn carries NO flag in `lore spawns` since harness 2.1.321:
+  its tokens are a measurement. `partialReason: in-flight` is a file with
+  no ending yet — still running, or killed mid-tool — and the ending is a
+  closing text or a `SubagentHandback` whose result was DELIVERED, never
+  what the record's own `stop_reason` says (2.1.307 moved it from `null`
+  to `tool_use`, and 24 of 24 finished spawns of ingest #33 read
+  `in-flight` until the rule stopped leaning on it; db.ts v22).
+  `partialReason: floor` is the older shape and still what a 2.1.285 –
+  2.1.299 spawn reads: it ended, and its output is low because that
+  harness dropped the completion record of every tool_use-ended request
+  in a subagent file (db.ts v20) — not in flight, not a bug.
 
 ## Code conventions (rationale in DESIGN.md)
 

@@ -40,10 +40,23 @@ const AssistantRecord = z.object({
     usage: Usage.nullish(),
     stop_reason: z.string().nullish(),
     content: z
-      .array(z.object({ type: z.string(), name: z.string().nullish() }).loose())
+      .array(z.object({ type: z.string(), name: z.string().nullish(), id: z.string().nullish() }).loose())
       .nullish(),
   }),
 })
+
+// The other half of a handback: the `user` record that carries the tool's
+// result. Its ack is read, not assumed — a harness tool can refuse without
+// the result being a tool error (`"success":false`; CLAUDE.md, the failed
+// SendMessage), so both flags count.
+const ResultRecord = z.object({
+  type: z.literal('user'),
+  message: z.object({
+    content: z.array(z.object({ type: z.string(), tool_use_id: z.string().nullish(), is_error: z.boolean().nullish() }).loose()),
+  }),
+  toolUseResult: z.unknown().optional(),
+})
+const Ack = z.object({ success: z.boolean() }).loose()
 
 // A finished spawn's last assistant record carries a terminal stop_reason.
 // Without one the transcript is mid-flight OR the terminal usage update never
@@ -54,11 +67,27 @@ const AssistantRecord = z.object({
 //
 // `handback` is lore's own word for the fourth ending (harness 2.1.285, auto
 // mode): the spawn's last act is a `SubagentHandback` tool call — its report
-// goes to the caller as a tool, not as a closing text — and the harness
-// writes no completion record for a tool_use-ended request in a subagent
-// file. So the spawn FINISHED (not in flight, not killed), yet its last
-// request has only streaming snapshots: `open_requests` says how many of its
-// requests are in that state, and the row stays partial on that count.
+// goes to the caller as a tool, not as a closing text. The ending is the
+// DELIVERED handback: the call, and after it the tool result that answers
+// that call's id without an error or a refused ack. What the assistant
+// record's own stop_reason says is not part of the rule, because the harness
+// changed it under lore twice. 2.1.285 – 2.1.299 wrote no completion record
+// for a tool_use-ended request in a subagent file, so the handback's record
+// read `null` (and now and then `tool_use`: 56 of 760 on disk, which the
+// first version of this rule — "null AND a handback" — filed as in flight
+// for a month). 2.1.307 fixed that upstream ("placeholder token usage and an
+// empty stop reason for streamed responses"), so from 2.1.321 on EVERY
+// request carries its stop_reason and its real usage, the handback's reads
+// `tool_use`, and 24 of 24 finished spawns of ingest #33 read `in-flight`.
+// A file cut between the call and its result is still in flight, which is
+// what it is.
+//
+// `open_requests` is the other half and outlives the fix: the number of
+// requests whose last record has no stop_reason — each one a streaming
+// snapshot missing its output. Above zero the row is a floor however it
+// ended; on 2.1.321 it is zero for all 179 finished files on disk
+// (2026-11-13), so a finished spawn there is a measurement and carries no
+// flag at all.
 const TERMINAL_STOP = new Set(['end_turn', 'stop_sequence', 'max_tokens', 'handback'])
 const HANDBACK = 'SubagentHandback'
 
@@ -178,7 +207,10 @@ export async function indexSpawns(
     // completion record never landed contributes a snapshot, not its output.
     const outputByRequest = new Map<string, number>()
     const stopByRequest = new Map<string, string | null>()
-    let lastBlockName: string | null = null
+    // The tool_use id of a SubagentHandback that closes the last assistant
+    // record, and whether its result has landed.
+    let handbackId: string | null = null
+    let handbackDelivered = false
 
     for (const line of (await Bun.file(f.path).text()).split('\n')) {
       if (!line.trim()) continue
@@ -192,6 +224,14 @@ export async function indexSpawns(
       if (ts.success && ts.data.timestamp) {
         firstTs ??= ts.data.timestamp
         lastTs = ts.data.timestamp
+      }
+      const res = ResultRecord.safeParse(raw)
+      if (res.success) {
+        const ack = Ack.safeParse(res.data.toolUseResult)
+        const refused = ack.success && !ack.data.success
+        if (handbackId != null && !refused && res.data.message.content.some((b) => b.type === 'tool_result' && b.tool_use_id === handbackId && b.is_error !== true))
+          handbackDelivered = true
+        continue
       }
       const rec = AssistantRecord.safeParse(raw)
       if (!rec.success) continue
@@ -214,15 +254,18 @@ export async function indexSpawns(
       lastStopReason = msg.stop_reason ?? null
       stopByRequest.set(reqId, lastStopReason)
       for (const block of msg.content ?? []) if (block.type === 'tool_use') toolUses++
+      // Any later assistant record reopens the question: a spawn resumed
+      // after its handback (SendMessage) is running again.
       const last = msg.content?.at(-1)
-      lastBlockName = last?.type === 'tool_use' ? (last.name ?? null) : null
+      handbackId = last?.type === 'tool_use' && last.name === HANDBACK ? (last.id ?? null) : null
+      handbackDelivered = false
     }
 
     let outputTokens = 0
     for (const v of outputByRequest.values()) outputTokens += v
     let openRequests = 0
     for (const v of stopByRequest.values()) if (v == null) openRequests++
-    if (lastStopReason == null && lastBlockName === HANDBACK) lastStopReason = 'handback'
+    if (handbackDelivered) lastStopReason = 'handback'
 
     upsert.run(
       f.wellDir,
@@ -427,15 +470,17 @@ export function listSpawns(
       ...r,
       ...(r.requestedModel && r.model ? { drift: modelDrift(r.requestedModel, r.model) === true } : {}),
       // Surfaced only when the totals are a floor — a warning plus the reason
-      // (`lastStopReason` 'tool_use' = interrupted mid-tool, null = the
-      // terminal usage row never landed; `openRequests` = how many requests
-      // have no completion record, each missing its whole output), not
-      // fields to skim past on every healthy row.
-      // `partialReason` says which floor: 'in-flight' = no terminal stop
+      // (`lastStopReason` 'tool_use' = a tool call with no ending after it,
+      // null = the terminal usage row never landed; `openRequests` = how many
+      // requests have no completion record, each missing its whole output),
+      // not fields to skim past on every healthy row.
+      // `partialReason` says which floor: 'in-flight' = no ending in the file
       // (still running, or killed mid-tool); 'floor' = it ENDED (end_turn or
-      // a handback) and the totals are low because requests lost their
-      // completion records. Ingest #31 read 24 finished handbacks as a lore
-      // bug until the two were told apart.
+      // a delivered handback) and the totals are low because requests lost
+      // their completion records — the 2.1.285 – 2.1.299 shape. Ingest #31
+      // read 24 finished handbacks as a lore bug until the two were told
+      // apart; ingest #33 read 24 more as in flight until the handback
+      // stopped depending on the record's stop_reason.
       ...(TERMINAL_STOP.has(lastStopReason ?? '') && openRequests === 0
         ? {}
         : {

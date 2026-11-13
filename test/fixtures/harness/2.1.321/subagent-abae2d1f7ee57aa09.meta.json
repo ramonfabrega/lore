@@ -1,0 +1,12 @@
+{
+  "agentType": "lore-miner",
+  "isBuiltIn": false,
+  "launchedWithDefaults": true,
+  "description": "Mine F2 ccc nfl fantasy",
+  "toolUseId": "toolu_01LPf9awphVafJKwipTjaEzD",
+  "spawnDepth": 1,
+  "requestShape": "background",
+  "requestNonInteractive": true,
+  "pickedEffortModel": "claude-fable-5-2",
+  "finished": true
+}
