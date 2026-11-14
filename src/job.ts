@@ -66,7 +66,23 @@ const JOB_KEY_S2_SQL = JOB_KEY_SQL.replace(/\bs\./g, 's2.')
 // the GROUP (JOB_KIND_AGG_SQL), which is the same rule without the scan.
 const JOB_KIND_SQL = `CASE WHEN ${JOB_BRIDGE_SQL} IS NOT NULL THEN 'bridge'
   WHEN s.job_session_id IS NOT NULL OR EXISTS (SELECT 1 FROM sessions x WHERE x.job_session_id = s.session_id) THEN 'root' ELSE 'session' END`
-const JOB_KIND_AGG_SQL = `CASE WHEN MAX(${JOB_BRIDGE_SQL}) IS NOT NULL THEN 'bridge' WHEN MAX(s.job_session_id) IS NOT NULL THEN 'root' ELSE 'session' END`
+// Every relay a job received, by peer, with the job that SENT it: the row
+// holding the other half of the message (same msg_id, the sender's tool
+// call). `+a.lane` is load-bearing. The index has no statistics (nothing
+// runs ANALYZE), so the planner prices `idx_messages_lane` and
+// `idx_messages_msg` alike and took the lane: every relay row then walked
+// every tool row — 4,317 × several hundred thousand on 2026-11-14, when
+// `lore jobs` and the agents page stopped answering for the day the query
+// had been live, and the server hung behind it. The unary plus rules the
+// lane index out, leaving the msg_id one (27 ms on that index). The
+// fixtures are too small to feel it, so the test reads the PLAN.
+export const RELAYS_SQL = `SELECT ${JOB_KEY_SQL} AS key, m.peer, COUNT(*) AS n, MIN(m.ts) AS ts,
+        (SELECT ${JOB_KEY_S2_SQL} FROM messages a JOIN sessions s2 ON s2.session_id = a.session_id
+          WHERE a.msg_id = m.msg_id AND +a.lane = 'tool' LIMIT 1) AS sender
+ FROM messages m JOIN sessions s ON s.session_id = m.session_id
+ WHERE m.lane = 'relay' AND m.peer IS NOT NULL
+ GROUP BY key, m.peer, sender, CASE WHEN sender IS NULL THEN m.id END`
+const JOB_KIND_AGG_SQL =`CASE WHEN MAX(${JOB_BRIDGE_SQL}) IS NOT NULL THEN 'bridge' WHEN MAX(s.job_session_id) IS NOT NULL THEN 'root' ELSE 'session' END`
 
 const PeerName = z.object({ key: z.string(), kind: z.string(), name: z.string(), n: z.number() })
 
@@ -606,18 +622,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     m.set(peer, (m.get(peer) ?? 0) + n)
     peers.set(key, m)
   }
-  const relays = z.array(PeerRow).parse(
-    db
-      .prepare(
-        `SELECT ${JOB_KEY_SQL} AS key, m.peer, COUNT(*) AS n, MIN(m.ts) AS ts,
-                (SELECT ${JOB_KEY_S2_SQL} FROM messages a JOIN sessions s2 ON s2.session_id = a.session_id
-                  WHERE a.msg_id = m.msg_id AND a.lane = 'tool' LIMIT 1) AS sender
-         FROM messages m JOIN sessions s ON s.session_id = m.session_id
-         WHERE m.lane = 'relay' AND m.peer IS NOT NULL
-         GROUP BY key, m.peer, sender, CASE WHEN sender IS NULL THEN m.id END`,
-      )
-      .all(),
-  )
+  const relays = z.array(PeerRow).parse(db.prepare(RELAYS_SQL).all())
   for (const r of relays) {
     add(r.key, r.peer, r.n)
     const sender = r.sender ?? holderAt(r.peer, r.ts)
