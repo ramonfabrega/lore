@@ -28,7 +28,7 @@
     "--model",
     "claude-fable-5-1"
   ],
-  "intent": "Read docs/QUEUE.md's opener and run it: the twen…",
+  "intent": "intent",
   "name": "steer",
   "nameSource": "user",
   "sessionId": "d388900a-ea99-4527-9e70-93efb3766e9f",

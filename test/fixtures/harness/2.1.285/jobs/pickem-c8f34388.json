@@ -1,6 +1,6 @@
 {
   "state": "done",
-  "detail": "session complete; workflow saved to memory",
+  "detail": "detail",
   "tempo": "idle",
   "inFlight": {
     "tasks": 0,

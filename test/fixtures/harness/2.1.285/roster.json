@@ -196,7 +196,7 @@
           "Read docs/QUEUE.md's opener and run it: the twen…"
         ],
         "seed": {
-          "intent": "Read docs/QUEUE.md's opener and run it: the twen…",
+          "intent": "intent",
           "name": "steer"
         }
       },

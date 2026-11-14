@@ -1,6 +1,6 @@
 {
   "state": "done",
-  "detail": "brain session cost analysis: wakeup volume drove spend, not cache or polling",
+  "detail": "detail",
   "tempo": "idle",
   "inFlight": {
     "tasks": 0,

@@ -1,6 +1,6 @@
 {
   "state": "done",
-  "detail": "lore attach links built; ccc side needs no change",
+  "detail": "detail",
   "tempo": "idle",
   "inFlight": {
     "tasks": 0,
@@ -21,7 +21,7 @@
     "--model",
     "opus"
   ],
-  "intent": "Relaunch after the Friday 09-04 crash, from lore…",
+  "intent": "intent",
   "name": "ccc",
   "nameSource": "user",
   "sessionId": "b87b7169-7608-4b8d-afd0-c070ed3610cb",

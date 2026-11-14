@@ -1,6 +1,6 @@
 {
   "state": "working",
-  "detail": "Writing ~/.claude/jobs/a18a763f/tmp/patch_test.py",
+  "detail": "detail",
   "tempo": "active",
   "inFlight": {
     "tasks": 0,

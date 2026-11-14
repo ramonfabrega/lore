@@ -58,8 +58,8 @@ function entries(v: unknown, out: [string, unknown][] = []): [string, unknown][]
 const PROSE = new Set(['intent', 'detail', 'needs', 'label', 'question', 'header', 'description'])
 // The rule arrived with 2.1.285; versions compare numerically, part by part.
 const proseScrubbed = (v: string) => {
-  const [a, b] = [v, '2.1.285'].map((s) => s.split('.').map(Number))
-  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
+  const part = (s: string, i: number) => Number(s.split('.')[i] ?? 0)
+  for (let i = 0; i < 3; i++) if (part(v, i) !== part('2.1.285', i)) return part(v, i) > part('2.1.285', i)
   return true
 }
 function keys(v: unknown, out: string[] = []): string[] {

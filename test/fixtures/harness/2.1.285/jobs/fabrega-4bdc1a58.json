@@ -1,6 +1,6 @@
 {
   "state": "done",
-  "detail": "site ready for live deploy; Cloudflare setup & local test steps documented",
+  "detail": "detail",
   "tempo": "idle",
   "inFlight": {
     "tasks": 0,

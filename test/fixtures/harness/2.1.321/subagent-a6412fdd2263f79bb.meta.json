@@ -1,7 +1,7 @@
 {
   "agentType": "lean",
   "isBuiltIn": false,
-  "description": "Probe in-flight subagent shape",
+  "description": "description",
   "toolUseId": "toolu_01Jrqta7vf3BATLqXJiLw88w",
   "spawnDepth": 1,
   "requestShape": "background",

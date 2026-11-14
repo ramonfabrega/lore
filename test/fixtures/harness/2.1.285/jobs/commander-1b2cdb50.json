@@ -1,6 +1,6 @@
 {
   "state": "stopped",
-  "detail": "stopped from session",
+  "detail": "detail",
   "tempo": "idle",
   "tokens": 93881,
   "children": [
@@ -24,7 +24,7 @@
     "--model",
     "claude-opus-5-5[1m]"
   ],
-  "intent": "You are `commander`, the commander of the twenty…",
+  "intent": "intent",
   "name": "commander",
   "nameSource": "user",
   "sessionId": "1b2cdb50-6849-4034-9859-a9e570c54745",

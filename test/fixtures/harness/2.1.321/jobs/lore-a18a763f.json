@@ -1,6 +1,6 @@
 {
   "state": "blocked",
-  "detail": "fable 5.2 is locked and loaded, we're online",
+  "detail": "detail",
   "tempo": "active",
   "inFlight": {
     "tasks": 0,
@@ -12,7 +12,7 @@
     {
       "id": "bsluujzhg",
       "kind": "shell",
-      "label": "cd /Users/u/code/fun/lore/.claude/worktrees/loop-lan…",
+      "label": "label",
       "startedAt": 1794261096260
     }
   ],
