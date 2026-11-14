@@ -194,8 +194,10 @@ continue; if the route-around bucket is large, read all of it.
 
 ## Why this is not a `lore` feature (yet)
 
-`lore` indexes `is_error` on tool results but not `toolDenialKind`, and its FTS
-lanes do not index `tool_result` bodies — so a denial is currently
-indistinguishable from a failing test, and searching for the denial text finds
-only conversations *about* being blocked. Until that changes, this script is the
-whole answer, and it deliberately depends on nothing.
+`lore` indexes `is_error` on tool results but not `toolDenialKind`, so in the
+index a denial is indistinguishable from a failing test. The text of a tool
+result is searchable (`lore search --lane tool`, the head and tail of each
+result), so a denial's wording can be found that way — but nothing marks the
+hit as a denial, and the same search finds every conversation *about* being
+blocked. Until the field is indexed, this script is the whole answer, and it
+deliberately depends on nothing.

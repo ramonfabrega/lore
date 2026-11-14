@@ -93,6 +93,25 @@ true, it is a design change, not a bug fix.
   harness dropped the completion record of every tool_use-ended request
   in a subagent file (db.ts v20) — not in flight, not a bug.
 
+## Working here
+
+- **Read first**: the wiki's `projects/lore.md` — its "Now" block — at
+  `LORE_WIKI_DIR` (default `~/code/personal/lore-wiki`), then `lore agents`
+  and `lore server status`.
+- **Check**: `bun install`, `bunx tsc --noEmit -p .`, `TZ=UTC bun test`. The
+  zone pin is not optional (see "An instant is UTC" below). CI adds a UTC+14
+  pass on POSIX and `scripts/smoke-serve.ts`.
+- **Install**: `bun scripts/install.ts` from a clean landed tree, then
+  `lore server restart` — the server is a frozen bundle and does not follow
+  the install (`lore server status` says "restart owed").
+- **Land**: work happens on a `worktree-*` branch and lands as a fast-forward
+  push of the branch tip to `master`, on the user's word; the repo forbids
+  rebase-merge. Deleting a landed branch is the user's.
+- **A schema bump is not free**: it rebuilds a 3 GB index and drops the
+  `jobs` rows of jobs the daemon has deleted, which have no source left. A
+  new table (`IF NOT EXISTS`) needs no bump; the version is for a change to
+  what an existing table holds.
+
 ## Code conventions (rationale in DESIGN.md)
 
 - **Bun-first**: Bun API when one exists (`Bun.file`, `Bun.write`, `Bun.$`,
@@ -107,7 +126,8 @@ true, it is a design change, not a bug fix.
 - `lore docs` reads git objects only (`ls-tree`/`cat-file`), never working
   trees — canon can exist only at origin (husk repos).
 - **Prod bin vs dev lane**: the installed `lore` (frozen artifact, built by
-  `scripts/install.ts` from a clean landed tree; gates on tests) is the default
+  `scripts/install.ts` from a clean landed tree; gates on the type check and
+  the tests) is the default
   everywhere including spawns. `bun src/main.ts` is the dev lane, invoked by
   explicit absolute path only — never "from the current directory". openDb
   refuses DBs newer than the build (stale checkouts fail loudly, never

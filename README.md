@@ -136,6 +136,14 @@ step:
   instruction with latency and error flag, plus annotations read off the
   record (files touched, tests and their verdicts, commits, retries) and the
   session's own fan-out ledger.
+- `/agents` — the live roster grouped by repo, each job hung under the job
+  that spawned it.
+- `/job/<key>` — one background agent over time: every session it ran across
+  `/clear`s and daemon respawns. Takes the bridge id, the daemon id, a
+  session id or the name.
+- `/run/<id>` — one Workflow run: its phases, agents and what they cost.
+- `/thread/<a>/<b>` — every message two agents sent each other, both halves
+  paired on the harness's own message id.
 - `/search` — FTS5, sessions-first, hits linking to their transaction.
 - `/s/<Claude-Session trailer>` — resolves the trailer Claude Code writes into
   commit messages to the transcript behind it.
@@ -163,7 +171,14 @@ from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 | `lore tools` | Invocation counts per tool/skill/command — evidence for what ambient config actually earns its context cost. |
 | `lore usage` | The token profile: four billed classes + thinking, by well/session/model/day/week/month, dated list-price equivalent. |
 | `lore trace <id-prefix>` | One session as a block: transactions → steps (fee) + instructions (tool, latency, error) + annotations. `--steps` expands requests. |
+| `lore conversation <id-or-job>` | One session, or a job across its `/clear`s, read as a dialogue: who said what, in order, with the tool work between a message and its answer folded to one line. A projection of `trace`. |
 | `lore agents` | The live roster (`claude agents` + background-job state) joined to the index: live tokens beside indexed requests. |
+| `lore jobs` | Every background agent the index knows, live or long deleted — one row per job, which is an agent over time, not a session. Its repo, its peers, the job that spawned it. |
+| `lore thread <a> <b>` | The messages two agents sent each other, each with both halves (the send and the receiver's copy) and what became of it: opened a turn, read mid-turn, lost. |
+| `lore loop <job>` | One job and the jobs it spawned, as numbers: state, what is running under it, each lane's model and context, the fee, who spoke last. `--since`/`--until` bound it. |
+| `lore limits` | The subscription as the account enforces it: each rate-limit window's percent used and reset, beside the token ledger over the same window. Reads `~/.lore/limits.jsonl`, which a status-line mod writes. |
+| `lore worktrees` | The worktree inventory a prune decision reads: registered or orphaned, dirty, landed on the default branch or not, the processes still running inside. Changes nothing. |
+| `lore purge <id-prefix>` | Delete one session everywhere lore keeps it — index rows, the transcript, the archive mirror, its history lines. The only way to unindex a session. Dry run until `--yes`. |
 | `lore harness status / changelog` | Claude Code itself: installed vs the release channels vs what is **running** (the daemon and each worker keep the binary they started with), and the changelog between, tagged by surface, kind and topic. Reads only — updates are manual (docs/DESIGN.md). |
 | `lore serve` / `lore api` | The explorer in the foreground / its pages as JSON commands. |
 | `lore server up\|down\|restart\|status\|logs` | The explorer always-on as a launchd user agent (macOS); `status` says "restart owed" after a reinstall. |
@@ -177,15 +192,16 @@ Every command supports `--help`.
 
 ### Picking a well: `--well` and `--exact`
 
-Nine verbs take `--well`: `sessions`, `session`, `trace`, `search`, `spawns`,
-`workflows`, `tools`, `polls`, `usage` (on `session` and `trace` it narrows an
-ambiguous id prefix rather than filtering a list). It is a **substring** match
+Ten verbs take `--well`: `sessions`, `session`, `trace`, `conversation`,
+`search`, `spawns`, `workflows`, `tools`, `polls`, `usage` (on `session`,
+`trace` and `conversation` it narrows an ambiguous id prefix rather than
+filtering a list). It is a **substring** match
 against the well dir *and* its de-slugged real path, so a short name is a
 filter, not a selector: `--well app` also answers for
 `-Users-you-code-app-admin`, and `--well code` answers for every well under
 `~/code`.
 
-`--exact` (same nine verbs) switches that to equality — and equality means the
+`--exact` (same ten verbs) switches that to equality — and equality means the
 **whole** well dir or the **whole** absolute real path, never a fragment. This
 is the part that surprises: `--well app --exact` matches nothing and says so
 with a plausible `count: 0`. Copy the value out of `lore wells`:
@@ -267,21 +283,32 @@ the tool itself never needs an API key.
 ## What it reads and writes
 
 - **Reads**: `~/.claude` (transcripts, memory, history), and — only for
-  `lore docs` — the git object stores of repos under your code root.
+  `lore docs` — the git object stores of repos under your code root. Three
+  optional inputs other tools write, each read only if it exists:
+  `~/.lore/limits.jsonl` (a status-line mod's rate-limit readings, for
+  `lore limits`), ccc's spawn ledger (`CCC_SPAWN_LEDGER`, for who spawned
+  whom), and `~/.codex/worktrees` (for `lore worktrees`).
 - **Writes**: `~/.lore` (the archive and the rebuildable `lore.db`), your
   wiki repo if you configure one, and — only for `lore server up` — one plist
   under `~/Library/LaunchAgents/` (macOS only). Nothing else.
-- **Network**: none, except `git fetch` when you explicitly pass `--fetch` to
-  `lore docs index`, and the port `lore serve` listens on (default 4949; see
-  `--host`). Nothing is uploaded anywhere. No model calls, no API key.
-- **Shells out to**: `git` (docs, wiki), `claude` (the agents roster — skipped
-  when it's not on `PATH`), `tailscale` (host resolution — optional), and
-  `launchctl` for `lore server` on macOS. The archive is an in-process mirror:
-  no rsync.
+- **Network**: three cases, all reads. `git fetch` when you explicitly pass
+  `--fetch` to `lore docs index`. `lore harness status` and `lore harness
+  changelog` make three GETs — the Claude Code release channels, its
+  changelog on GitHub, and the npm registry — and send nothing about you.
+  And the port `lore serve` listens on (default 4949; see `--host`). Nothing
+  is uploaded anywhere. No model calls, no API key.
+- **Shells out to**: `git` (docs, wiki, worktrees), `claude` (the agents
+  roster and the installed version — skipped when it's not on `PATH`),
+  `tailscale` (host resolution — optional), `launchctl` for `lore server` on
+  macOS, and for `lore worktrees` only, `du`, `ps` and (with `--pr`) `gh`.
+  The archive is an in-process mirror: no rsync.
 
 The index is a derived artifact: it rebuilds from the archive, version-bumps
 instead of migrating, and refuses to touch a database written by a *newer* lore
-(stale builds fail loudly rather than destroying a good index).
+(stale builds fail loudly rather than destroying a good index). One exception
+to "rebuilds": a background job the Claude Code daemon has since deleted has
+no source left on disk, so its row in the `jobs` table (its name, what
+spawned it) survives only in the index and a rebuild drops it.
 
 ## Configuration
 
@@ -295,6 +322,8 @@ All env vars, validated in one place (`src/config.ts`):
 | `LORE_WIKI_DIR` | `~/code/personal/lore-wiki` | The wiki repo for `lore wiki commit`. Optional. |
 | `LORE_DOCS_EXCLUDE` | — | Comma-separated `/`-bounded path suffixes to skip in the docs scan. |
 | `LORE_DOCS_ASSISTED` | — | Force-flag repos as assisted (someone else's project) when auto-detection misses. |
+| `LORE_CODEX_DIR` | `~/.codex` | Codex's data dir; `lore worktrees` lists its checkouts. |
+| `CCC_SPAWN_LEDGER` | `~/Library/Application Support/ccc/spawns.jsonl` | ccc's own variable for its spawn ledger; lore reads the same file. |
 
 ## Standalone: what your sessions do when a tool call is denied
 

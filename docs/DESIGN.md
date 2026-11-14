@@ -43,8 +43,9 @@ the CLI, not CLI commands:
 Two layers:
 
 - **Layer 1 (CLI, model-free)**: scan wells → parse JSONL → archive → SQLite FTS5
-  index → search/stats/digest commands. Agent-first output design (incur conventions).
-  Fully testable without any model. Includes the run ledger.
+  index → search/stats commands (a `digest` verb was planned here and never
+  built). Agent-first output design (incur conventions). Fully testable without
+  any model. Includes the run ledger, which became a query: `lore spawns`.
 - **Layer 2 (judgment)**: interactive sessions drive the CLI (discovered via the
   generated per-command skills). The inverted relationship — session is the brain,
   CLI is the eyes — makes the subscription-only constraint structural rather than
@@ -675,4 +676,5 @@ file. Consider per-well sensitivity tags in the index from the start.
   trust ledger that earns auto-merge for toy repos (what counts as a track
   record?), and whether the repo-lens reviewer becomes a defined agent
   (`.claude/agents/lore-grad-reviewer.md`) vs staying an ad-hoc sonnet spawn.
-- Whether/when the explorer UI materializes, and in what shape.
+- ~~Whether/when the explorer UI materializes, and in what shape.~~ Answered
+  2026-09-01: `lore serve` (see the decision log and docs/EXPLORER.md).

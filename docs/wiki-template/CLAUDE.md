@@ -13,8 +13,11 @@ your repos) → **this wiki** → canon (git-committed CLAUDE.mds/docs, promoted
 via graduation).
 
 The lore CLI is the eyes: `lore search`, `lore sessions`, `lore session`,
-`lore trace`, `lore usage`, `lore spawns` (see the `lore-*` skills, installed
-by `lore skills add`). Never mine raw JSONL by hand when the index can answer.
+`lore trace`, `lore usage`, `lore spawns`; `lore jobs` and `lore thread` for
+background agents and what they said to each other; `lore docs search` and
+`lore docs list` for the canon corpus that lint and graduation read (see the
+`lore-*` skills, installed by `lore skills add`). Never mine raw JSONL by hand
+when the index can answer.
 
 ## Layout
 

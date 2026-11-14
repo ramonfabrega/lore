@@ -64,9 +64,12 @@ such file; their trailers stay unresolved and the page says so.
 
 Server-rendered HTML, no build step, no client framework; inline SVG for
 sparklines (the dataviz skill's palette). Hono via incur's `fetch` mount, so
-`lore api …` and `lore serve` are the same routes. Binds `0.0.0.0` so the
-tailnet reaches it as `<host>:<port>/…` (incur mounts the handler; listening
-is `Bun.serve` — the bind address is ours to get right).
+`lore api …` and `lore serve` are the same routes. Binds the Tailscale
+address by default (`--host auto`), so the tailnet reaches it as
+`<host>:<port>/…` and the LAN does not; `0.0.0.0` only when there is no
+Tailscale address (incur mounts the handler; listening is `Bun.serve` — the
+bind address is ours to get right, and the first version bound `0.0.0.0`
+unconditionally).
 
 ### Stamps (landed 2026-09-02)
 
