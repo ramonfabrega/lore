@@ -121,6 +121,16 @@ describe('harness status', () => {
     expect(harnessStatus(settled, there({ stable: '2.1.284' })).warnings).toBeUndefined()
   })
 
+  // `behind` counts changelog headings: a latest channel the changelog has no
+  // section for read `behind: 0` with nothing said (2026-11-14).
+  test('a latest channel ahead of the changelog is a warning, not a silent 0', () => {
+    const s = harnessStatus(here({ installed: '2.1.284' }), there({ latest: '2.1.285', stable: '2.1.284' }))
+    expect(s.behind).toBe(0)
+    expect(s.warnings?.join('\n')).toContain('latest 2.1.285 is ahead of installed 2.1.284 but has no changelog entry yet')
+    // A latest the changelog does name says nothing of the kind.
+    expect(harnessStatus(here(), there()).warnings?.join('\n')).not.toContain('no changelog entry')
+  })
+
   test('auto-update on is a warning, and a dead source is one line, not a throw', () => {
     const s = harnessStatus(here({ autoUpdate: 'on' }), there({ latest: null, errors: ['channel latest: offline'] }))
     expect(s.behind).toBe(0)

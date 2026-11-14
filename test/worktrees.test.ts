@@ -1,8 +1,9 @@
-import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { discoverWorktreeDirs, parseCherry, parseDu, parseLsofCwd, parseWorktreeList, prLabel, repoFromCommonDir, repoKey } from '../src/worktrees'
+import { $ } from 'bun'
+import { discoverWorktreeDirs, listWorktrees, narrowToRepo, parseCherry, parseDu, parseLsofCwd, parseWorktreeList, prLabel, repoFromCommonDir, repoKey, type WorktreesReport } from '../src/worktrees'
 
 // Samples cut from the 2026-10-15 cleanup on the Studio.
 
@@ -83,5 +84,113 @@ describe('discoverWorktreeDirs', () => {
   })
   test('a missing code dir is an empty inventory, not an error', () => {
     expect(discoverWorktreeDirs('/nonexistent/code', '/nonexistent/.codex')).toEqual([])
+  })
+})
+
+describe('narrowToRepo', () => {
+  test('--repo keeps claude rows by their path-derived key before anything is read, and every codex row', () => {
+    const found = [
+      { path: '/c/fun/lore/.claude/worktrees/a', minter: 'claude' as const },
+      { path: '/c/fun/attrition/.claude/worktrees/b', minter: 'claude' as const },
+      { path: '/x/.codex/worktrees/31a0/attrition', minter: 'codex' as const },
+    ]
+    expect(narrowToRepo(found, '/c', 'fun/lore').map((f) => f.path)).toEqual(['/c/fun/lore/.claude/worktrees/a', '/x/.codex/worktrees/31a0/attrition'])
+    expect(narrowToRepo(found, '/c', undefined)).toEqual(found)
+  })
+})
+
+// The reading over real git: a fixture code dir built the way the Studio's
+// is (2026-11-14 review). One repo has a worktree whose two commits were
+// squash-merged into main, and a stray dir under .claude/worktrees that is
+// not a worktree at all (cuanto had `.claude/worktrees/node_modules`), with
+// its root checkout dirty. One repo sits on a path with a space, with a
+// worktree named in non-ASCII and a process inside it. One repo sits
+// directly under the code dir and one three deep (~/code/mirador,
+// ~/code/games/rs/runelite-mobile).
+describe('listWorktrees', () => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'lore-worktrees-read-')))
+  const code = join(root, 'code')
+  let report: WorktreesReport
+  let sleeper: ReturnType<typeof Bun.spawn> | null = null
+  const g = (cwd: string, ...args: string[]) => $`git -C ${cwd} -c user.name=t -c user.email=t@t ${args}`.quiet()
+  async function mkRepo(path: string) {
+    mkdirSync(path, { recursive: true })
+    await $`git init -q -b main ${path}`.quiet()
+    writeFileSync(join(path, 'README'), 'x\n')
+    writeFileSync(join(path, '.gitignore'), '.claude/\n')
+    await g(path, 'add', '-A')
+    await g(path, 'commit', '-q', '-m', 'init')
+  }
+
+  beforeAll(async () => {
+    const r1 = join(code, 'fun', 'r1')
+    await mkRepo(r1)
+    const sq = join(r1, '.claude', 'worktrees', 'sq')
+    await g(r1, 'worktree', 'add', '-q', '-b', 'sq', sq)
+    writeFileSync(join(sq, 'a.txt'), 'a\n')
+    await g(sq, 'add', '-A')
+    await g(sq, 'commit', '-q', '-m', 'a')
+    writeFileSync(join(sq, 'b.txt'), 'b\n')
+    await g(sq, 'add', '-A')
+    await g(sq, 'commit', '-q', '-m', 'b')
+    await g(r1, 'merge', '--squash', 'sq')
+    await g(r1, 'commit', '-q', '-m', 'squash sq (#1)')
+    // a branch with work base does not have: never landed
+    const open = join(r1, '.claude', 'worktrees', 'open')
+    await g(r1, 'worktree', 'add', '-q', '-b', 'open', open)
+    writeFileSync(join(open, 'c.txt'), 'c\n')
+    await g(open, 'add', '-A')
+    await g(open, 'commit', '-q', '-m', 'c')
+    mkdirSync(join(r1, '.claude', 'worktrees', 'node_modules'), { recursive: true })
+    writeFileSync(join(r1, '.claude', 'worktrees', 'node_modules', '.yarn-integrity'), '{}')
+    writeFileSync(join(r1, 'README'), 'modified in the ROOT checkout\n')
+
+    const r2 = join(code, 'fun', 'my repo')
+    await mkRepo(r2)
+    await g(r2, 'worktree', 'add', '-q', '-b', 'sp', join(r2, '.claude', 'worktrees', 'with space'))
+    const acc = join(r2, '.claude', 'worktrees', 'café')
+    await g(r2, 'worktree', 'add', '-q', '-b', 'acc', acc)
+
+    const top = join(code, 'mirador')
+    await mkRepo(top)
+    await g(top, 'worktree', 'add', '-q', '-b', 'bg', join(top, '.claude', 'worktrees', 'bg-space'))
+    const deep = join(code, 'games', 'rs', 'runelite-mobile')
+    await mkRepo(deep)
+    await g(deep, 'worktree', 'add', '-q', '-b', 'wd', join(deep, '.claude', 'worktrees', 'window-discovery-fix'))
+
+    sleeper = Bun.spawn(['sleep', '60'], { cwd: acc })
+    await Bun.sleep(300)
+    report = await listWorktrees({ codeDir: code, codexDir: join(root, '.codex-none') })
+  })
+  afterAll(() => {
+    sleeper?.kill()
+  })
+  const row = (name: string) => report.worktrees.find((r) => r.name === name)!
+
+  test('a branch squash-merged as one commit reads landed, though cherry matches neither commit', () => {
+    expect(row('sq')).toMatchObject({ registered: true, ancestor: false, landed: true })
+    expect(row('open')).toMatchObject({ registered: true, ancestor: false, landed: false })
+  })
+
+  test('a dir under .claude/worktrees with no .git borrows nothing from the root checkout', () => {
+    expect(row('node_modules')).toMatchObject({ registered: false, branch: null, head: null, dirty: null, ancestor: null, landed: null })
+  })
+
+  test('repos directly under the code dir and three deep are in the inventory', () => {
+    expect(row('bg-space')).toMatchObject({ repo: 'mirador', registered: true })
+    expect(row('window-discovery-fix')).toMatchObject({ repo: 'games/rs/runelite-mobile', registered: true })
+  })
+
+  test('paths with a space and non-ASCII names read, size and hold their processes', () => {
+    expect(row('with space')).toMatchObject({ repo: 'fun/my repo', registered: true })
+    expect(row('with space').bytes).toBeGreaterThan(0)
+    expect(row('café').registered).toBe(true)
+    expect(row('café').pids).toContain(sleeper!.pid)
+    expect(report.orphanProcesses.map((p) => p.pid)).not.toContain(sleeper!.pid)
+  })
+
+  test('--repo narrows the whole report', async () => {
+    const r = await listWorktrees({ codeDir: code, codexDir: join(root, '.codex-none'), repo: 'mirador' })
+    expect(r.worktrees.map((w) => w.name)).toEqual(['bg-space'])
   })
 })

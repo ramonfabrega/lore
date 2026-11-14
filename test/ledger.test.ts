@@ -216,6 +216,35 @@ describe('spawnEdges: the ledger', () => {
     expect(spawnEdges(stated).get(L1)).toEqual({ key: 'CMD', sessionId: CMD, ts: '2026-11-13T15:05:03.000Z' })
   })
 
+  // Review 2026-11-14: a line whose parent is null (a person typed the
+  // spawn) was filtered out of the read, and the transcript fallback then
+  // gave the lane to whichever job printed its ref.
+  test('a ledger line with no parent is a person, and no answer in a transcript overrules it', async () => {
+    const db = await corpus([entry({ ts: '2026-11-13T15:05:03Z', child: '4ca3fb81', parent: null, via: 'app' })], { decoy: true })
+    expect(spawnEdges(db).get(L1)).toBeUndefined()
+    expect(spawnEdges(db, { sessionId: OTHER }).get(L1)).toBeUndefined()
+  })
+
+  // Review 2026-11-14: scoped to one session, the ledger was read for that
+  // session's lines only, so the decoy's page claimed the commander's lane.
+  test('a lane has one parent: the scoped answer is a subset of the whole one', async () => {
+    const db = await corpus([entry({ ts: '2026-11-13T15:05:03Z', child: '4ca3fb81', parent: byCommander })], { decoy: true })
+    expect(spawnEdges(db).get(L1)).toMatchObject({ key: 'CMD', sessionId: CMD })
+    expect([...spawnEdges(db, { sessionId: OTHER })]).toEqual([])
+    expect([...spawnEdges(db, { sessionId: CMD }).keys()]).toEqual([L1])
+  })
+
+  // Without the ledger, the transcript's first spawn wins for the session
+  // page too: the decoy printed the ref an hour BEFORE the commander's call
+  // here, so it is the decoy's lane on both readings — never on both pages.
+  test('without the ledger, the scoped reading agrees with the whole one', async () => {
+    const db = await corpus([], { decoy: true })
+    const whole = spawnEdges(db).get(L1)
+    expect(whole).toMatchObject({ key: OTHER })
+    expect(spawnEdges(db, { sessionId: OTHER }).get(L1)).toEqual(whole)
+    expect(spawnEdges(db, { sessionId: CMD }).get(L1)).toBeUndefined()
+  })
+
   // What the ledger does NOT say (ccc, 2026-11-13): a handover's next seat
   // and a worker are both a named spawn by a session. The successor is an
   // edge like any other; telling it from a lane is not something this file

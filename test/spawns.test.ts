@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/db'
+import { day, dayStart } from '../src/fmt'
 import { indexSpawns, listSpawns } from '../src/spawns'
 
 function assistantLine(opts: {
@@ -329,5 +330,72 @@ describe('indexSpawns + listSpawns', () => {
       // Nor does an empty answer that no --session asked for.
       expect(listSpawns(db, { agent: 'nobody', limit: 50 }).sessionMiss).toBeUndefined()
     })
+  })
+})
+
+// Review 2026-11-14.
+describe('spawns: synthetic records, typed days, week keys', () => {
+  // The harness's stand-in, shaped as on disk: model `<synthetic>`, usage 0,
+  // `stop_reason: stop_sequence`.
+  const synthetic = (ts: string) =>
+    JSON.stringify({
+      type: 'assistant', timestamp: ts, isApiErrorMessage: true,
+      message: { id: `syn-${ts}`, model: '<synthetic>', role: 'assistant', stop_reason: 'stop_sequence', usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [{ type: 'text', text: "You've hit your limit" }] },
+    })
+
+  test('<synthetic> is no served model and no request; a spawn refused at its first call ended', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lore-spawns-syn-'))
+    const sub = join(dir, '-u-code-fun-app', 'sess-1', 'subagents')
+    mkdirSync(sub, { recursive: true })
+    writeFileSync(join(sub, 'agent-refused.meta.json'), JSON.stringify({ agentType: 'lean', model: 'sonnet' }))
+    writeFileSync(join(sub, 'agent-refused.jsonl'), synthetic('2026-11-14T01:00:00Z'))
+    // A real request, then the refusal: the model is the real one, one request.
+    writeFileSync(join(sub, 'agent-cut.meta.json'), JSON.stringify({ agentType: 'lean', model: 'sonnet' }))
+    writeFileSync(
+      join(sub, 'agent-cut.jsonl'),
+      [assistantLine({ ts: '2026-11-14T02:00:00Z', msgId: 'c1', model: 'claude-sonnet-5', usage: { i: 2, cc: 0, cr: 20000, o: 50 }, toolUse: true, stop: 'tool_use' }), synthetic('2026-11-14T02:00:10Z')].join('\n'),
+    )
+    const db = openDb(':memory:')
+    await indexSpawns(db, { projectsDir: dir })
+    const { spawns } = listSpawns(db, { limit: 10 })
+    const row = (id: string) => spawns.find((s) => s.agentId === id)!
+    expect(row('refused')).toMatchObject({ model: null, requests: 0, outputTokens: 0, bootTokens: null })
+    expect(row('refused').drift).toBeUndefined()
+    expect(row('refused').telemetryPartial).toBeUndefined()
+    expect(row('cut')).toMatchObject({ model: 'claude-sonnet-5', requests: 1, outputTokens: 50, drift: false })
+    expect(row('cut').telemetryPartial).toBeUndefined()
+  })
+
+  const withSpawnAt = (firstTs: string) => {
+    const db = openDb(':memory:')
+    db.prepare(
+      `INSERT INTO spawns(well_dir, session_id, agent_id, agent_type, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms, last_stop_reason, open_requests)
+       VALUES('-u', 's1', 'a1', 'lean', 1, 1, 0, ?, ?, 1, 1, 'end_turn', 0)`,
+    ).run(firstTs, firstTs)
+    return db
+  }
+
+  // Bites in CI's UTC+14 pass: there UTC midnight is 14:00 local.
+  test('--since: a typed day opens at local midnight, an instant passes as is', () => {
+    const at = (h: number) => new Date(Date.parse(dayStart('2026-11-13')) + h * 3_600_000).toISOString()
+    expect(listSpawns(withSpawnAt(at(2)), { since: '2026-11-13', limit: 10 }).spawns).toHaveLength(1)
+    expect(listSpawns(withSpawnAt(at(-1)), { since: '2026-11-13', limit: 10 }).spawns).toHaveLength(0)
+    expect(listSpawns(withSpawnAt(at(-1)), { since: at(-2), limit: 10 }).spawns).toHaveLength(1)
+  })
+
+  // The ISO week of the LOCAL day, computed here without SQLite.
+  const isoWeek = (localDay: string) => {
+    const D = 86_400_000
+    const t = Date.parse(`${localDay}T00:00:00Z`)
+    const thursday = t + (3 - ((new Date(t).getUTCDay() + 6) % 7)) * D
+    const year = new Date(thursday).getUTCFullYear()
+    const jan4 = Date.UTC(year, 0, 4)
+    const firstThursday = jan4 + (3 - ((new Date(jan4).getUTCDay() + 6) % 7)) * D
+    return `${year}-W${String(1 + Math.round((thursday - firstThursday) / (7 * D))).padStart(2, '0')}`
+  }
+  test('byWeek: an ISO week of the local day — New Year is not week 00, a Sunday evening is not next week', () => {
+    for (const ts of ['2027-01-01T12:00:00.000Z', '2026-11-15T19:00:00.000Z'])
+      expect(listSpawns(withSpawnAt(ts), { limit: 10 }).byWeek[0]?.week, ts).toBe(isoWeek(day(ts)))
+    expect(isoWeek('2027-01-01')).toBe('2026-W53')
   })
 })

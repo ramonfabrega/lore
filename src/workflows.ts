@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { dayStart } from './fmt'
 
 // The workflow observatory (companion to spawns.ts): every Workflow run
 // persists <session>/workflows/wf_<runId>.json — runId, timestamp (written at
@@ -234,8 +235,10 @@ export function listWorkflowRuns(
     params.push(`%${opts.name}%`)
   }
   if (opts.since) {
+    // A typed day is the instant of LOCAL midnight (dayStart), not the bare
+    // string compared against a UTC instant (review 2026-11-14).
     where.push('r.recorded_ts >= ?')
-    params.push(opts.since)
+    params.push(dayStart(opts.since))
   }
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const base = `

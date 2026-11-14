@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import { day, dayStart } from './fmt'
+import { day, dayStart, weekKeySql } from './fmt'
 import { z } from 'zod'
 
 // The token profile (lore#8): where the tokens go, by well / session / model /
@@ -150,12 +150,19 @@ export type UsageReport = {
 // SQLite's `localtime` reads the OS zone database through the process TZ, so
 // this is DST-correct rather than a hardcoded offset. The instants in
 // `requests.ts` stay UTC — only the bucket they fold into is local.
+//
+// A week is an ISO week (Monday-first, numbered by the year its Thursday
+// falls in), in the local zone like the day. It was `%Y-W%W` until
+// 2026-11-14, which restarts at W00 on 1 January: Wed 2025-12-31 keyed
+// 2025-W52 and Thu 2026-01-01 keyed 2026-W00, so every week holding New
+// Year read as two partial weeks. The SQL is `weekKeySql` (fmt.ts), which
+// also says why it is not spelled `%G-W%V`.
 const KEY_SQL: Record<Grouping, string> = {
   well: 'w.dir',
   session: 'r.session_id',
   model: "COALESCE(r.model, '?')",
   day: "date(r.ts, 'localtime')",
-  week: "strftime('%Y-W%W', r.ts, 'localtime')",
+  week: weekKeySql('r.ts'),
   month: "strftime('%Y-%m', r.ts, 'localtime')",
 }
 
@@ -301,16 +308,48 @@ export function listUsage(
 
   // Spawn output rides along for the groupings where "this session's fan-out"
   // is a meaningful attribution (the spawn observatory keeps the detail).
+  // Under the SAME filters as the row it sits on: until 2026-11-14 this query
+  // had no WHERE, so `--by well --since today` put a well's every spawn ever
+  // beside today's tokens. A spawn is in a window by when it started
+  // (`first_ts`), and in a model filter by the model that served it.
   if (opts.by === 'well' || opts.by === 'session') {
     const spawnKey = opts.by === 'well' ? 'w.dir' : 'sp.session_id'
+    const sw: string[] = ['1=1']
+    const sp: (string | number)[] = []
+    if (opts.sessions) {
+      sw.push(`sp.session_id IN (${opts.sessions.map(() => '?').join(',')})`)
+      sp.push(...opts.sessions)
+    }
+    if (opts.well) {
+      sw.push(opts.exact ? '(w.dir = ? OR w.real_path = ?)' : '(w.dir LIKE ? OR w.real_path LIKE ?)')
+      const v = opts.exact ? opts.well : `%${opts.well}%`
+      sp.push(v, v)
+    }
+    if (opts.session) {
+      sw.push('sp.session_id LIKE ?')
+      sp.push(`${opts.session}%`)
+    }
+    if (opts.model) {
+      sw.push('sp.model LIKE ?')
+      sp.push(`%${opts.model}%`)
+    }
+    if (opts.since) {
+      sw.push('sp.first_ts >= ?')
+      sp.push(dayStart(opts.since))
+    }
+    if (opts.until) {
+      sw.push('sp.first_ts < ?')
+      sp.push(dayStart(opts.until))
+    }
     const spawnCells = z.array(SpawnCell).parse(
       db
         .prepare(
           `SELECT ${spawnKey} AS key, COUNT(*) AS spawns, SUM(sp.output_tokens) AS spawnOutput
            FROM spawns sp JOIN wells w ON w.dir = sp.well_dir
+           WHERE ${sw.join(' AND ')}
            GROUP BY 1`,
         )
-        .all(),
+        .all(...sp),
     )
     for (const row of rows.values()) {
       row.spawns = 0

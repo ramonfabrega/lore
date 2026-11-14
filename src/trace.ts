@@ -291,6 +291,10 @@ export type Trace = {
   // second half of what waiting costs, and the half a poll count cannot
   // see — a `true` reads no file, so it leaves the polling shape at zero.
   idle: IdleShape
+  // Requests no transaction holds (a response with no block to index — a
+  // refusal carrying only redacted thinking), oldest first. Counted in
+  // `totals` and `classes`; listed here because no turn can show them.
+  unplaced: Step[]
   transactions: Transaction[]
 }
 
@@ -465,6 +469,27 @@ export function getTrace(
   const callClasses = new Map<string, ToolClass[]>()
   const pollSeq: { ref: string | null; idle: boolean; ts: string | null }[] = []
   const allSteps: Step[] = []
+  // Request ids some transaction holds — the rest are `unplaced` (below).
+  const placed = new Set<string>()
+  const stepOf = (id: string): Step => {
+    const q = reqs.get(id)
+    // Rate dates are vendor facts and stay UTC (block.ts).
+    const rate = rateFor(q?.model ?? null, q?.ts?.slice(0, 10) ?? null)
+    const listUsd = q && rate ? Object.values(priceOf(q, rate)).reduce((a, v) => a + v, 0) : null
+    return {
+      requestId: id,
+      ts: q?.ts ?? null,
+      model: q?.model ?? null,
+      stopReason: q?.stopReason ?? null,
+      input: q?.input ?? 0,
+      cacheWrite: q?.cacheWrite ?? 0,
+      cacheWrite1h: q?.cacheWrite1h ?? 0,
+      cacheRead: q?.cacheRead ?? 0,
+      output: q?.output ?? 0,
+      thinking: q?.thinking ?? 0,
+      listUsd,
+    }
+  }
   const transactions: Transaction[] = buckets.map((b) => {
     const opener = b.rows.find((r) => r.lane === 'prompt' || r.lane === 'meta' || r.lane === 'relay')
     // A meta opener with no command wrapper (caveats, context dumps) is
@@ -572,25 +597,8 @@ export function getTrace(
     const notes: Note[] = texts.filter((n) => n !== lastText || !reply).map(({ raw: _raw, ...n }) => n)
 
     const stepIds = [...new Set(b.rows.map((r) => r.requestId).filter((x): x is string => x != null))]
-    const steps: Step[] = stepIds.map((id) => {
-      const q = reqs.get(id)
-      // Rate dates are vendor facts and stay UTC (block.ts).
-      const rate = rateFor(q?.model ?? null, q?.ts?.slice(0, 10) ?? null)
-      const listUsd = q && rate ? Object.values(priceOf(q, rate)).reduce((a, v) => a + v, 0) : null
-      return {
-        requestId: id,
-        ts: q?.ts ?? null,
-        model: q?.model ?? null,
-        stopReason: q?.stopReason ?? null,
-        input: q?.input ?? 0,
-        cacheWrite: q?.cacheWrite ?? 0,
-        cacheWrite1h: q?.cacheWrite1h ?? 0,
-        cacheRead: q?.cacheRead ?? 0,
-        output: q?.output ?? 0,
-        thinking: q?.thinking ?? 0,
-        listUsd,
-      }
-    })
+    const steps: Step[] = stepIds.map(stepOf)
+    for (const id of stepIds) placed.add(id)
     allSteps.push(...steps)
     const fee = sumFee(steps)
     const first = b.rows[0]?.ts ?? null
@@ -620,6 +628,24 @@ export function getTrace(
       ...(opts.steps ? { requests: steps } : {}),
     }
   })
+
+  // Requests no transaction holds: a request is placed by its blocks' message
+  // rows, and a response with nothing to index has none — measured
+  // 2026-11-14, a refusal (or a cut-off response) whose only block is an
+  // EMPTY, redacted thinking block: 5 in the corpus, 1 of 5,191 requests in
+  // the lore well and 4 of 82,223 in attrition's. Each is a real
+  // full-context request — in `models`, in `lore usage` — and the trace left
+  // it out of `requests`, `steps` and `listUsd`, so the session page and the
+  // usage ledger disagreed (review, 2026-11-14). They are not invented into
+  // a transaction (none opened them and none holds them); they count in
+  // `totals` and in `classes` (as `text`: they called nothing) and are listed
+  // as `unplaced`, which the page's steps tile names.
+  const unplaced = [...reqs.keys()]
+    .filter((id) => !placed.has(id))
+    .map(stepOf)
+    .sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? '') || a.requestId.localeCompare(b.requestId))
+  allSteps.push(...unplaced)
+  const loose = sumFee(unplaced)
 
   // Totals sum the unrounded fees; rows round on the way out.
   const totals = transactions.reduce(
@@ -651,16 +677,17 @@ export function getTrace(
       turns: { prompt: 0, command: 0, relay: 0, meta: 0 },
       sent: 0,
       lost: 0,
-      steps: 0,
-      requests: 0,
+      // Seeded with the unplaced requests, so every total covers them.
+      steps: unplaced.length,
+      requests: unplaced.length,
       instructions: 0,
       errors: 0,
-      input: 0,
-      cacheWrite: 0,
-      cacheRead: 0,
-      output: 0,
-      thinking: 0,
-      listUsd: 0 as number | null,
+      input: loose.input,
+      cacheWrite: loose.cacheWrite,
+      cacheRead: loose.cacheRead,
+      output: loose.output,
+      thinking: loose.thinking,
+      listUsd: loose.listUsd,
       spawns: spawns.n,
       spawnOutput: spawns.output,
       lanes: lanes.length,
@@ -678,6 +705,7 @@ export function getTrace(
     classes: rollup(allSteps, new Map([...callClasses].map(([id, cs]) => [id, requestClass(cs)]))),
     polls: pollShape(pollSeq),
     idle: idleShape(pollSeq),
+    unplaced,
     transactions: transactions.slice(0, opts.limit).map((x) => ({ ...x, listUsd: x.listUsd == null ? null : round2(x.listUsd) })),
   }
 }

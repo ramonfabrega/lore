@@ -138,6 +138,23 @@ describe('scanRepo', () => {
     expect((await scanRepo(theirs))?.ownership).toBe('mine')
   })
 
+  test('the user email must match a whole address, never the inside of another (2026-11-14)', async () => {
+    const root = tempDir()
+    const theirs = join(root, 'jim')
+    mkdirSync(theirs, { recursive: true })
+    sh(theirs, 'git init -q && git config user.email bob@example.com && git config user.name bob')
+    writeFileSync(join(theirs, 'CLAUDE.md'), 'jimbob doctrine\n')
+    sh(theirs, 'git add -A && git -c user.email=jimbob@example.com -c user.name=jimbob commit -qm theirs')
+    expect((await scanRepo(theirs))?.ownership).toBe('assisted')
+    // A plus-addressed email still owns what it committed.
+    const mine = join(root, 'plus')
+    mkdirSync(mine, { recursive: true })
+    sh(mine, 'git init -q && git config user.email me+lore@example.com && git config user.name me')
+    writeFileSync(join(mine, 'CLAUDE.md'), 'ours\n')
+    sh(mine, 'git add -A && git commit -qm ours')
+    expect((await scanRepo(mine))?.ownership).toBe('mine')
+  })
+
   test('assisted override forces the flag regardless of authorship', async () => {
     const root = tempDir()
     const repo = canonRepo(root, 'helped')

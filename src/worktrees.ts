@@ -37,7 +37,7 @@ export type WorktreeRow = {
   base: string | null
   /** HEAD is reachable from `base` — a plain merge or fast-forward */
   ancestor: boolean | null
-  /** every commit HEAD has beyond `base` has an EQUIVALENT PATCH there (`git cherry`): a squash or cherry-pick landed it. True whenever `ancestor` is. */
+  /** HEAD's work is in `base` though HEAD is not reachable from it: every commit beyond `base` has an EQUIVALENT PATCH there (`git cherry`, which sees a cherry-pick or a one-commit squash), or every path the branch changed since the merge-base reads the same in `base` as in HEAD (a squash of many commits; landedByContent). True whenever `ancestor` is. */
   landed: boolean | null
   /** GitHub PR states for the branch (`MERGED#5195`), `none`, or null when --pr was not asked */
   pr: string | null
@@ -145,14 +145,33 @@ function dirs(path: string): string[] {
   }
 }
 
-/** Every `<codeDir>/<group>/<repo>/.claude/worktrees/<name>` plus `<codexDir>/worktrees/<id>/<repo>`. */
-export function discoverWorktreeDirs(codeDir: string, codexDir: string): { path: string; minter: 'claude' | 'codex' }[] {
+/** How deep under the code dir a repo can sit — docs.ts walks the same depth. */
+export const DISCOVERY_DEPTH = 4
+
+/**
+ * Every `<repo>/.claude/worktrees/<name>` for a repo at any depth up to
+ * DISCOVERY_DEPTH under the code dir, plus `<codexDir>/worktrees/<id>/<repo>`.
+ *
+ * It read exactly `<code>/<group>/<repo>` until 2026-11-14, and the Studio's
+ * code root is not that regular: `~/code/mirador` (depth 1) held a registered
+ * worktree, `bg-space`, and `~/code/games/rs/runelite-mobile` (depth 3) a
+ * leftover dir, and neither was in the inventory. The walk skips hidden dirs
+ * (so a worktree's own tree, which lives under `.claude/`, is never walked)
+ * and node_modules, and it does not stop at a repo: `~/code/work/faro` is a
+ * repo with another repo inside it.
+ */
+export function discoverWorktreeDirs(codeDir: string, codexDir: string, maxDepth = DISCOVERY_DEPTH): { path: string; minter: 'claude' | 'codex' }[] {
   const found: { path: string; minter: 'claude' | 'codex' }[] = []
-  for (const group of dirs(codeDir)) {
-    for (const repo of dirs(group)) {
-      for (const wt of dirs(join(repo, '.claude', 'worktrees'))) found.push({ path: wt, minter: 'claude' })
+  const walk = (dir: string, depth: number) => {
+    for (const wt of dirs(join(dir, '.claude', 'worktrees'))) found.push({ path: wt, minter: 'claude' })
+    if (depth >= maxDepth) return
+    for (const sub of dirs(dir)) {
+      const name = basename(sub)
+      if (name.startsWith('.') || name === 'node_modules') continue
+      walk(sub, depth + 1)
     }
   }
+  walk(codeDir, 0)
   for (const id of dirs(join(codexDir, 'worktrees'))) {
     for (const wt of dirs(id)) found.push({ path: wt, minter: 'codex' })
   }
@@ -209,11 +228,41 @@ function registeredIn(repo: string): Promise<Set<string>> {
   return p
 }
 
+/**
+ * Is everything the branch changed already in `base`, as content? For every
+ * path HEAD changed since the merge-base, `base` must hold the same blob (or
+ * the same absence) as HEAD does.
+ *
+ * `git cherry` alone could not see a squash merge of a multi-commit branch:
+ * it compares one commit's patch-id at a time, and two commits squashed into
+ * one match neither (2026-11-14: a two-commit branch squash-merged into main
+ * read `landed: false`). It runs only when cherry says no, and it never
+ * says yes falsely: a yes means base holds HEAD's exact content at every
+ * path the branch touched. A file that base went on to edit after the
+ * squash reads not landed, a false negative and the safe one. Plumbing only
+ * (`diff-tree`), so no textconv, external diff or rename detection, and it
+ * writes nothing. Null when git cannot answer.
+ */
+async function landedByContent(repo: string, base: string, head: string): Promise<boolean | null> {
+  const mb = (await git(repo, 'merge-base', base, head))?.trim()
+  if (!mb) return null
+  const names = await git(repo, 'diff-tree', '-r', '--name-only', '-z', mb, head)
+  if (names === null) return null
+  const paths = names.split('\0').filter(Boolean)
+  // Chunked so a branch that touched thousands of files stays under ARG_MAX.
+  for (let i = 0; i < paths.length; i += 500) {
+    const chunk = paths.slice(i, i + 500)
+    const r = await $`git --literal-pathspecs -C ${repo} diff-tree -r --quiet ${base} ${head} -- ${chunk}`.quiet().nothrow()
+    if (r.exitCode === 1) return false
+    if (r.exitCode !== 0) return null
+  }
+  return true
+}
+
 async function readOne(
   wt: { path: string; minter: 'claude' | 'codex' },
   codeDir: string,
   cwds: Map<number, string>,
-  askPr: boolean,
 ): Promise<WorktreeRow> {
   const name = basename(wt.path)
   const pids = [...cwds.entries()].filter(([, cwd]) => cwd === wt.path || cwd.startsWith(`${wt.path}/`)).map(([pid]) => pid)
@@ -234,6 +283,14 @@ async function readOne(
     pr: null,
     pids,
   }
+  // A worktree carries a `.git` file at its root. A dir without one is not a
+  // checkout at all, and every `git -C` below would walk UP and answer for
+  // the repo's root checkout instead: on 2026-11-14 a stray
+  // `cuanto/.claude/worktrees/node_modules` (one `.yarn-integrity` inside)
+  // read `branch: master, dirty: 2, landed: true`, which was cuanto's own
+  // root checkout and its two modified files. Such a dir is an unregistered
+  // row with nothing read.
+  if (!existsSync(join(wt.path, '.git'))) return row
   const common = repoFromCommonDir((await git(wt.path, 'rev-parse', '--git-common-dir')) ?? '')
   if (!common) return row
   const repo = common.startsWith('/') ? common : join(wt.path, common)
@@ -253,14 +310,29 @@ async function readOne(
     if (row.ancestor) row.landed = true
     else {
       const cherry = await git(repo, 'cherry', row.base, row.head)
-      row.landed = cherry === null ? null : parseCherry(cherry).landed
+      const byPatch = cherry === null ? null : parseCherry(cherry).landed
+      row.landed = byPatch === true ? true : ((await landedByContent(repo, row.base, row.head)) ?? byPatch)
     }
   }
-  if (askPr && row.branch) {
-    const r = await $`gh pr list --head ${row.branch} --state all --json state,number`.cwd(repo).quiet().nothrow()
-    row.pr = r.exitCode === 0 ? prLabel(r.text()) : 'none'
-  }
   return row
+}
+
+/** GitHub's word on the row's branch, asked from inside the worktree (same remote as its repo). */
+async function askPr(row: WorktreeRow): Promise<void> {
+  if (!row.branch) return
+  const r = await $`gh pr list --head ${row.branch} --state all --json state,number`.cwd(row.path).quiet().nothrow()
+  row.pr = r.exitCode === 0 ? prLabel(r.text()) : 'none'
+}
+
+/** `--repo`: a substring of the repo key (`fun/attrition`) or of the worktree's path. */
+function matchesRepo(path: string, key: string, repo: string): boolean {
+  return key.includes(repo) || path.includes(repo)
+}
+
+/** The discovered dirs `--repo` keeps before anything is read: claude rows by their path-derived key, every codex row (its key needs git). */
+export function narrowToRepo<T extends { path: string; minter: 'claude' | 'codex' }>(found: T[], codeDir: string, repo?: string): T[] {
+  if (!repo) return found
+  return found.filter((wt) => wt.minter === 'codex' || matchesRepo(wt.path, repoKey(dirname(dirname(dirname(wt.path))), codeDir), repo))
 }
 
 async function readCwds(): Promise<Map<number, string>> {
@@ -288,12 +360,19 @@ export async function listWorktrees(opts: {
   repo?: string
   pr?: boolean
 }): Promise<WorktreesReport> {
-  const found = discoverWorktreeDirs(opts.codeDir, opts.codexDir)
+  // `--repo` narrows BEFORE du, git and gh. It used to filter the finished
+  // rows, so `--repo fun/lore --pr` sized every worktree on the machine and
+  // asked GitHub about every branch in every repo (2026-11-14). A claude
+  // row's repo key is its path three levels up, so it can be tested without
+  // git. A codex row's key is known only from git (`codex/<name>` until
+  // then), so codex rows are read and then filtered on the key they get.
+  const found = narrowToRepo(discoverWorktreeDirs(opts.codeDir, opts.codexDir), opts.codeDir, opts.repo)
   const cwds = await readCwds()
-  const sizes = found.length ? parseDu((await $`du -sk ${found.map((f) => f.path)}`.quiet().nothrow()).text()) : new Map()
-  let rows = await pmap(found, 8, (wt) => readOne(wt, opts.codeDir, cwds, opts.pr === true))
+  let rows = await pmap(found, 8, (wt) => readOne(wt, opts.codeDir, cwds))
+  if (opts.repo) rows = rows.filter((r) => matchesRepo(r.path, r.repo, opts.repo!))
+  if (opts.pr) await pmap(rows, 8, askPr)
+  const sizes = rows.length ? parseDu((await $`du -sk ${rows.map((r) => r.path)}`.quiet().nothrow()).text()) : new Map<string, number>()
   for (const row of rows) row.bytes = sizes.get(row.path) ?? 0
-  if (opts.repo) rows = rows.filter((r) => r.repo.includes(opts.repo!) || r.path.includes(opts.repo!))
   rows.sort((a, b) => b.bytes - a.bytes || a.path.localeCompare(b.path))
   const byRepo = new Map<string, { repo: string; count: number; bytes: number }>()
   for (const r of rows) {

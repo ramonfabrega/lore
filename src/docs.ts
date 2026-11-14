@@ -194,7 +194,12 @@ async function detectOwnership(repoPath: string, ref: string): Promise<Ownership
   if (remotes.ok && remotes.out.split('\n').includes('upstream')) return 'foreign'
   const email = (await git(repoPath, 'config', 'user.email')).out.trim()
   if (!email) return 'assisted'
-  const authored = await git(repoPath, 'rev-list', '--count', `--author=${email}`, ref, '--')
+  // `--author` is a regex over "Name <email>", and it matched unanchored
+  // until 2026-11-14: user.email bob@example.com counted a repo whose only
+  // author was jimbob@example.com as `mine`, so someone else's canon read as
+  // the user's. A fixed string with the angle brackets matches the whole
+  // address and nothing inside another.
+  const authored = await git(repoPath, 'rev-list', '--count', '--fixed-strings', `--author=<${email}>`, ref, '--')
   return authored.ok && Number(authored.out.trim()) > 0 ? 'mine' : 'assisted'
 }
 

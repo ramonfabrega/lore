@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { relayHead } from './envelope'
-import { day } from './fmt'
+import { day, dayStart } from './fmt'
 
 const Row = z.object({
   well: z.string(),
@@ -90,9 +90,13 @@ export function listSessions(
   }
   if (opts.since) {
     // Filter on activity, not heartbeats — otherwise a dormant session pings
-    // its way into every delta window.
+    // its way into every delta window. A bare date is the LOCAL day: the UTC
+    // instant of local midnight (dayStart), an instant passes through. The
+    // raw string compared as UTC midnight until 2026-11-14 — at UTC-5 a
+    // `--since 2026-11-13` listed sessions whose `last` read 2026-11-12, and
+    // at UTC+14 it dropped the first fourteen hours of the day it named.
     where.push('COALESCE(s.last_activity_ts, s.last_ts) >= ?')
-    params.push(opts.since)
+    params.push(dayStart(opts.since))
   }
   const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : ''
   // Pick the page FIRST (ids, dates), decorate SECOND: the per-session

@@ -148,9 +148,12 @@ step:
 - `/s/<Claude-Session trailer>` — resolves the trailer Claude Code writes into
   commit messages to the transcript behind it.
 
-Every page answers JSON on `?json=1`, and the read verbs are mounted under
-`/cli/` (`GET /cli/usage?by=week`, spec at `/cli/openapi.json`) — writers are
-never exposed over HTTP. `lore api <page>` is the same handler as a command, for
+Every page answers JSON on `?json=1`, and fourteen read verbs are mounted
+under `/cli/` (`GET /cli/usage?by=week`, spec at `/cli/openapi.json`): wells,
+sessions, session, trace, usage, search, spawns, workflows, tools, stats,
+agents, jobs, and docs search and list. Writers are never exposed over HTTP,
+and thread, conversation, loop, polls, limits, worktrees and harness are
+commands only. `lore api <page>` is the same handler as a command, for
 agents. `--host auto` binds your Tailscale address when there is one (reachable
 from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 127.0.0.1` to keep it local.

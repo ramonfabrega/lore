@@ -1,7 +1,8 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
-import { day, dayName, dayStart, hm, hms, stamp, todayLocal, volatile, when, whenForms, whenShort, zone } from '../src/fmt'
+import { day, dayName, dayStart, hm, hms, stamp, todayLocal, volatile, weekKeySql, when, whenForms, whenShort, zone } from '../src/fmt'
 import { tick } from '../src/style'
+import { z } from 'zod'
 
 // The rule (config.ts): an instant is UTC in the data, a DAY is local at the
 // display edge. Everything here pins its zone explicitly — a test that reads
@@ -98,6 +99,13 @@ describe('the ladder', () => {
     expect(w('2026-09-02T21:48:00.000Z')).toBe('12m ago')
     expect(w('2026-09-02T21:01:00.000Z')).toBe('59m ago')
     expect(w('2026-09-02T20:59:00.000Z')).toBe('15:59') // over the hour: a clock
+  })
+
+  // Rounding said "60m ago" for the last thirty seconds of the hour — the
+  // threshold the head hands to the clock (2026-11-14).
+  test('the head never reads 60m: the last half-minute of the hour is 59m ago', () => {
+    expect(w('2026-09-02T21:00:20.000Z')).toBe('59m ago') // 59m40s
+    expect(s('2026-09-02T21:00:01.000Z')).toBe('59m ago') // 59m59s
   })
 
   test('resolution grows with distance, and the year appears only when it is not this one', () => {
@@ -225,6 +233,12 @@ describe('the tick script agrees with the server that rendered the page', () => 
     expect(run(agoBy(8 * 60_000), todayLocal())).toBe('8m ago')
   })
 
+  test('the script clamps the hour edge the way the ladder does', () => {
+    const ts = agoBy(59 * 60_000 + 40_000)
+    expect(run(ts, todayLocal())).toBe('59m ago')
+    expect(run(ts, todayLocal())).toBe(whenShort(ts))
+  })
+
   // The forms must not freeze the part of the ladder that moves. A stamp
   // rendered as "now" is a clock an hour later, on the same day, with nothing
   // arriving from the server in between — so form 0 is the CALENDAR text, and
@@ -254,4 +268,70 @@ test('SQL day buckets and the rendered day agree, in whatever zone the process r
     expect(bucket(ts, "date(?, 'localtime')").v).toBe(day(ts))
     expect(bucket(ts, "strftime('%Y-%m', ?, 'localtime')").v).toBe(day(ts).slice(0, 7))
   }
+})
+
+describe('dayStart — instants and a day with no midnight', () => {
+  test('a typed instant comes back in the spelling the index stores', () => {
+    expect(dayStart('2026-09-07T12:00:00Z')).toBe('2026-09-07T12:00:00.000Z')
+    expect(dayStart('2026-09-07T12:00:00.000Z')).toBe('2026-09-07T12:00:00.000Z')
+    expect(dayStart('2026-09-07T07:00:00-05:00')).toBe('2026-09-07T12:00:00.000Z')
+    // Not an instant: left alone rather than guessed at.
+    expect(dayStart('2026-09-07T25:99')).toBe('2026-09-07T25:99')
+  })
+
+  test('a bound typed without milliseconds includes the row at its own second', () => {
+    const stored = '2026-09-07T12:00:00.000Z'
+    expect(stored >= '2026-09-07T12:00:00Z').toBe(false) // the trap: `.` sorts before `Z`
+    expect(stored >= dayStart('2026-09-07T12:00:00Z')).toBe(true)
+  })
+
+  test('Santiago 2026-09-06 has no 00:00: the day begins at 01:00 local, not 23:00 the evening before', () => {
+    const start = dayStart('2026-09-06', 'America/Santiago')
+    expect(start).toBe('2026-09-06T04:00:00.000Z')
+    expect(day(start, 'America/Santiago')).toBe('2026-09-06')
+    expect(day(new Date(Date.parse(start) - 1).toISOString(), 'America/Santiago')).toBe('2026-09-05')
+  })
+
+  test('every day of a DST year starts inside itself, in four zones', () => {
+    for (const tz of ['America/Panama', 'America/New_York', 'America/Santiago', 'Europe/Berlin', 'Pacific/Kiritimati', 'Australia/Lord_Howe']) {
+      for (let i = 0; i < 366; i++) {
+        const d = new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10)
+        const start = dayStart(d, tz)
+        expect(`${tz} ${d} ${day(start, tz)}`).toBe(`${tz} ${d} ${d}`)
+        expect(`${tz} ${d} ${day(new Date(Date.parse(start) - 1).toISOString(), tz)}`).not.toBe(`${tz} ${d} ${d}`)
+      }
+    }
+  })
+})
+
+describe('weekKeySql — one ISO week key for every bucket, on any SQLite', () => {
+  // The ISO week of a calendar day, computed without SQLite: the week's
+  // Thursday decides both the year and the number.
+  const isoWeek = (d: string) => {
+    const t = new Date(`${d}T00:00:00Z`)
+    const thursday = new Date(t.getTime() + (3 - ((t.getUTCDay() + 6) % 7)) * 86_400_000)
+    const jan1 = Date.UTC(thursday.getUTCFullYear(), 0, 1)
+    return `${thursday.getUTCFullYear()}-W${String(Math.floor((thursday.getTime() - jan1) / 86_400_000 / 7) + 1).padStart(2, '0')}`
+  }
+  const Key = z.object({ k: z.string() })
+
+  test('the helper itself knows the edges of a year', () => {
+    expect(isoWeek('2025-12-29')).toBe('2026-W01')
+    expect(isoWeek('2026-01-01')).toBe('2026-W01')
+    expect(isoWeek('2027-01-01')).toBe('2026-W53')
+    expect(isoWeek('2024-12-30')).toBe('2025-W01')
+    expect(isoWeek('2026-11-14')).toBe('2026-W46')
+  })
+
+  test('the SQL agrees with it for every day of five years, in the zone the suite runs in', () => {
+    const db = new Database(':memory:')
+    const q = db.prepare(`SELECT ${weekKeySql('?1')} AS k`)
+    for (let i = 0; i < 5 * 366; i++) {
+      // 10:30Z is the same local day in UTC and the next one at UTC+14, so
+      // the expectation is derived from the local day, never from the string.
+      const ts = new Date(Date.UTC(2024, 0, 1 + i, 10, 30)).toISOString()
+      expect(`${ts} ${Key.parse(q.get(ts)).k}`).toBe(`${ts} ${isoWeek(day(ts))}`)
+    }
+    db.close()
+  })
 })

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
-import { day } from './fmt'
+import { day, dayStart } from './fmt'
 
 const Row = z.object({
   tool: z.string(),
@@ -29,8 +29,11 @@ export function listToolUsage(
     params.push(v, v)
   }
   if (opts.since) {
+    // A bare date is the LOCAL day (dayStart), an instant passes through.
+    // Compared raw until 2026-11-14, a date meant UTC midnight, and the
+    // `first` beside it — a local day — could read the day before `--since`.
     where.push('m.ts >= ?')
-    params.push(opts.since)
+    params.push(dayStart(opts.since))
   }
   if (opts.prefix) {
     where.push('m.tool_name LIKE ?')

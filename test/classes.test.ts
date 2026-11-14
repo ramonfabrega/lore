@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { classify, idleShape, pollShape, requestClass, rollup, taskRef } from '../src/classes'
 import { openDb } from '../src/db'
+import { day } from '../src/fmt'
 import { buildIndex } from '../src/indexer'
 import { listPolls } from '../src/polls'
 import { getTrace } from '../src/trace'
@@ -61,6 +62,20 @@ describe('classify', () => {
     expect(classify('Bash', JSON.stringify({ command: 'truename --version' }))).toBe('shell')
     // A bare sleep is still the cheap, honest wait: one request, not 107.
     expect(classify('Bash', JSON.stringify({ command: 'sleep 30' }))).toBe('wait')
+  })
+
+  // Review 2026-11-14: the pattern took any `/tasks/<word>`, so a Rails
+  // repo's own rake files read as polling a background task (cuanto's wells:
+  // rubocop, rspec, git add on lib/tasks/…). Only `<id>.output` in the
+  // harness's tasks dir is a task file — 8,164 of 8,314 segments that day.
+  test('a repo path with a tasks dir is not a task file', () => {
+    const rails = JSON.stringify({ command: 'bundle exec rubocop lib/tasks/kyc.rake spec/lib/tasks/kyc_spec.rb' })
+    expect(taskRef('Bash', rails)).toBeNull()
+    expect(classify('Bash', rails)).toBe('shell')
+    expect(classify('Bash', JSON.stringify({ command: 'git add api/lib/tasks/scheduler.rake && git commit -m x' }))).toBe('shell')
+    // The harness's own shapes still are: a glob over the dirs, an id glob.
+    expect(taskRef('Bash', JSON.stringify({ command: 'tail -5 /private/tmp/claude-501/*/*/tasks/b2x9q.output' }))).toBe('b2x9q')
+    expect(classify('Bash', JSON.stringify({ command: `ls ${TASK.replace('bmvcpbo6a.output', 'bmv*.output')}` }))).toBe('poll')
   })
 
   test('taskRef names the task a poll read', () => {
@@ -350,5 +365,85 @@ describe('trace classes and polls; lore polls', () => {
     // The window filter is activity-based, like `sessions --since`.
     expect(listPolls(db, { since: '2026-09-08', limit: 10 }).count).toBe(0)
     expect(listPolls(db, { well: 'fun-app', limit: 10 }).count).toBe(2)
+  })
+})
+
+async function indexed(files: Record<string, string[]>) {
+  const dir = mkdtempSync(join(tmpdir(), 'lore-polls-'))
+  const well = join(dir, '-u-code-work-app')
+  mkdirSync(well, { recursive: true })
+  for (const [sid, lines] of Object.entries(files)) writeFileSync(join(well, `${sid}.jsonl`), `${lines.join('\n')}\n`)
+  const db = openDb(':memory:')
+  await buildIndex(db, { projectsDir: dir, historyPath: join(dir, 'nope.jsonl') })
+  return db
+}
+
+describe('lore polls — review 2026-11-14', () => {
+  test('rspec on lib/tasks is not polling, on the session page or in the lint', async () => {
+    const S = 'rails-1'
+    const cmd = { command: 'bundle exec rspec spec/lib/tasks/kyc_spec.rb' }
+    const db = await indexed({
+      [S]: [
+        prompt(S, T(0), 'p1', 'fix the kyc task'),
+        call(S, T(1), 'm1', 't1', 'Bash', cmd),
+        result(S, T(2), 'p1', 't1', '3 examples, 1 failure'),
+        call(S, T(3), 'm2', 't2', 'Edit', { file_path: '/u/lib/tasks/kyc.rake' }),
+        result(S, T(4), 'p1', 't2', 'ok'),
+        call(S, T(5), 'm3', 't3', 'Bash', cmd),
+        result(S, T(6), 'p1', 't3', '3 examples, 0 failures'),
+        done(S, T(7), 'm4'),
+      ],
+    })
+    expect(listPolls(db, { limit: 10 }).sessions).toEqual([])
+    expect(getTrace(db, S, { limit: 10 }).classes.map((c) => c.class).sort()).toEqual(['shell', 'text', 'write'])
+  })
+
+  // A request that ran `true` beside an Edit DID something: the trace files
+  // it under `write` (CLASS_RANK), and the lint billed it as idle.
+  test('a mixed request is not an idle turn in the lint either', async () => {
+    const S = 'mixed-1'
+    const db = await indexed({
+      [S]: [
+        prompt(S, T(0), 'p1', 'edit it'),
+        call(S, T(1), 'm1', 'v1', 'Bash', { command: 'true' }),
+        call(S, T(1), 'm1', 'v2', 'Edit', { file_path: '/u/a.ts' }),
+        result(S, T(2), 'p1', 'v1', ''),
+        result(S, T(2), 'p1', 'v2', 'ok'),
+        call(S, T(4), 'm2', 'v3', 'Bash', { command: 'true' }),
+        result(S, T(5), 'p1', 'v3', ''),
+        done(S, T(6), 'm3'),
+      ],
+    })
+    const t = getTrace(db, S, { limit: 10 })
+    expect(t.classes.map((c) => [c.class, c.requests]).sort()).toEqual([
+      ['idle', 1],
+      ['text', 1],
+      ['write', 1],
+    ])
+    const row = listPolls(db, { limit: 10 }).sessions[0]!
+    // Two no-op CALLS (the shape), one all-nothing REQUEST (the bill): m2.
+    expect([row.idles, row.idleRequests, row.idleUsd, row.wastedUsd]).toEqual([2, 1, 0.06, 0.06])
+  })
+
+  // A typed day is a LOCAL day. Until this fix `since` compared as UTC
+  // midnight, and `until` did not exist. Expectations come from `day()`, so
+  // the test holds in any zone; it bites at UTC+14 (CI's second pass), where
+  // 12:00Z on 7 sep is already 02:00 on 8 sep.
+  test('--since and --until are local days; a full instant passes through', async () => {
+    const S = 'idle-z'
+    const Z = (s: number) => `2026-09-07T12:00:0${s}.000Z`
+    const db = await indexed({
+      [S]: [
+        prompt(S, Z(0), 'p1', 'wait'),
+        call(S, Z(1), 'm1', 'v1', 'Bash', { command: 'true' }),
+        result(S, Z(2), 'p1', 'v1', ''),
+        done(S, Z(3), 'm2'),
+      ],
+    })
+    const d = day(Z(3))
+    expect(listPolls(db, { since: '2026-09-08', limit: 10 }).count).toBe(d >= '2026-09-08' ? 1 : 0)
+    expect(listPolls(db, { until: '2026-09-08', limit: 10 }).count).toBe(d < '2026-09-08' ? 1 : 0)
+    expect(listPolls(db, { since: '2026-09-07T12:00:02.000Z', limit: 10 }).count).toBe(1)
+    expect(listPolls(db, { until: '2026-09-07T12:00:00.000Z', limit: 10 }).count).toBe(0)
   })
 })

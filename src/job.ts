@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { dayStart } from './fmt'
 import { bridgeKey } from './jobs'
 import { resolveSessionId } from './session'
 import { listSessions } from './sessions'
@@ -52,7 +53,20 @@ export const JOB_KEY_SQL = `COALESCE(${JOB_BRIDGE_SQL}, s.job_session_id, s.sess
 // NULL and `lore jobs` and every `trace` with a lane died on the zod parse,
 // live, on b148's first evening.
 const JOB_KEY_S2_SQL = JOB_KEY_SQL.replace(/\bs\./g, 's2.')
-const JOB_KIND_SQL = `CASE WHEN ${JOB_BRIDGE_SQL} IS NOT NULL THEN 'bridge' WHEN s.job_session_id IS NOT NULL THEN 'root' ELSE 'session' END`
+// One job, one kind. The key above is the root for a pre-bridge job's FIRST
+// session too (it has no pointer, so `session_id` is the root), and the kind
+// read `s.job_session_id IS NOT NULL` alone, so that session was a 'session'
+// while its /clear successors were 'root' — one key, two kinds. `lore jobs`
+// filters out kind 'session' before grouping, so every root-keyed job lost
+// its first session: `sessions: 1` and a start two hours late for a job of
+// two (review 2026-11-14), and `--all` picked a kind at random per group and
+// lost the name when it picked 'session'. A session some other session
+// points back at IS a root. The per-session form is for lookups of a few
+// sessions (no index on `job_session_id`); a grouped query takes the kind of
+// the GROUP (JOB_KIND_AGG_SQL), which is the same rule without the scan.
+const JOB_KIND_SQL = `CASE WHEN ${JOB_BRIDGE_SQL} IS NOT NULL THEN 'bridge'
+  WHEN s.job_session_id IS NOT NULL OR EXISTS (SELECT 1 FROM sessions x WHERE x.job_session_id = s.session_id) THEN 'root' ELSE 'session' END`
+const JOB_KIND_AGG_SQL = `CASE WHEN MAX(${JOB_BRIDGE_SQL}) IS NOT NULL THEN 'bridge' WHEN MAX(s.job_session_id) IS NOT NULL THEN 'root' ELSE 'session' END`
 
 const PeerName = z.object({ key: z.string(), kind: z.string(), name: z.string(), n: z.number() })
 
@@ -130,6 +144,8 @@ function jobsIndex(db: Database) {
   const byRoot = new Map<string, JobsRow>()
   const byJobId = new Map<string, JobsRow>()
   const byName = new Map<string, JobsRow>()
+  // Every row a name was ever on, in the same order: the holder now first.
+  const allNamed = new Map<string, JobsRow[]>()
   const lastSeen = new Map(
     LastSeen.parse(db.prepare(`SELECT ${JOB_KEY_SQL} AS key, MAX(COALESCE(s.last_activity_ts, s.last_ts)) AS last FROM sessions s GROUP BY 1`).all()).map((r) => [r.key, r.last ?? ''] as const),
   )
@@ -141,10 +157,52 @@ function jobsIndex(db: Database) {
     if (r.session_id && !byRoot.has(r.session_id)) byRoot.set(r.session_id, r)
     if (r.source === 'state' && !byJobId.has(r.job_id)) byJobId.set(r.job_id, r)
     if (r.name && !byName.has(r.name)) byName.set(r.name, r)
+    if (r.name) allNamed.set(r.name, [...(allNamed.get(r.name) ?? []), r])
   }
   const forKey = (key: string, kind: JobKind): JobsRow | null =>
     kind === 'bridge' ? (byBridge.get(key) ?? null) : kind === 'root' ? (byRoot.get(key) ?? byJobId.get(key.slice(0, 8)) ?? null) : null
-  return { forKey, byName, byJobId, byBridge }
+  return { forKey, byName, byJobId, byBridge, allNamed }
+}
+
+// The kind of every job key, as a GROUP: one kind per key (JOB_KIND_AGG_SQL).
+export function jobKinds(db: Database): Map<string, JobKind> {
+  return new Map(
+    z
+      .array(KeyKind)
+      .parse(db.prepare(`SELECT ${JOB_KEY_SQL} AS key, ${JOB_KIND_AGG_SQL} AS kind FROM sessions s GROUP BY 1`).all())
+      .map((g) => [g.key, g.kind]),
+  )
+}
+
+const SessionIds = z.array(z.object({ sessionId: z.string() }))
+
+// Every session of a set of jobs, oldest first: the job as JOB_KEY_SQL keys
+// it, a pointer-less root included. The one place a "side" or a "job" turns
+// into sessions (thread.ts read its own join until 2026-11-14 and missed
+// every first session of an --rc job, and every lane whose one session
+// carries no bridge record: `lore thread commander lane-4199` threw).
+export function sessionsOfJobs(db: Database, keys: string[]): string[] {
+  if (keys.length === 0) return []
+  return SessionIds.parse(
+    db
+      .prepare(`SELECT s.session_id AS sessionId FROM sessions s WHERE ${JOB_KEY_SQL} IN (${keys.map(() => '?').join(',')}) ORDER BY s.first_ts, s.session_id`)
+      .all(...keys),
+  ).map((r) => r.sessionId)
+}
+
+// Every job a name was ever on, the one that holds it NOW first (jobsIndex's
+// order). A name is not a key (it repeats: five `commander`s on 2026-11-13),
+// so a reader that must take all of them — a thread side, where the other
+// side's rows say only `peer: commander` — asks here, and a reader that
+// means one job takes the first.
+export function jobsNamed(db: Database, name: string): JobRef[] {
+  const idx = jobsIndex(db)
+  const out: JobRef[] = []
+  for (const r of idx.allNamed.get(name) ?? []) {
+    const ref = (r.session_id ? jobOfSession(db, r.session_id) : null) ?? (r.bridge_key ? { key: r.bridge_key, kind: 'bridge' as const } : null)
+    if (ref && !out.some((o) => o.key === ref.key)) out.push(ref)
+  }
+  return out
 }
 
 export type JobRef = { key: string; kind: JobKind }
@@ -292,29 +350,55 @@ const CHILD_ID = /"ref"\s*:\s*"([0-9a-f]{8})|backgrounded · ([0-9a-f]{8})/g
 // call — a job spawns across many /clears, and a session page wants the
 // lanes this one drove, not every lane the job ever had.
 export type SpawnEdge = { key: string; sessionId: string; ts: string | null }
-export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map<string, SpawnEdge> {
-  const from = opts.sessionId
-    ? `FROM messages m
-       JOIN sessions s ON s.session_id = m.session_id
-       JOIN messages m2 ON m2.tool_use_id = m.tool_use_id AND m2.session_id = m.session_id AND m2.type = 'user' AND m2.lane = 'tool'
-       JOIN messages_fts f2 ON f2.rowid = m2.id
-       WHERE m.session_id = ?`
-    : `FROM messages_fts f2
-       JOIN messages m2 ON m2.id = f2.rowid AND m2.type = 'user' AND m2.lane = 'tool'
-       JOIN messages m ON m.tool_use_id = m2.tool_use_id AND m.session_id = m2.session_id
-       JOIN sessions s ON s.session_id = m.session_id
-       WHERE messages_fts MATCH 'backgrounded OR ref'`
-  const rows = z.array(SpawnRow).parse(
-    db
-      .prepare(
-        `SELECT ${JOB_KEY_SQL} AS key, m.session_id AS sessionId, m.ts, f2.text AS result
-         ${from}
-           AND m.type = 'assistant' AND m.lane = 'tool' AND m.tool_name = 'Bash'
+//
+// A lane has ONE parent, and the scoped answer is a SUBSET of the whole
+// one (review 2026-11-14). Scoped to a session, the ledger was read only for
+// that session's lines and the transcript only for its rows, so a session
+// whose answer merely printed a lane's ref (`ccc show 4ca3fb81 --json`)
+// claimed that lane on its own page while the ledger, and the global
+// answer, gave it to the commander: one lane, two parents, its fee on both
+// pages. Now the session's rows only NAME the candidate children; who
+// spawned each is decided over every row that names it (the FTS again,
+// on the ids), and the answer keeps the edges this session won.
+const RESULT_SQL = `SELECT ${JOB_KEY_SQL} AS key, m.session_id AS sessionId, m.ts, f2.text AS result`
+const RESULT_TEST = `AND m.type = 'assistant' AND m.lane = 'tool' AND m.tool_name = 'Bash'
            AND (f2.text LIKE '%backgrounded · %' OR f2.text LIKE '%"ref"%')
-         ORDER BY m.ts`,
-      )
-      .all(...(opts.sessionId ? [opts.sessionId] : [])),
-  )
+         ORDER BY m.ts`
+export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map<string, SpawnEdge> {
+  const idsIn = (text: string) => new Set([...text.matchAll(CHILD_ID)].map((m) => m[1] ?? m[2]).filter((id): id is string => id != null))
+  const byMatch = (match: string) =>
+    z.array(SpawnRow).parse(
+      db
+        .prepare(
+          `${RESULT_SQL}
+           FROM messages_fts f2
+           JOIN messages m2 ON m2.id = f2.rowid AND m2.type = 'user' AND m2.lane = 'tool'
+           JOIN messages m ON m.tool_use_id = m2.tool_use_id AND m.session_id = m2.session_id
+           JOIN sessions s ON s.session_id = m.session_id
+           WHERE messages_fts MATCH ?
+           ${RESULT_TEST}`,
+        )
+        .all(match),
+    )
+  let rows: z.infer<typeof SpawnRow>[]
+  if (opts.sessionId) {
+    const own = z.array(SpawnRow).parse(
+      db
+        .prepare(
+          `${RESULT_SQL}
+           FROM messages m
+           JOIN sessions s ON s.session_id = m.session_id
+           JOIN messages m2 ON m2.tool_use_id = m.tool_use_id AND m2.session_id = m.session_id AND m2.type = 'user' AND m2.lane = 'tool'
+           JOIN messages_fts f2 ON f2.rowid = m2.id
+           WHERE m.session_id = ?
+           ${RESULT_TEST}`,
+        )
+        .all(opts.sessionId),
+    )
+    // Every id is eight hex digits (CHILD_ID), so each is a safe FTS phrase.
+    const named = new Set(own.flatMap((r) => [...idsIn(r.result)]))
+    rows = named.size ? byMatch(`(${[...named].map((id) => `"${id}"`).join(' OR ')}) AND (backgrounded OR ref)`) : []
+  } else rows = byMatch('backgrounded OR ref')
   const childKey = db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE substr(s.job_session_id, 1, 8) = ? OR substr(s.session_id, 1, 8) = ? LIMIT 1`)
   const parentOf = new Map<string, SpawnEdge>()
   const Key = z.object({ key: z.string() }).nullable()
@@ -327,19 +411,26 @@ export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map
   // the job drove the lane), else the bridge id, else the daemon id. A
   // child whose own transcript is not indexed yet has no edge until it is,
   // as below; a child minted on another machine never resolves here.
+  //
+  // A child the ledger HOLDS is decided by the ledger, whatever its line
+  // says: `parent: null` is a spawn a person typed (ledger.ts), and a parent
+  // that resolves to nothing here is still not an invitation. Until
+  // 2026-11-14 those lines were filtered out of the read, and the
+  // transcript fallback then gave the lane to any job whose answer printed
+  // its ref — a lane typed in a terminal hung under the job that later ran
+  // `ccc show <ref> --json` (review 2026-11-14). The table is small; it is
+  // read whole even for one session, since the session's own lines alone
+  // cannot say which children are decided elsewhere.
   const sessionKey = db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE s.session_id = ?`)
   const bridgeHeld = db.prepare('SELECT 1 AS n FROM sessions WHERE bridge_key = ? UNION ALL SELECT 1 FROM jobs WHERE bridge_key = ? LIMIT 1')
+  const held = new Set<string>()
   for (const l of LedgerRow.parse(
-    db
-      .prepare(
-        `SELECT child, ts, parent_job AS job, parent_session AS session, parent_bridge AS bridge FROM spawn_ledger
-         WHERE (parent_job IS NOT NULL OR parent_session IS NOT NULL OR parent_bridge IS NOT NULL) ${opts.sessionId ? 'AND parent_session = ?' : ''}
-         ORDER BY ts`,
-      )
-      .all(...(opts.sessionId ? [opts.sessionId] : [])),
+    db.prepare('SELECT child, ts, parent_job AS job, parent_session AS session, parent_bridge AS bridge FROM spawn_ledger ORDER BY ts').all(),
   )) {
     const child = Key.parse(childKey.get(l.child, l.child) ?? null)
-    if (!child || parentOf.has(child.key)) continue
+    if (!child || held.has(child.key)) continue
+    held.add(child.key)
+    if (l.session == null && l.bridge == null && l.job == null) continue
     const viaSession = l.session ? Key.parse(sessionKey.get(l.session) ?? null)?.key : undefined
     const bridge = l.bridge ? bridgeKey(l.bridge) : null
     const viaBridge = bridge && bridgeHeld.get(bridge, bridge) ? bridge : undefined
@@ -354,18 +445,19 @@ export function spawnEdges(db: Database, opts: { sessionId?: string } = {}): Map
   for (const r of rows) {
     // `said` repeats the ref of its own answer (`backgrounded · <ref>`); the
     // set folds the echo, and keeps two lanes spawned by one call apart.
-    const ids = new Set([...r.result.matchAll(CHILD_ID)].map((m) => m[1] ?? m[2]).filter((id): id is string => id != null))
-    for (const id of ids) {
+    for (const id of idsIn(r.result)) {
       const child = Key.parse(childKey.get(id, id) ?? null)
       // The first spawn wins (and the ledger's before any read off a result): a respawn of the same job by the same parent is
       // the same edge, and a different parent reusing a name is a new job.
-      if (child && child.key !== r.key && !parentOf.has(child.key)) parentOf.set(child.key, { key: r.key, sessionId: r.sessionId, ts: r.ts })
+      if (child && child.key !== r.key && !held.has(child.key) && !parentOf.has(child.key)) parentOf.set(child.key, { key: r.key, sessionId: r.sessionId, ts: r.ts })
     }
   }
-  return parentOf
+  const scoped = opts.sessionId
+  return scoped ? new Map([...parentOf].filter(([, e]) => e.sessionId === scoped)) : parentOf
 }
 const KeyKind = z.object({ key: z.string(), kind: z.enum(['bridge', 'root', 'session']) })
-const PeerRow = z.object({ key: z.string(), peer: z.string(), n: z.number() })
+const PeerRow = z.object({ key: z.string(), peer: z.string(), n: z.number(), ts: z.string().nullable(), sender: z.string().nullable() })
+const KeySpan = z.array(KeyKind.extend({ first: z.string().nullable(), last: z.string().nullable() }))
 
 export type JobRow = {
   key: string
@@ -416,14 +508,23 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     if (opts.keys.length === 0) return []
     where.push(`${JOB_KEY_SQL} IN (${opts.keys.map(() => '?').join(',')})`)
     params.push(...opts.keys)
-  } else if (!opts.all) where.push(`${JOB_KIND_SQL} != 'session'`)
-  const having = opts.since ? 'HAVING MAX(COALESCE(s.last_activity_ts, s.last_ts)) >= ?' : ''
-  if (opts.since) params.push(opts.since)
+  }
+  // The kind is the GROUP's (JOB_KIND_AGG_SQL), so the background filter is
+  // a HAVING: a WHERE on the per-row kind dropped a root job's first session
+  // before it was counted (review 2026-11-14).
+  const having: string[] = []
+  if (!opts.key && !opts.keys && !opts.all) having.push(`kind != 'session'`)
+  // A typed day is the instant of LOCAL midnight (CLAUDE.md); a full ISO
+  // instant passes through dayStart untouched.
+  if (opts.since) {
+    having.push('MAX(COALESCE(s.last_activity_ts, s.last_ts)) >= ?')
+    params.push(dayStart(opts.since))
+  }
   params.push(opts.limit)
   const groups = z.array(GroupRow).parse(
     db
       .prepare(
-        `SELECT ${JOB_KEY_SQL} AS key, ${JOB_KIND_SQL} AS kind,
+        `SELECT ${JOB_KEY_SQL} AS key, ${JOB_KIND_AGG_SQL} AS kind,
                 COUNT(*) AS sessions, COUNT(DISTINCT COALESCE(s.job_session_id, s.session_id)) AS incarnations,
                 MIN(s.first_ts) AS first, MAX(COALESCE(s.last_activity_ts, s.last_ts)) AS last,
                 SUM(s.lines) AS lines, GROUP_CONCAT(DISTINCT w.dir) AS wells, GROUP_CONCAT(DISTINCT COALESCE(w.real_path, w.dir)) AS paths,
@@ -431,7 +532,7 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
                  ORDER BY COALESCE(s2.last_activity_ts, s2.last_ts) DESC, s2.first_ts DESC LIMIT 1) AS latest
          FROM sessions s JOIN wells w ON w.id = s.well_id
          ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-         GROUP BY key ${having}
+         GROUP BY key ${having.length ? `HAVING ${having.join(' AND ')}` : ''}
          ORDER BY last DESC, first DESC LIMIT ?`,
       )
       .all(...params),
@@ -460,12 +561,40 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
   // Peers: who wrote to this job (the relay rows in its sessions name the
   // sender), and whom it wrote to (relay rows elsewhere whose `peer` is this
   // job's name sit in the receiver's sessions).
-  const kindOf = new Map(z.array(KeyKind).parse(db.prepare(`SELECT DISTINCT ${JOB_KEY_SQL} AS key, ${JOB_KIND_SQL} AS kind FROM sessions s`).all()).map((g) => [g.key, g.kind]))
+  const spans = KeySpan.parse(
+    db
+      .prepare(
+        `SELECT ${JOB_KEY_SQL} AS key, ${JOB_KIND_AGG_SQL} AS kind, MIN(s.first_ts) AS first, MAX(COALESCE(s.last_activity_ts, s.last_ts)) AS last
+         FROM sessions s GROUP BY 1`,
+      )
+      .all(),
+  )
+  const kindOf = new Map(spans.map((g) => [g.key, g.kind]))
   const nameOf = (key: string) => idx.forKey(key, kindOf.get(key) ?? 'session')?.name ?? null
-  const keyOfName = new Map<string, string>()
-  for (const key of kindOf.keys()) {
-    const n = nameOf(key)
-    if (n && !keyOfName.has(n)) keyOfName.set(n, key)
+  // The SENDER of a relay is the job whose ack carries the same msg_id
+  // (CLAUDE.md: both halves share one id) — a field. The name is only the
+  // fallback, for records older than the field or a sender not indexed, and
+  // a name repeats: it was the first job met in index order, so a message
+  // today's `commander` sent (msg_id paired) was credited to a namesake
+  // deleted six weeks before, and the live one listed no peer (review
+  // 2026-11-14). The fallback is the namesake alive at the message's
+  // instant — started by then and not yet last seen; among several, the
+  // latest started (a respawned seat replaces the one before it); else the
+  // latest started before it; else the earliest.
+  const namesakes = new Map<string, z.infer<typeof KeySpan>>()
+  for (const g of spans) {
+    const n = nameOf(g.key)
+    if (n) namesakes.set(n, [...(namesakes.get(n) ?? []), g])
+  }
+  const latestStart = (xs: z.infer<typeof KeySpan>) => xs.reduce((a, b) => ((b.first ?? '') > (a.first ?? '') ? b : a))
+  const holderAt = (name: string, ts: string | null): string | undefined => {
+    const all = namesakes.get(name) ?? []
+    if (all.length === 0) return undefined
+    const started = ts ? all.filter((c) => c.first != null && c.first <= ts) : []
+    const alive = started.filter((c) => c.last != null && ts != null && c.last >= ts)
+    if (alive.length) return latestStart(alive).key
+    if (started.length) return latestStart(started).key
+    return all.reduce((a, b) => ((b.first ?? '') < (a.first ?? '') ? b : a)).key
   }
   // Counted, so the list reads loudest first: a commander's thread holds
   // two standing peers at hundreds of messages and three hundred lanes at
@@ -480,14 +609,18 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
   const relays = z.array(PeerRow).parse(
     db
       .prepare(
-        `SELECT ${JOB_KEY_SQL} AS key, m.peer, COUNT(*) AS n FROM messages m JOIN sessions s ON s.session_id = m.session_id
-         WHERE m.lane = 'relay' AND m.peer IS NOT NULL GROUP BY key, m.peer`,
+        `SELECT ${JOB_KEY_SQL} AS key, m.peer, COUNT(*) AS n, MIN(m.ts) AS ts,
+                (SELECT ${JOB_KEY_S2_SQL} FROM messages a JOIN sessions s2 ON s2.session_id = a.session_id
+                  WHERE a.msg_id = m.msg_id AND a.lane = 'tool' LIMIT 1) AS sender
+         FROM messages m JOIN sessions s ON s.session_id = m.session_id
+         WHERE m.lane = 'relay' AND m.peer IS NOT NULL
+         GROUP BY key, m.peer, sender, CASE WHEN sender IS NULL THEN m.id END`,
       )
       .all(),
   )
   for (const r of relays) {
     add(r.key, r.peer, r.n)
-    const sender = keyOfName.get(r.peer)
+    const sender = r.sender ?? holderAt(r.peer, r.ts)
     const receiver = nameOf(r.key)
     if (sender && receiver) add(sender, receiver, r.n)
   }

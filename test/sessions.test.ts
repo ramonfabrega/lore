@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { listSessions, sessionsLimit } from '../src/sessions'
-import { day } from '../src/fmt'
+import { day, dayStart } from '../src/fmt'
 
 function seedDb(): Database {
   const db = new Database(':memory:')
@@ -169,19 +169,42 @@ describe('listSessions', () => {
     expect(demo.idleUntil).toBeNull()
   })
 
+  // The windows are LOCAL days, named off the fixture's own instants with
+  // `day()`: the instants sit at 10:00Z, which is local midnight at UTC+14,
+  // so a hardcoded day string means a different day in each CI pass.
   test('since filters on activity, so a heartbeat-only tail does not qualify', () => {
-    // s-old pings until 08-01 but stopped working 07-10 — a delta window
-    // opening 07-11 must not pick it up.
-    expect(listSessions(seedDb(), { since: '2026-07-11', limit: 100 }).map((r) => r.sessionId)).toEqual([
+    // s-old pings until 08-01 but stopped working the day before s-demo's —
+    // a delta window opening on s-demo's day must not pick it up.
+    expect(listSessions(seedDb(), { since: day('2026-07-11T10:30:00Z'), limit: 100 }).map((r) => r.sessionId)).toEqual([
       's-demo',
       's-new',
     ])
-    expect(listSessions(seedDb(), { since: '2026-07-12', limit: 100 }).map((r) => r.sessionId)).toEqual(['s-new'])
+    expect(listSessions(seedDb(), { since: day('2026-07-12T11:00:00Z'), limit: 100 }).map((r) => r.sessionId)).toEqual(['s-new'])
     expect(listSessions(seedDb(), { since: '2027-01-01', limit: 100 })).toEqual([])
   })
 
   test('since composes with the well filter', () => {
-    const rows = listSessions(seedDb(), { well: 'scanner-spike', since: '2026-07-11', limit: 100 })
+    const rows = listSessions(seedDb(), { well: 'scanner-spike', since: day('2026-07-11T10:30:00Z'), limit: 100 })
     expect(rows.map((r) => r.sessionId)).toEqual(['s-new'])
+  })
+
+  // 2026-11-14 review: `--since` compared the typed date as UTC midnight.
+  // At UTC+14 (CI's second pass) a session active at 01:00 local on the day
+  // named was missing; at UTC-5 one active at 23:00 the evening before was
+  // listed with a `last` a day earlier than `--since`. Invisible at UTC.
+  test('a since date is the local day: one hour either side of local midnight', () => {
+    const db = seedDb()
+    const midnight = Date.parse(dayStart('2026-11-13'))
+    const at = (ms: number) => new Date(ms).toISOString()
+    db.prepare(
+      'INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts) VALUES (2, ?, 1, 0, 1, ?, ?, ?)',
+    ).run('s-before', at(midnight - 3600_000), at(midnight - 3600_000), at(midnight - 3600_000))
+    db.prepare(
+      'INSERT INTO sessions(well_id, session_id, size, mtime_ms, lines, first_ts, last_ts, last_activity_ts) VALUES (2, ?, 1, 0, 1, ?, ?, ?)',
+    ).run('s-after', at(midnight + 3600_000), at(midnight + 3600_000), at(midnight + 3600_000))
+    const rows = listSessions(db, { since: '2026-11-13', limit: 100 })
+    expect(rows.map((r) => [r.sessionId, r.last])).toEqual([['s-after', '2026-11-13']])
+    // A full instant is still an instant.
+    expect(listSessions(db, { since: at(midnight - 7200_000), limit: 100 }).map((r) => r.sessionId)).toEqual(['s-before', 's-after'])
   })
 })

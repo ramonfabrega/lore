@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/db'
+import { dayStart } from '../src/fmt'
 import { buildIndex } from '../src/indexer'
-import { backfillJobNames, listJobs, resolveJob, spawnEdges } from '../src/job'
+import { backfillJobNames, jobOfSession, listJobs, resolveJob, spawnEdges } from '../src/job'
 import { indexJobs } from '../src/jobs'
 import { resolveSide } from '../src/thread'
 
@@ -316,5 +317,82 @@ describe('resolveJob', () => {
     expect(resolveJob(db, 'golf')).toEqual({ key: 'G1', kind: 'bridge' })
     // The older namesakes are still reachable by their own ids.
     expect(resolveJob(db, 'aaaa0001')).toEqual({ key: 'OLD', kind: 'bridge' })
+  })
+})
+
+// Review 2026-11-14. A pre-bridge job whose FIRST session is indexed: that
+// session is its own root (no pointer), so its row read kind 'session'
+// while its successor read 'root' — one key, two kinds, and `lore jobs`
+// filtered the first session out before counting.
+describe('one job, one kind', () => {
+  test('a root-keyed job keeps its first session: one kind for every session of the key', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seed({
+      '-u-code-fun-old': {
+        'r-root': [prompt('r-root', '2026-07-01T10:00:00Z', 'R0', 'start'), reply('r-root', '2026-07-01T10:05:00Z', 'rr0', 'ok')],
+        'r-next': [prompt('r-next', '2026-07-01T12:00:00Z', 'R1', 'after clear', 'r-root'), reply('r-next', '2026-07-01T12:05:00Z', 'rr1', 'ok', 'r-root')],
+      },
+    })
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    expect(jobOfSession(db, 'r-root')).toEqual({ key: 'r-root', kind: 'root' })
+    expect(jobOfSession(db, 'r-next')).toEqual({ key: 'r-root', kind: 'root' })
+    expect(listJobs(db, { limit: 10 }).map((j) => [j.key, j.kind, j.sessions, j.first])).toEqual([['r-root', 'root', 2, '2026-07-01T10:00:00Z']])
+    expect(listJobs(db, { all: true, limit: 10 }).map((j) => [j.key, j.kind, j.sessions])).toEqual([['r-root', 'root', 2]])
+  })
+
+  // A typed day is the instant of local midnight (CLAUDE.md). Bites in CI's
+  // UTC+14 pass, where UTC midnight falls fourteen hours into the local day.
+  test('since: a typed day opens at local midnight', async () => {
+    const db = openDb(':memory:')
+    const at = (h: number) => new Date(Date.parse(dayStart('2026-11-13')) + h * 3_600_000).toISOString()
+    const projectsDir = seed({
+      '-u-code-fun-x': {
+        'early-1': [bridge('early-1', 'cse_EARLY', at(-1)), prompt('early-1', at(-1), 'E1', 'eve')],
+        'late-1': [bridge('late-1', 'cse_LATE', at(2)), prompt('late-1', at(2), 'L1', 'morning')],
+      },
+    })
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    expect(listJobs(db, { since: '2026-11-13', limit: 10 }).map((j) => j.key)).toEqual(['LATE'])
+  })
+})
+
+// Review 2026-11-14: "whom it wrote to" took the sender from the relay's
+// `peer` NAME, mapped to the first job of that name in index order. Names
+// repeat; the msg_id does not.
+describe('peers: the sender is the job whose ack carries the msg_id', () => {
+  const relay = (s: string, ts: string, promptId: string, from: string, msgId: string | null, body: string) =>
+    line({
+      type: 'user', timestamp: ts, promptId, sessionId: s, isMeta: true,
+      origin: { kind: 'peer', name: from, from: 'uds:/tmp/cc-socks/1.sock', ...(msgId ? { msg_id: msgId } : {}), body },
+      message: { role: 'user', content: `Another Claude session sent a message:\n<cross-session-message from="uds:/tmp/cc-socks/1.sock" from-name="${from}">\n${body}\n</cross-session-message>` },
+    })
+  async function namesakes(msgId: string | null) {
+    const db = openDb(':memory:')
+    const projectsDir = seed({
+      // The commander of 10-01, deleted since — indexed first.
+      '-u-code-fun-app-a': { 'cmd-a': [bridge('cmd-a', 'cse_A', '2026-10-01T10:00:00Z'), prompt('cmd-a', '2026-10-01T10:00:01Z', 'A1', 'go')] },
+      // Today's commander, same name.
+      '-u-code-fun-app-b': {
+        'cmd-b': [
+          bridge('cmd-b', 'cse_B', '2026-11-13T10:00:00Z'),
+          prompt('cmd-b', '2026-11-13T10:00:01Z', 'B1', 'go'),
+          send('cmd-b', '2026-11-13T10:01:00Z', 'tu_b', 'lore', 'status'),
+          ...(msgId ? [ack('cmd-b', '2026-11-13T10:01:01Z', 'B1', 'tu_b', msgId)] : []),
+        ],
+      },
+      '-u-code-fun-lore': { 'lore-x': [bridge('lore-x', 'cse_X', '2026-11-13T09:00:00Z'), prompt('lore-x', '2026-11-13T09:00:01Z', 'X1', 'watch'), relay('lore-x', '2026-11-13T10:01:02Z', 'X2', 'commander', msgId, 'status')] },
+    })
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    db.prepare("INSERT INTO jobs(job_id, session_id, bridge_key, name, state) VALUES('aaaa0001', 'cmd-a', 'A', 'commander', 'gone'), ('bbbb0001', 'cmd-b', 'B', 'commander', 'working'), ('cccc0001', 'lore-x', 'X', 'lore', 'working')").run()
+    const jobs = listJobs(db, { limit: 10 })
+    return { A: jobs.find((j) => j.key === 'A')?.peers, B: jobs.find((j) => j.key === 'B')?.peers }
+  }
+
+  test('paired on msg_id: the message is the live commander’s, not its deleted namesake’s', async () => {
+    expect(await namesakes('msg-b')).toEqual({ A: [], B: ['lore'] })
+  })
+
+  test('no msg_id (an older record): the namesake alive at the message’s instant', async () => {
+    expect(await namesakes(null)).toEqual({ A: [], B: ['lore'] })
   })
 })

@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
-import { type IdleShape, type PollShape, classify, idleShape, pollShape, taskRef } from './classes'
+import { type IdleShape, type PollShape, type ToolClass, classify, idleShape, pollShape, requestClass, taskRef } from './classes'
+import { dayStart } from './fmt'
 import { priceOf, rateFor } from './usage'
 
 // The waiting lint over many sessions: `lore trace`'s `polls` and `idle`
@@ -52,7 +53,8 @@ export type PollRow = PollShape &
     // polling cost, since every one was a full-context request.
     pollRequests: number
     pollUsd: number | null
-    // The same for the idle turns. Kept apart from `pollUsd` rather than
+    // The same for the idle turns — requests whose every call was a no-op;
+    // `idles` (IdleShape) still counts the no-op CALLS. Kept apart from `pollUsd` rather than
     // folded into it: they are two behaviours with two fixes, and a row
     // that mixed them would hide which one to go and change.
     idleRequests: number
@@ -76,7 +78,7 @@ export type PollTotals = {
 
 export function listPolls(
   db: Database,
-  opts: { well?: string; exact?: boolean; since?: string; limit: number },
+  opts: { well?: string; exact?: boolean; since?: string; until?: string; limit: number },
 ): { count: number; sessions: PollRow[]; totals: PollTotals } {
   const where = [
     "m.type = 'assistant'",
@@ -96,9 +98,20 @@ export function listPolls(
     const v = opts.exact ? opts.well : `%${opts.well}%`
     params.push(v, v)
   }
+  // The window is the sessions ACTIVE inside it: some work at or after
+  // `since`, some before `until`. A date a person types is a LOCAL day, so it
+  // becomes the UTC instant of local midnight (fmt.ts `dayStart`; a full
+  // instant passes through). Until 2026-11-14 `since` went in raw, and a
+  // bare `2026-09-07` compared as UTC midnight: at UTC-5 the window took in
+  // the evening before, at UTC+14 it dropped the first fourteen hours of the
+  // day it named (review, 2026-11-14).
   if (opts.since) {
     where.push('COALESCE(s.last_activity_ts, s.last_ts) >= ?')
-    params.push(opts.since)
+    params.push(dayStart(opts.since))
+  }
+  if (opts.until) {
+    where.push('s.first_ts < ?')
+    params.push(dayStart(opts.until))
   }
   const rows = z.array(Row).parse(
     db
@@ -125,7 +138,14 @@ export function listPolls(
     const sid = rows[i]!.sessionId
     const seq: { ref: string | null; idle: boolean; ts: string | null }[] = []
     const pollReqs = new Set<string>()
-    const idleReqs = new Set<string>()
+    // Every class each request's calls fell in: a request is idle only when
+    // ALL of them were nothing (classes.ts CLASS_RANK — `requestClass`, the
+    // rule trace.ts's `classes` applies). Until 2026-11-14 one no-op was
+    // enough, so a request that ran `true` beside an Edit was billed to
+    // `idleUsd` and the sort key while the session page filed the same
+    // request under `write` (review, 2026-11-14). Poll needs no such map:
+    // it ranks first, so "any poll call" and "requestClass is poll" agree.
+    const callClasses = new Map<string, ToolClass[]>()
     let first: string | null = null
     let last: string | null = null
     const well = rows[i]!.well
@@ -138,16 +158,18 @@ export function listPolls(
       const ref = cls === 'poll' ? taskRef(r.tool, inputFull) : null
       seq.push({ ref, idle: cls === 'idle', ts: r.ts })
       if (ref != null && r.requestId) pollReqs.add(r.requestId)
-      if (cls === 'idle' && r.requestId) idleReqs.add(r.requestId)
+      if (r.requestId) callClasses.set(r.requestId, [...(callClasses.get(r.requestId) ?? []), cls])
       first ??= r.ts
       last = r.ts ?? last
     }
+    const idleReqs = new Set([...callClasses].filter(([, cs]) => requestClass(cs) === 'idle').map(([id]) => id))
     const shape = pollShape(seq)
     const idle = idleShape(seq)
     if (shape.reads === 0 && idle.idles === 0) continue
-    // A request that did both is charged to neither exclusively — it is
-    // counted once in each shape's price, so the two never sum past the
-    // session. `wastedUsd` therefore takes the union, not the sum.
+    // The two sets are disjoint now that idle means every call was nothing
+    // (a request that polled AND ran a no-op is a poll, as on the session
+    // page); `wastedUsd` still takes the union rather than the sum, so a
+    // request can never be charged twice.
     let pollUsd: number | null = 0
     let idleUsd: number | null = 0
     let wastedUsd: number | null = 0

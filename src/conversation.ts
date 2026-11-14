@@ -229,6 +229,12 @@ export function getConversation(
   try {
     traces = [getTrace(db, resolveSessionId(db, q, { well: opts.well, exact: opts.exact }), traceOpts(opts))]
   } catch (e) {
+    // `--well` narrows a SESSION id, and a job spans wells. The job lookup
+    // takes no well and ends in an unnarrowed session lookup, so with a well
+    // given it answered from a well the caller had excluded — `conversation
+    // abcd --well other` returned abcd's session, dressed as a job, where
+    // `lore session` refuses (2026-11-14 review). With a well, refuse too.
+    if (opts.well) throw e
     const ref = resolveJob(db, q)
     if (!ref) throw e
     const read = jobTraces(db, ref.key, opts)

@@ -72,7 +72,7 @@ describe('search: sessions first', () => {
     expect(s.hits).toBeGreaterThanOrEqual(2)
     expect(s.firstPrompt).toBe('fix the sparkle notarization step')
     expect(s.snippets[0]!.promptId).toBe('p1')
-    expect(s.snippets[0]!.snippet).toContain('«')
+    expect(s.snippets[0]!.snippet).toContain('\u0002')
     const both = searchSessions(db, 'sparkl', { lanes: ['prompt', 'text'], limit: 10 })
     expect(both.sessions.map((s) => s.sessionId).sort()).toEqual(['sess-1', 'sess-2'])
     const recent = searchSessions(db, 'sparkl', { lanes: ['prompt', 'text'], limit: 10, sort: 'recent' })

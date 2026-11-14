@@ -262,6 +262,12 @@ export async function tailOf(path: string, bytes = 256 * 1024): Promise<{ model:
     }
     const rec = TailRecord.safeParse(raw)
     if (!rec.success || rec.data.type !== 'assistant' || typeof rec.data.message?.model !== 'string') continue
+    // `<synthetic>` is the harness standing in for the model (an API error,
+    // a usage-limit refusal, "no response requested"): no request behind it
+    // and every usage field 0. parse.ts skips it; this read did not, so a
+    // commander whose last turn hit a 529 read model `<synthetic>` and
+    // context 0 (review 2026-11-14). Keep walking back to the last request.
+    if (rec.data.message.model.startsWith('<')) continue
     const u = rec.data.message.usage
     const ctx = u ? (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) : null
     return { model: rec.data.message.model, ctx }

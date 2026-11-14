@@ -138,7 +138,7 @@ HTML rather than on what a browser would have done to it.
 - **`/cli/…`** — the CLI as HTTP, incur's `Bun.serve(cli)` shape, mounted
   under a prefix because the pages own the root and `/usage`, `/session`
   collide with verb names: `GET /cli/usage?by=week`, `GET /cli/trace/<id>`,
-  spec at `/cli/openapi.json`. **GET-only, read verbs only** — archive,
+  spec at `/cli/openapi.json`. **GET-only, and only the verbs in web.ts `READ_VERBS`/`READ_DOCS`** (thread, conversation, loop, polls, limits, worktrees and harness are commands only) — archive,
   index, docs index, wiki commit, serve, server are never routes. Numeric
   options are `z.coerce.number()` so query strings validate.
 

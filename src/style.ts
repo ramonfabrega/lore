@@ -17,7 +17,8 @@
 //
 // The ladder is NOT reimplemented here: the three calendar forms were
 // rendered by the same TypeScript that renders the visible one, and all this
-// computes is the duration head (two thresholds) and which form the calendar
+// computes is the duration head (two thresholds, the minutes clamped at 59
+// exactly as fmt.ts's ladder clamps them) and which form the calendar
 // has advanced to. `k` is whole local days elapsed since the render, so a
 // page held open past midnight moves 17:45 → yest 17:45 → 2 sep on its own,
 // and past two days the last form is stable forever.
@@ -38,7 +39,7 @@ export const tick = (tz: string, renderedDay: string) => `
     for (var i = 0; i < els.length; i++) {
       var el = els[i], age = now - Date.parse(el.dateTime), f = el.dataset.forms.split('|');
       el.textContent = age >= 0 && age < 45000 ? 'now'
-        : age >= 0 && age < 3600000 ? Math.max(1, Math.round(age / 60000)) + 'm ago'
+        : age >= 0 && age < 3600000 ? Math.min(59, Math.max(1, Math.round(age / 60000))) + 'm ago'
         : f[k];
     }
   }

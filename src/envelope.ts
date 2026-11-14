@@ -136,17 +136,22 @@ export function sentHead(input: string): Sent {
     const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string) : null)
     return { to: str('to'), name: null, agent: null, summary: str('summary') ?? str('message') }
   } catch {
-    return { to: field('to', input), name: null, agent: null, summary: field('summary', input) ?? field('message', input) }
+    return { to: field('to', input), name: null, agent: null, summary: field('summary', input) ?? field('message', input, { partial: true }) }
   }
 }
 // The message body of a SendMessage input — the sender's copy, which the
-// index cut at TOOL_TEXT_CAP; the receiver's relay row holds it whole.
+// index cut at TOOL_TEXT_CAP; the receiver's relay row holds it whole. A cut
+// copy reads as far as it goes, ending in `…`: the message is the field the
+// cut lands in, so a fallback that wanted its closing quote returned null for
+// every message worth reading — the conversation view showed the summary of
+// each kickoff brief and no body at all (2026-11-14; its input arrives cut to
+// the page's `head`, 400 characters, so this was every SendMessage over 400).
 export function sentMessage(input: string): string | null {
   try {
     const o = JSON.parse(input) as Record<string, unknown>
     return typeof o.message === 'string' ? o.message : null
   } catch {
-    return field('message', input)
+    return field('message', input, { partial: true })
   }
 }
 
@@ -159,6 +164,40 @@ export function ackHead(result: string): { delivered: boolean | null; error: str
   return { delivered: ok === 'true', error: ok === 'true' ? null : field('message', result) }
 }
 
-function field(name: string, s: string): string | null {
-  return new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(s)?.[1]?.replace(/\\(.)/g, '$1') ?? null
+// A JSON string field read off text that may not parse — cut mid-object, or
+// mid-string. A complete field (its closing quote present) is returned whole;
+// a field the cut runs through is returned only when `partial` is asked for,
+// as far as it goes and ending in `…` (one: `cut` already appends its own),
+// with a half-written escape at the cut dropped. Escapes decode as JSON does:
+// the old fallback stripped the backslash, so `\n` read as the letter n
+// ("line onenline two") and `é` as `u00e9` (2026-11-14). An address
+// (`to`) is never partial — half a peer name resolves to nobody.
+const ESCAPES: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f' }
+function field(name: string, s: string, o: { partial?: boolean } = {}): string | null {
+  const m = new RegExp(`"${name}"\\s*:\\s*"`).exec(s)
+  if (!m) return null
+  let out = ''
+  for (let i = m.index + m[0].length; i < s.length; i++) {
+    const c = s[i]!
+    if (c === '"') return out
+    if (c !== '\\') {
+      out += c
+      continue
+    }
+    const e = s[i + 1]
+    if (e === undefined) break
+    if (e === 'u') {
+      const hex = s.slice(i + 2, i + 6)
+      if (!/^[0-9a-fA-F]{4}$/.test(hex)) break
+      out += String.fromCharCode(Number.parseInt(hex, 16))
+      i += 5
+      continue
+    }
+    out += ESCAPES[e] ?? e
+    i++
+  }
+  if (!o.partial) return null
+  const head = out.replace(/[\uD800-\uDBFF]$/, '')
+  if (!head || head === '…') return null
+  return head.endsWith('…') ? head : `${head}…`
 }

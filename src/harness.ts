@@ -262,6 +262,14 @@ export function harnessStatus(here: Here, there: There) {
     warnings.push(`the daemon runs ${here.daemon.version}, installed is ${installed} — new agents start on the daemon's version until it restarts`)
   if (stale.length) warnings.push(`${stale.length} worker(s) still run an older binary: ${stale.map((w) => `${w.name ?? w.id} ${w.version}`).join(', ')}`)
   if (here.autoUpdate === 'on') warnings.push('auto-update is ON — the next release installs itself and bounces the daemon under whatever is running')
+  // `behind` counts changelog HEADINGS, so a latest channel that names a
+  // version the changelog has no section for yet (a release that ships
+  // before its CHANGELOG.md commit, or never gets one) read `behind: 0`
+  // with nothing said: installed 2.1.330 against latest 2.1.331 looked up to
+  // date (2026-11-14). The count stays what the changelog can show, and this
+  // line says what it cannot.
+  if (installed && target && compareVersions(installed, target) < 0 && there.releases.length > 0 && !there.releases.some((r) => r.version === target))
+    warnings.push(`latest ${target} is ahead of installed ${installed} but has no changelog entry yet — \`behind\` (${pending.length}) counts only the releases the changelog names`)
   if (installed && there.stable && compareVersions(installed, there.stable) > 0 && target && compareVersions(installed, target) < 0)
     warnings.push(`installed ${installed} is past stable (${there.stable}) — the only way forward is the latest channel`)
   return {

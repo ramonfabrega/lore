@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb } from '../src/db'
+import { dayStart } from '../src/fmt'
 import { indexSpawns, listSpawns } from '../src/spawns'
 import { extractMeta, indexWorkflowRuns, listWorkflowRuns } from '../src/workflows'
 
@@ -184,5 +185,16 @@ describe('indexWorkflowRuns + listWorkflowRuns', () => {
     const stats = await indexWorkflowRuns(db, { projectsDir: '/nonexistent/nowhere' })
     expect(stats.runFiles).toBe(0)
     expect(listWorkflowRuns(db, { limit: 10 }).runs).toEqual([])
+  })
+
+  // Review 2026-11-14: `--since` compared the bare date with a UTC instant
+  // (UTC midnight). Bites in CI's UTC+14 pass.
+  test('--since: a typed day opens at local midnight', () => {
+    const db = openDb(':memory:')
+    const at = (h: number) => new Date(Date.parse(dayStart('2026-11-13')) + h * 3_600_000).toISOString()
+    const add = db.prepare("INSERT INTO workflow_runs(run_id, well_dir, session_id, script, recorded_ts, size, mtime_ms) VALUES(?, '-u', 's1', 'x', ?, 1, 1)")
+    add.run('wf_eve', at(-1))
+    add.run('wf_morning', at(2))
+    expect(listWorkflowRuns(db, { since: '2026-11-13', limit: 10 }).runs.map((r) => r.runId)).toEqual(['wf_morning'])
   })
 })

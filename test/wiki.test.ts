@@ -43,6 +43,35 @@ describe('wikiInit', () => {
     expect(existsSync(join(dir, 'CLAUDE.md'))).toBe(false)
   })
 
+  // `-c` overrides config, and init passed both fallback keys always, so every
+  // first commit read `lore` whatever the user had configured (2026-11-14).
+  async function initUnder(gitconfig: string): Promise<{ name: string; email: string }> {
+    const home = tempDir()
+    writeFileSync(join(home, '.gitconfig'), gitconfig)
+    const keys = ['HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'] as const
+    const prev = keys.map((k) => process.env[k])
+    process.env.HOME = home
+    process.env.GIT_CONFIG_GLOBAL = join(home, '.gitconfig')
+    process.env.GIT_CONFIG_NOSYSTEM = '1'
+    try {
+      const dir = join(home, 'wiki')
+      await wikiInit(dir)
+      const [name = '', email = ''] = (await Bun.$`git -C ${dir} log -1 --format=%an%n%ae`.quiet().text()).trim().split('\n')
+      return { name, email }
+    } finally {
+      keys.forEach((k, i) => {
+        if (prev[i] === undefined) delete process.env[k]
+        else process.env[k] = prev[i]
+      })
+    }
+  }
+
+  test('the first commit is the user when git config names one, lore only for a missing key', async () => {
+    expect(await initUnder('[user]\n\tname = Real Person\n\temail = real@example.com\n')).toEqual({ name: 'Real Person', email: 'real@example.com' })
+    expect(await initUnder('[user]\n\tname = Real Person\n')).toEqual({ name: 'Real Person', email: 'lore@localhost' })
+    expect(await initUnder('')).toEqual({ name: 'lore', email: 'lore@localhost' })
+  })
+
   test('commit names the fix when no wiki exists', async () => {
     const dir = join(tempDir(), 'missing')
     await expect(wikiCommit(dir)).rejects.toThrow(/lore wiki init/)

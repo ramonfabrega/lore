@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { beatsOf } from '../src/conversation'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { beatsOf, getConversation } from '../src/conversation'
+import { openDb } from '../src/db'
+import { buildIndex } from '../src/indexer'
 import type { Instruction, Transaction } from '../src/trace'
 
 // The projection is pure over a transaction, so the fixture is one: a turn
@@ -77,5 +82,36 @@ describe('beatsOf', () => {
   })
   test('a harness notification is never a beat', () => {
     expect(beats.some((b) => b.kind !== 'work' && b.kind !== 'said' && b.kind !== 'sent' && 'tag' in b && b.tag === 'task')).toBe(false)
+  })
+})
+
+// 2026-11-14 review: a failed session lookup fell through to the job lookup,
+// which takes no well, so `--well` was dropped and the answer came from a
+// well the caller had excluded — `lore session` refuses the same call.
+describe('getConversation --well', () => {
+  test('never answers from a well the caller excluded', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lore-conversation-'))
+    const well = join(dir, 'projects', '-u-code-fun-app')
+    mkdirSync(well, { recursive: true })
+    const record = (o: Record<string, unknown>) => JSON.stringify({ cwd: '/u/code/fun/app', ...o })
+    writeFileSync(
+      join(well, 'abcd1234-0000-0000-0000-000000000000.jsonl'),
+      [
+        record({ type: 'user', uuid: 'u1', timestamp: '2026-11-13T10:00:00.000Z', promptId: 'p1', message: { role: 'user', content: 'hello there' } }),
+        record({
+          type: 'assistant',
+          uuid: 'a1',
+          parentUuid: 'u1',
+          timestamp: '2026-11-13T10:00:05.000Z',
+          message: { id: 'm1', role: 'assistant', model: 'claude-opus-5-5', stop_reason: 'end_turn', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+        }),
+      ].join('\n'),
+    )
+    const db = openDb(join(dir, 'lore.db'))
+    await buildIndex(db, { projectsDir: join(dir, 'projects'), historyPath: join(dir, 'none.jsonl') })
+    expect(() => getConversation(db, 'abcd', { well: 'other-repo' })).toThrow(/in a well matching "other-repo"/)
+    // The well it does live in still answers, and so does no well at all.
+    expect(getConversation(db, 'abcd', { well: 'fun-app' }).turns.map((t) => t.message)).toEqual(['hello there'])
+    expect(getConversation(db, 'abcd').sessions.map((s) => s.well)).toEqual(['-u-code-fun-app'])
   })
 })

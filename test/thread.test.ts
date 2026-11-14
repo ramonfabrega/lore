@@ -233,3 +233,51 @@ describe('getThread', () => {
     expect(() => getThread(db, 'lore', 'nobody')).toThrow(/no indexed session/)
   })
 })
+
+// Review 2026-11-14: a side was read through its own join (`s.bridge_key`
+// or `s.job_session_id`), which never matches a job's FIRST session — no
+// pointer, and on an --rc job no bridge record. A commander's first session
+// dropped out of its threads and a lane (one such session) had no side.
+describe('a side is the whole job, its pointer-less first session included', () => {
+  const at = (s: string, root: string, ts: string, promptId: string, text: string) =>
+    line({ type: 'user', timestamp: ts, promptId, sessionId: s, session_id: root, message: { role: 'user', content: text } })
+  async function fleet() {
+    const db = openDb(':memory:')
+    const projectsDir = seed({
+      '-u-code-fun-app': {
+        // The --rc commander's first session: no pointer, no bridge record.
+        'cmd-1': [
+          prompt('cmd-1', '2026-11-13T15:00:00Z', 'P1', 'run the loop'),
+          relayTurn('cmd-1', '2026-11-13T15:30:00Z', 'P2', 'lane-4199', 'msg-done', 'lane 4199 landed'),
+        ],
+        // Its /clear successor, which carries the bridge.
+        'cmd-2': [bridge('cmd-2', 'cse_CMD', '2026-11-13T17:00:00Z'), at('cmd-2', 'cmd-1', '2026-11-13T17:00:01Z', 'P3', 'next')],
+      },
+      // A lane: one pointer-less session, no bridge record.
+      '-u-code-fun-app--claude-worktrees-att-4199': {
+        'lane-1': [
+          prompt('lane-1', '2026-11-13T15:05:00Z', 'W1', 'You are a worker.'),
+          send('lane-1', '2026-11-13T15:29:58Z', 'tu_l', 'commander', 'lane 4199 done', 'lane 4199 landed'),
+          ack('lane-1', '2026-11-13T15:30:00Z', 'W1', 'tu_l', 'msg-done'),
+        ],
+      },
+    })
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    db.prepare("INSERT INTO jobs(job_id, session_id, bridge_key, name) VALUES('cmd00001', 'cmd-1', 'CMD', 'commander'), ('lane0001', 'lane-1', 'LANE', 'lane-4199')").run()
+    return db
+  }
+
+  test('by name and by any session id, the first session is in', async () => {
+    const db = await fleet()
+    expect(resolveSide(db, 'commander')).toEqual({ query: 'commander', name: 'commander', key: 'CMD', sessions: ['cmd-1', 'cmd-2'] })
+    expect(resolveSide(db, 'cmd-2')).toEqual({ query: 'cmd-2', name: 'commander', key: 'CMD', sessions: ['cmd-1', 'cmd-2'] })
+    expect(resolveSide(db, 'lane-4199')).toEqual({ query: 'lane-4199', name: 'lane-4199', key: 'LANE', sessions: ['lane-1'] })
+  })
+
+  test('the lane’s report pairs with the copy that landed in the first session', async () => {
+    const db = await fleet()
+    const t = getThread(db, 'lane-4199', 'commander', { you: false })
+    expect(t.rows.map((r) => [r.from, r.to, r.landed, r.msgId, r.sent?.session, r.received?.session])).toEqual([['lane-4199', 'commander', 'turn', 'msg-done', 'lane-1', 'cmd-1']])
+    expect(listThreads(db).map((p) => [p.a, p.b, p.messages])).toEqual([['commander', 'lane-4199', 1]])
+  })
+})

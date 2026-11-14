@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { openDb } from '../src/db'
 import { parseLine } from '../src/parse'
 import { listToolUsage } from '../src/tools'
-import { day } from '../src/fmt'
+import { day, dayStart } from '../src/fmt'
 
 describe('toolName extraction', () => {
   test('tool_use blocks carry the tool name; Skill calls carry the skill', () => {
@@ -75,5 +75,17 @@ describe('listToolUsage', () => {
       'Bash',
       'command:lore-wiki',
     ])
+  })
+
+  // 2026-11-14 review: the date compared as UTC midnight, so at UTC+14 (CI's
+  // second pass) a call made at 01:00 local on the day named was missing, and
+  // at UTC-5 one made the evening before was counted. Invisible at UTC.
+  test('a since date is the local day: one hour either side of local midnight', () => {
+    const db = seedDb()
+    const midnight = Date.parse(dayStart('2026-11-13'))
+    const ins = db.prepare("INSERT INTO messages(session_id, ts, lane, type, tool_name) VALUES ('s1', ?, 'tool', 'assistant', ?)")
+    ins.run(new Date(midnight - 3600_000).toISOString(), 'Read')
+    ins.run(new Date(midnight + 3600_000).toISOString(), 'Edit')
+    expect(listToolUsage(db, { since: '2026-11-13', limit: 100 }).map((r) => [r.tool, r.first])).toEqual([['Edit', '2026-11-13']])
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { cutMarkdown, cutProse } from '../src/fmt'
-import { mdBlock, mdInline, mdLead } from '../src/md'
+import { mdBlock, mdInline, mdLead, mdUser } from '../src/md'
 
 describe('mdBlock — assistant text renders as the markdown it was written as', () => {
   test('GFM: headings, emphasis, code, tables, task lists', () => {
@@ -52,6 +52,30 @@ describe('mdInline — one line inside someone else’s layout', () => {
   test('keeps spans, drops the block wrapper', () => {
     expect(mdInline('`SessionData` — **the tap**. Let me look.')).toBe('<code>SessionData</code> — <strong>the tap</strong>. Let me look.')
     expect(mdInline('## Heading')).toBe('Heading')
+  })
+  // md4c puts a newline between <ul> and <li>; the item leaked into the
+  // note's <p> (2026-11-14).
+  test('a one-line list item keeps only its text', () => {
+    expect(mdInline('- check the build first')).toBe('check the build first')
+    expect(mdInline('1. Reading the config.')).toBe('Reading the config.')
+  })
+})
+
+describe('mdUser — what the user typed keeps its lines', () => {
+  test('every line break is a line break, outside fences', () => {
+    expect(mdUser('line1\nline2\n\npara')).toBe('<p>line1<br />\nline2</p>\n<p>para</p>\n')
+  })
+  // CommonMark: a backtick fence's info string holds no backtick, so this
+  // first line is a code span, not a fence (2026-11-14).
+  test('a line that opens with an inline ```span``` is not a fence', () => {
+    const out = mdUser('```lore index``` failed\nthen I ran it again\nand it passed')
+    expect(out).toContain('<code>lore index</code>')
+    expect(out).toContain('then I ran it again<br />')
+  })
+  test('only the same fence character closes a fence', () => {
+    const out = mdUser('```\ncode\n~~~\nmore\n```\nafter\nline2')
+    expect(out).toContain('<pre><code>code\n~~~\nmore\n</code></pre>')
+    expect(out).toContain('after<br />')
   })
 })
 

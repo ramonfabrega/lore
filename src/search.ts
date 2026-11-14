@@ -170,7 +170,12 @@ export function searchSessions(
   const sql = `
     SELECT m.session_id AS sessionId, m.prompt_id AS promptId, m.ts, m.lane,
            bm25(messages_fts) AS rank,
-           snippet(messages_fts, 0, '«', '»', ' … ', 18) AS snippet
+           -- The page turns these marks into <mark>. They were « and », which
+           -- real transcripts contain (French quotes, this codebase's own
+           -- docs), so a hit near one opened a highlight that never closed.
+           -- U+0002/U+0003 cannot occur in a transcript; web.ts maps them
+           -- (2026-11-14). The CLI's own hits (above) keep « » for a terminal.
+           snippet(messages_fts, 0, char(2), char(3), ' … ', 18) AS snippet
     FROM messages_fts f
     JOIN messages m ON m.id = f.rowid
     JOIN sessions s ON s.session_id = m.session_id

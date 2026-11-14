@@ -62,8 +62,16 @@ export const CLASS_RANK: Record<ToolClass, number> = { poll: 9, write: 8, spawn:
 const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LSP', 'WebFetch', 'WebSearch', 'ReadMcpResourceTool', 'ListMcpResourcesTool'])
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 const SPAWN_TOOLS = new Set(['Agent', 'Task', 'Workflow'])
-// The harness's task output directory: `<tmp>/claude-<uid>/<well>/<session>/tasks/<id>.output`.
-const TASK_PATH = /\/tasks\/([A-Za-z0-9_-]+)/
+// The harness's task output FILE: `<tmp>/claude-<uid>/<well>/<session>/tasks/<id>.output`.
+// The `.output` is what makes it one. The first pattern took any `/tasks/<word>`
+// segment, so a Rails repo's own `lib/tasks/kyc.rake` — rubocop, rspec, git add
+// on it — read as polling a background task, ranked first, and put the request
+// under `poll` (review, 2026-11-14). Measured over the corpus that day: 8,314
+// `/tasks/<id>` segments in Bash commands, 8,164 of them `<id>.output` in the
+// harness's dir (including `*/*/tasks/<id>.output` globs), 150 not —
+// `lib/tasks/*.rake` and `spec/lib/tasks/*_spec.rb` all but one. An `<id>*.output`
+// glob still counts; a bare `tasks/<id>` with no `.output` (1 of 8,314) does not.
+const TASK_PATH = /\/tasks\/([A-Za-z0-9_-]+)\*?\.output\b/
 const TASK_ID = /"task_id":"([^"]+)"/
 const BLOCKING = /"block":true/
 // A loop around a sleep inside ONE call is a blocking wait, whatever it

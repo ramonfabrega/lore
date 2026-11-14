@@ -268,4 +268,47 @@ describe('listUsage', () => {
       expect.objectContaining({ key: day('2026-08-30T10:00:00Z').slice(0, 7), requests: 2, listUsd: 1.05 }),
     ])
   })
+
+  // 2026-11-14 review: `%Y-W%W` keyed Wed 2025-12-31 as 2025-W52 and Thu
+  // 2026-01-01 as 2026-W00 — one week, two buckets. ISO weeks, local zone.
+  // The instants sit at 12:00Z so their local days stay inside the same
+  // Monday-to-Sunday week at UTC and at UTC+14 alike.
+  test('a week that holds New Year is one ISO week', () => {
+    const db = openDb(':memory:')
+    db.exec(`
+      INSERT INTO wells(id, dir, real_path) VALUES (1, '-u-code-a', '/u/code/a');
+      INSERT INTO sessions(well_id, session_id, size, mtime_ms, first_ts) VALUES (1, 's1', 0, 0, '2025-12-29T12:00:00Z');
+      INSERT INTO requests(session_id, message_id, ts, model, output_tokens) VALUES
+        ('s1', 'w1', '2025-12-29T12:00:00Z', 'claude-opus-5', 1),
+        ('s1', 'w2', '2025-12-31T12:00:00Z', 'claude-opus-5', 1),
+        ('s1', 'w3', '2026-01-01T12:00:00Z', 'claude-opus-5', 1),
+        ('s1', 'w4', '2026-01-05T12:00:00Z', 'claude-opus-5', 1);
+    `)
+    const r = listUsage(db, { by: 'week', limit: 10 })
+    expect(r.rows.map((x) => [x.key, x.requests])).toEqual([
+      ['2026-W01', 3],
+      ['2026-W02', 1],
+    ])
+  })
+
+  // 2026-11-14 review: the spawn query had no WHERE, so a windowed well row
+  // carried every spawn the well ever ran. Same window, same model filter.
+  test('spawns and spawnOutput obey the window and the model filter of their row', () => {
+    const db = seedDb()
+    db.exec(`
+      UPDATE spawns SET first_ts = '2026-09-01T10:05:00Z', model = 'claude-sonnet-5' WHERE agent_id = 'ag1';
+      INSERT INTO spawns(well_dir, session_id, agent_id, output_tokens, size, mtime_ms, first_ts, model) VALUES
+        ('-u-code-a', 's1', 'ag0', 7000, 0, 0, '2026-08-30T10:05:00Z', 'claude-haiku-4-5');
+    `)
+    const all = listUsage(db, { by: 'well', limit: 10 }).rows[0]!
+    expect([all.spawns, all.spawnOutput]).toEqual([2, 12_000])
+    // An instant bound, so the window is the same in every zone.
+    const late = listUsage(db, { by: 'well', since: '2026-08-31T00:00:00Z', limit: 10 }).rows.find((x) => x.key === '-u-code-a')!
+    expect([late.requests, late.spawns, late.spawnOutput]).toEqual([1, 1, 5000])
+    const early = listUsage(db, { by: 'session', until: '2026-08-31T00:00:00Z', limit: 10 }).rows.find((x) => x.key === 's1')!
+    expect([early.spawns, early.spawnOutput]).toEqual([1, 7000])
+    // Opus served the well's requests; neither spawn ran on it.
+    const opus = listUsage(db, { by: 'well', model: 'opus', limit: 10 }).rows.find((x) => x.key === '-u-code-a')!
+    expect([opus.spawns, opus.spawnOutput]).toEqual([0, 0])
+  })
 })

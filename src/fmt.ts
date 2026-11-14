@@ -131,16 +131,43 @@ function offsetMs(t: number, tz: string): number {
 // a person writes ("since 2026-09-01") and the UTC instants it is compared
 // against. Without it a window and the buckets inside it disagree by the
 // offset, which is the half-migration that makes a page contradict itself.
-// A value that is already a full timestamp is an instant, and passes through.
-// Two passes because the offset at local midnight is not always the offset at
-// the UTC instant of the same clock reading — the DST spring-forward case.
+// A value that is already a full timestamp is an instant, and passes through
+// — in the spelling the index stores (`…T12:00:00.000Z`), because the bounds
+// are compared as STRINGS: `2026-09-07T12:00:00Z` sorts after a stored
+// `…12:00:00.000Z` (`.` < `Z`), so a bound typed without milliseconds
+// excluded the rows at its own second (2026-11-14).
+// Two readings of the offset, because the offset at local midnight is not
+// always the offset at the UTC instant of the same clock reading (the DST
+// spring-forward case), and then a check, because the second reading can be
+// taken on the far side of a transition that happens AT midnight: Santiago
+// on 2026-09-06 has no 00:00, the day begins at 01:00, and the second
+// reading alone put its start at 23:00 the evening before. The day starts
+// at the earliest of the two instants that is actually inside it.
 export function dayStart(d: string, tz = TZ): string {
-  if (d.length > 10) return d
+  if (d.length > 10) {
+    const instant = Date.parse(d)
+    return Number.isNaN(instant) ? d : new Date(instant).toISOString()
+  }
   const naive = Date.parse(`${d}T00:00:00Z`)
   if (Number.isNaN(naive)) return d
-  let t = naive - offsetMs(naive, tz)
-  t = naive - offsetMs(t, tz)
-  return new Date(t).toISOString()
+  const first = naive - offsetMs(naive, tz)
+  const second = naive - offsetMs(first, tz)
+  const inside = [first, second].filter((t) => day(new Date(t).toISOString(), tz) === d)
+  return new Date(inside.length ? Math.min(...inside) : second).toISOString()
+}
+
+// The SQL for a WEEK bucket key over a UTC timestamp column: the ISO week
+// (`2026-W46`: Monday-first, numbered by the year its Thursday falls in) of
+// the LOCAL day, like every other day bucket. Spelled with `%Y` and `%j` on
+// the week's Thursday instead of `%G-W%V`, which says the same thing but
+// needs SQLite 3.46 — and Bun on macOS loads the SYSTEM library, so on an
+// older macOS the key came back NULL and every `--by week` read threw. One
+// definition, because the two modules that bucket by week once disagreed
+// (`%Y-W%W` in both, `'localtime'` in only one — and `%W` splits the week
+// that holds New Year into `2025-W52` and `2026-W00`).
+export function weekKeySql(col: string): string {
+  const thursday = `date(${col}, 'localtime', '-3 days', 'weekday 4')`
+  return `printf('%s-W%02d', strftime('%Y', ${thursday}), (CAST(strftime('%j', ${thursday}) AS INTEGER) - 1) / 7 + 1)`
 }
 
 // ---- the ladder ----------------------------------------------------------
@@ -207,7 +234,10 @@ function ladder(ts: string | null, tz: string, nowMs: number, nowCal: Cal, short
   const age = nowMs - d.getTime()
   if (rel && age >= 0) {
     if (age < 45_000) return 'now'
-    if (age < 60 * MIN) return `${Math.max(1, Math.round(age / MIN))}m ago`
+    // Clamped at 59: rounding alone said "60m ago" for the last thirty
+    // seconds of the hour, the threshold the head hands the clock at
+    // (2026-11-14). style.ts's tick clamps the same way.
+    if (age < 60 * MIN) return `${Math.min(59, Math.max(1, Math.round(age / MIN)))}m ago`
   }
   const t = wall(d, tz)
   const clock = `${t.hh}:${t.mm}`

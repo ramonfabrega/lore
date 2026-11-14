@@ -81,7 +81,7 @@ export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
   const s = trace.session
   const t = trace.totals
   const txs = trace.transactions
-  const fee = feeByClass(txs)
+  const fee = feeByClass(txs, trace.unplaced)
   const num = numbering(txs)
   const view = o.view ?? 'block'
   // The peers this session spoke with — a relay that opened a turn, one read
@@ -112,7 +112,17 @@ export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
     <div class="tiles">
       ${tile(whoOpened(t.turns, txs), String(t.transactions))}
       ${t.sent ? tile(html`<span title="messages this session sent with SendMessage — to peer sessions and to its own spawns${t.lost ? '; a lost one is a send the ack refused (a stale socket after the peer restarted), which the harness never marks an error' : ''}">sent</span>`, t.lost ? `${t.sent} · ${t.lost} lost` : String(t.sent), t.lost ? 'warn' : '') : ''}
-      ${tile('steps', String(t.steps))}
+      ${
+        // Requests no turn holds (trace.ts `unplaced`) are in every total;
+        // the tile says how many, so the spine's step column summing short
+        // of it is explained where the number is read.
+        trace.unplaced.length
+          ? tile(
+              html`<span title="${trace.unplaced.length} request${trace.unplaced.length === 1 ? '' : 's'} no turn holds — a response with nothing to show (a refusal carrying only redacted thinking): counted in steps, tokens and list $, listed in no turn${trace.unplaced.map((r) => `\n${hms(r.ts) || '?'} · ${r.stopReason ?? 'no stop reason'} · ${r.requestId}`).join('')}">steps</span>`,
+              `${t.steps} · ${trace.unplaced.length} unplaced`,
+            )
+          : tile('steps', String(t.steps))
+      }
       ${tile('instructions', String(t.instructions))}
       ${tile('errors', String(t.errors), t.errors > 0 ? 'warn' : '')}
       ${tile('output', tok(t.output))}
@@ -241,23 +251,24 @@ function packLanes(lanes: Lane[]): { rows: Map<Lane, number>; n: number } {
 // ---- the fee bar ------------------------------------------------------
 
 type Fee = FeeSplit & { unpriced: number }
-function feeByClass(txs: Transaction[]): Fee {
+// `unplaced` (trace.ts) are requests no transaction holds; the bar is the
+// session's bill, so they are in it like any other request.
+function feeByClass(txs: Transaction[], unplaced: Trace['unplaced'] = []): Fee {
   const f: Fee = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0, unpriced: 0 }
-  for (const x of txs)
-    for (const r of x.requests ?? []) {
-      // The rate DATE is a vendor fact (when a price changed), not a day in
-      // the reader's life — it stays UTC while the buckets around it go local.
-      const rate = rateFor(r.model, r.ts?.slice(0, 10) ?? null)
-      if (!rate) {
-        f.unpriced++
-        continue
-      }
-      const usd = priceOf(r, rate)
-      f.input += usd.input
-      f.cacheWrite += usd.cacheWrite
-      f.cacheRead += usd.cacheRead
-      f.output += usd.output
+  for (const r of [...txs.flatMap((x) => x.requests ?? []), ...unplaced]) {
+    // The rate DATE is a vendor fact (when a price changed), not a day in
+    // the reader's life — it stays UTC while the buckets around it go local.
+    const rate = rateFor(r.model, r.ts?.slice(0, 10) ?? null)
+    if (!rate) {
+      f.unpriced++
+      continue
     }
+    const usd = priceOf(r, rate)
+    f.input += usd.input
+    f.cacheWrite += usd.cacheWrite
+    f.cacheRead += usd.cacheRead
+    f.output += usd.output
+  }
   return f
 }
 
@@ -390,7 +401,7 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
     <span class="num">${x.output ? tok(x.output) : ''}</span>
     <span class="num">${x.listUsd ? html`${ibar(x.listUsd, o.maxUsd, { of: 'priciest transaction in this session' })}${usd(x.listUsd)}` : ''}</span>
     <span class="num">${x.ms ? html`${ibar(x.ms, o.maxMs, { of: 'longest transaction in this session', fmt: ms })}${ms(x.ms)}` : ''}</span>`
-  const body = x.instructions.length || x.reply || x.notes.length || x.received.length
+  const body = x.instructions.length || x.reply || x.notes.length || x.received.length || x.thoughts.length
   if (!body) return html`<div class="row txn ${x.kind}" id="${id}">${cells}</div>`
   return html`<details class="txn ${x.kind} ${x.message ? 'hasmsg' : ''}" id="${id}" ${o.open ? 'open' : ''}>
     <summary class="row">${cells}</summary>
@@ -522,13 +533,17 @@ function txBody(x: Transaction, openTools: boolean) {
       // A message read after the last instruction sits at cursor `len`; it
       // belongs to the last phase.
       const last = k === phases.length - 1
-      const recv = x.received.filter((r) => r.at >= p.from && (r.at < p.to || (last && r.at === p.to)))
+      const inPhase = (at: number) => at >= p.from && (at < p.to || (last && at === p.to))
+      const recv = x.received.filter((r) => inPhase(r.at))
+      // A phase with no instructions can still hold thinking (a turn that
+      // called nothing, or the run after the last note); it gets its fold.
+      const thinking = x.thoughts.some((t) => inPhase(t.at))
       const say = !p.note
         ? ''
         : p.note.body
           ? html`<div class="md say">${raw(mdBlock(p.note.body))}</div>`
           : html`<p class="note">${raw(mdInline(p.note.text))}</p>`
-      if (!ix.length && !recv.length) return say
+      if (!ix.length && !recv.length && !thinking) return say
       const errs = ix.filter((i) => i.error).length
       const t0 = ix[0]?.ts
       const tail = ix[ix.length - 1]
@@ -539,7 +554,7 @@ function txBody(x: Transaction, openTools: boolean) {
       // there. So a run carrying a message opens with the turn.
       const sends = ix.some((i) => i.tool === 'SendMessage') || recv.some((r) => r.kind !== 'meta')
       return html`${say}<details class="phase ${sends ? 'sends' : ''}" ${openTools || sends ? 'open' : ''}><summary>${toolMix(ix)}<span class="muted small">${
-        ix.length ? `${ix.length} instr` : ''
+        ix.length ? `${ix.length} instr` : recv.length ? '' : 'thinking'
       }${span ? ` · ${ms(span)}` : ''}${errs ? html` · <span class="err">${errs} err</span>` : ''}</span>${
         sends ? html` <span class="kind sent">→ message</span>` : ''
       }</summary>${ixTable(x, p.from, p.to, stepFee, last)}</details>`
@@ -558,8 +573,13 @@ export function toolMix(ix: Instruction[]) {
 export function ixTable(x: Transaction, from: number, to: number, stepFee: Map<string, { output: number; listUsd: number | null; thinking: number; model: string | null }>, tail = false) {
   const rows: H[] = []
   let lastReq: string | null | undefined
-  const thoughts = x.thoughts.filter((t) => t.at >= from && t.at < to)
-  const received = x.received.filter((r) => r.at >= from && (r.at < to || (tail && r.at === to)))
+  // A thought after the last instruction (cursor === len) is the reasoning
+  // before the reply; the last phase (`tail`) owns it exactly as it owns a
+  // message read there. Until 2026-11-14 only `received` had the tail case,
+  // so every turn's closing thought was dropped from the page (review).
+  const inPhase = (at: number) => at >= from && (at < to || (tail && at === to))
+  const thoughts = x.thoughts.filter((t) => inPhase(t.at))
+  const received = x.received.filter((r) => inPhase(r.at))
   for (let i = from; i < to; i++) {
     const ix = x.instructions[i]!
     for (const rv of received) if (rv.at === i) rows.push(receivedRow(rv))
@@ -584,6 +604,7 @@ export function ixTable(x: Transaction, from: number, to: number, stepFee: Map<s
     </tr>`)
   }
   if (tail) for (const rv of received) if (rv.at === to) rows.push(receivedRow(rv))
+  if (tail) for (const th of thoughts) if (th.at === to) rows.push(thoughtRow(th.text))
   return html`<table class="ix">
     <thead><tr><th>at</th><th>tool</th><th>input</th><th class="num">ms</th><th>result</th><th class="num">step out · $</th></tr></thead>
     <tbody>${rows}</tbody>

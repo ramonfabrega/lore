@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { ackHead, relayHead, sentHead, sentMessage } from './envelope'
 import { cutProse } from './fmt'
-import { JOB_KEY_SQL } from './job'
+import { JOB_KEY_SQL, jobKinds, jobNames, jobOfSession, jobsNamed, sessionsOfJobs } from './job'
 import { resolveSessionId } from './session'
 
 // The thread between two agents: every message either sent the other, in
@@ -20,9 +20,14 @@ import { resolveSessionId } from './session'
 // harness writes as `peer` on the other side's rows) or by any session id
 // of the job, which expands to the job through the bridge id.
 
-const SessionIds = z.array(z.object({ sessionId: z.string() }))
-const NAME_JOIN = `LEFT JOIN jobs j ON (s.bridge_key IS NOT NULL AND j.bridge_key = s.bridge_key)
-                          OR j.session_id = s.job_session_id OR j.job_id = substr(s.job_session_id, 1, 8)`
+// A side's sessions are the job's as job.ts keys it (`sessionsOfJobs`), and
+// its name is the job's (`jobNames`). This file kept its own join until
+// 2026-11-14 — a session to its jobs row by `s.bridge_key` or
+// `s.job_session_id` only — and so it never saw a job's FIRST session,
+// which has no pointer and, on an --rc job, no bridge record: the
+// commander's first session dropped out of every thread, and a lane
+// (one such session) could not be named at all (`no indexed session
+// matches "lane-4199"`). The rule lives in one place now.
 
 export type Side = {
   // What was asked for.
@@ -73,10 +78,15 @@ export type Thread = {
 const HEAD = 400
 
 export function resolveSide(db: Database, q: string): Side {
-  const byName = SessionIds.parse(
-    db.prepare(`SELECT s.session_id AS sessionId FROM sessions s ${NAME_JOIN} WHERE j.name = ? ORDER BY s.first_ts, s.session_id`).all(q),
+  // By name: every job the name was ever on — the other side's rows say only
+  // `peer: <name>`, so a thread cannot tell namesakes apart — and the key is
+  // the one that holds the name now (job.ts, jobsNamed).
+  const named = jobsNamed(db, q)
+  const byName = sessionsOfJobs(
+    db,
+    named.map((j) => j.key),
   )
-  if (byName.length) return { query: q, name: q, key: keyOf(db, byName[0]!.sessionId), sessions: byName.map((r) => r.sessionId) }
+  if (byName.length && named[0]) return { query: q, name: q, key: named[0].key, sessions: byName }
   // Not a job name: a session id (or prefix), expanded to its job — or, when
   // it matches no session either, a PEER name the other side's rows carry
   // (`ssh-noti`, `site`: sessions that were never indexed jobs). Such a side
@@ -90,27 +100,9 @@ export function resolveSide(db: Database, q: string): Side {
     if (known.n > 0) return { query: q, name: q, key: null, sessions: [] }
     throw e
   }
-  const me = z
-    .object({ bridgeKey: z.string().nullable(), root: z.string().nullable(), name: z.string().nullable() })
-    .parse(
-      db
-        .prepare(`SELECT s.bridge_key AS bridgeKey, s.job_session_id AS root, j.name AS name FROM sessions s ${NAME_JOIN} WHERE s.session_id = ?`)
-        .get(sid),
-    )
-  const sessions = SessionIds.parse(
-    db
-      .prepare(
-        `SELECT session_id AS sessionId FROM sessions
-         WHERE session_id = ? OR (? IS NOT NULL AND bridge_key = ?) OR (? IS NOT NULL AND job_session_id = ?)
-         ORDER BY first_ts, session_id`,
-      )
-      .all(sid, me.bridgeKey, me.bridgeKey, me.root, me.root),
-  )
-  return { query: q, name: me.name, key: keyOf(db, sid), sessions: sessions.map((r) => r.sessionId) }
-}
-
-function keyOf(db: Database, sessionId: string): string {
-  return z.object({ key: z.string() }).parse(db.prepare(`SELECT ${JOB_KEY_SQL} AS key FROM sessions s WHERE s.session_id = ?`).get(sessionId)).key
+  const job = jobOfSession(db, sid)
+  if (!job) throw new Error(`no indexed session matches "${q}"`)
+  return { query: q, name: jobNames(db)(job.key, job.kind), key: job.key, sessions: sessionsOfJobs(db, [job.key]) }
 }
 
 const SendRow = z.object({ session: z.string(), ts: z.string().nullable(), promptId: z.string().nullable(), toolUseId: z.string().nullable(), text: z.string() })
@@ -347,25 +339,27 @@ export function getThread(db: Database, aq: string, bq: string, opts: { head?: n
 // receiver without a job name is its session id — `getThread` accepts either.
 // Both directions merge into one unordered pair.
 export type ThreadPair = { a: string; b: string; messages: number; first: string | null; last: string | null }
-const PairRow = z.object({ me: z.string(), peer: z.string(), n: z.number(), first: z.string().nullable(), last: z.string().nullable() })
+// A receiver is its JOB (job.ts): named when the job has a name, else one
+// of its session ids, which `getThread` expands back to the whole job.
+const PairRow = z.object({ key: z.string(), sid: z.string(), peer: z.string(), n: z.number(), first: z.string().nullable(), last: z.string().nullable() })
 export function listThreads(db: Database): ThreadPair[] {
   const rows = z.array(PairRow).parse(
     db
       .prepare(
-        `SELECT COALESCE((SELECT j.name FROM jobs j
-                          WHERE (s.bridge_key IS NOT NULL AND j.bridge_key = s.bridge_key)
-                             OR j.session_id = s.job_session_id OR j.job_id = substr(s.job_session_id, 1, 8)
-                          LIMIT 1), s.session_id) AS me,
+        `SELECT ${JOB_KEY_SQL} AS key, MIN(s.session_id) AS sid,
                 m.peer, COUNT(*) AS n, MIN(m.ts) AS first, MAX(m.ts) AS last
          FROM messages m JOIN sessions s ON s.session_id = m.session_id
          WHERE m.lane = 'relay' AND m.peer IS NOT NULL
-         GROUP BY 1, 2`,
+         GROUP BY 1, m.peer`,
       )
       .all(),
   )
+  const names = jobNames(db)
+  const kinds = jobKinds(db)
   const pairs = new Map<string, ThreadPair>()
   for (const r of rows) {
-    const [a, b] = [r.me, r.peer].sort()
+    const me = names(r.key, kinds.get(r.key) ?? 'session') ?? r.sid
+    const [a, b] = [me, r.peer].sort()
     const key = `${a} ${b}`
     const p = pairs.get(key) ?? { a: a!, b: b!, messages: 0, first: null, last: null }
     p.messages += r.n

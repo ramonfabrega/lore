@@ -137,7 +137,8 @@ true, it is a design change, not a bug fix.
   are UTC and stay UTC. A DAY is a human unit — `usage --by day` answers
   "what did I do Tuesday" — so it is LOCAL, at the display edge only
   (`fmt.ts`: `day`/`hms`/`hm`/`zone`/`todayLocal`/`dayStart`, and
-  `date(ts,'localtime')` in the SQL buckets). At UTC-5 a UTC day boundary
+  `date(ts,'localtime')` in the SQL buckets; a WEEK is the ISO week of
+  that local day, one expression for every bucket, `weekKeySql`). At UTC-5 a UTC day boundary
   falls at 7pm and cuts the most active hours in half. The failure mode is
   the HALF migration — localize the buckets, leave a sliced ISO string
   somewhere, and the page contradicts itself — so a window a person writes

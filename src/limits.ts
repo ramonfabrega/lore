@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
+import { dayStart } from './fmt'
 import { listUsage } from './usage'
 
 // The subscription as the account enforces it. `lore usage` prices tokens at
@@ -175,19 +176,40 @@ function scale(u: WindowUsage, factor: number): WindowUsage {
 
 export function readLimits(db: Database, opts: { kind?: string; since?: string; limit: number; now?: string }): LimitsReport {
   const now = opts.now ?? new Date().toISOString()
-  const filter = opts.since ? 'WHERE ts >= ?' : ''
   const cols = 'ts, session_id AS session, kind, pct, resets_at AS resetsAt, source'
   // The kind filter runs after the alias, so either spelling of a window
   // asks for the same one.
   const want = opts.kind ? canon(opts.kind) : null
-  const rows = z
+  // Every reading, whatever `--since` says. The windows are the account's
+  // state NOW and need the whole window's readings: `--since` used to filter
+  // in SQL before the reset detection, so a since that fell between the
+  // reading before a drop and the one after hid the drop, and the row priced
+  // a week's spend against the points since the reset — the 57-USD-a-point
+  // error the reset exists to prevent, back (2026-11-14 review). `--since`
+  // bounds what it says it bounds, the readings listed: `hits` and `history`.
+  // A bare date is the local day (dayStart), an instant passes through.
+  const all = z
     .array(Reading)
-    .parse(db.prepare(`SELECT ${cols} FROM limits ${filter} ORDER BY ts DESC`).all(...(opts.since ? [opts.since] : [])))
+    .parse(db.prepare(`SELECT ${cols} FROM limits ORDER BY ts DESC`).all())
     .map((r) => ({ ...r, kind: canon(r.kind), said: r.kind }))
     .filter((r) => !want || r.kind === want)
+  const since = opts.since ? dayStart(opts.since) : null
+  const rows = since ? all.filter((r) => r.ts >= since) : all
 
+  // The reading a window is shown at: the newest one that names a boundary
+  // still ahead. A reading belongs to the window it NAMES (below), and that
+  // holds here too: a status line still showing LAST week, logged seconds
+  // after another session logged this week's 1%, was the newest reading of
+  // the kind, its boundary was past, and the open week was filed under
+  // `ended` at 97 (2026-11-14 review). Only when no reading names an open
+  // boundary is the newest one the window's last word.
+  const nowMs = Date.parse(now)
+  const open = (r: Reading) => r.resetsAt != null && windowMs(r.kind) != null && Date.parse(r.resetsAt) > nowMs
   const latestByKind = new Map<string, Reading>()
-  for (const r of rows) if (!latestByKind.has(r.kind)) latestByKind.set(r.kind, r)
+  for (const r of all) {
+    const held = latestByKind.get(r.kind)
+    if (!held || (open(r) && !open(held))) latestByKind.set(r.kind, r)
+  }
 
   const windows: LimitWindow[] = []
   const ended: EndedWindow[] = []
@@ -208,7 +230,7 @@ export function readLimits(db: Database, opts: { kind?: string; since?: string; 
     // open this week at 97 and read as a reset.
     const boundary = until ? new Date(until).getTime() : 0
     const sameWindow = (x: Reading) => x.resetsAt != null && Math.abs(new Date(x.resetsAt).getTime() - boundary) < 60_000
-    const inWindow = from && until ? rows.filter((x) => x.kind === r.kind && x.ts >= from && x.ts < until && sameWindow(x)).reverse() : []
+    const inWindow = from && until ? all.filter((x) => x.kind === r.kind && x.ts >= from && x.ts < until && sameWindow(x)).reverse() : []
     const reset = lastReset(inWindow)
     const ledgerFrom = reset ? reset.at : from
     const points = r.pct - (reset?.pct ?? 0)
@@ -247,6 +269,6 @@ export function readLimits(db: Database, opts: { kind?: string; since?: string; 
     history,
     count: rows.length,
     note:
-      'pct is the account\'s own reading (the `limits` mod logs the status line\'s rate_limits on every whole-point move; a 429 in a transcript is a reading of 100). `usage` is the ledger inside the window up to the reading — main-thread requests, lore-visible sessions, list rates; `implied` scales it to 100% and assumes the quota tracks the ledger linearly, which the two recorded 429s say it does NOT by price (same tokens, 2x the dollars) — read `cacheRead`/`output` before `listUsd`. `usdPerPoint` is measured between two mod readings of the same window. A window reset on demand before its boundary (the percent DROPS inside one `resetsAt`: 100 to 0 on 2026-11-12) says so in `reset` — `at` the first reading after the drop, `pct` what it read there, `was`/`wasAt` the reading before — and its `usage`, `implied` and `usdPerPoint` then count from `reset.at`, with `implied` scaled by the points gained since. Each hit names the `rateLimitType` its 429 carried, verbatim. `windows` are the ones OPEN now; a window whose last reading names a boundary already past is in `ended` with that reading and nothing priced (the plan dropped `five_hour` around 2026-10-30, and a week sits there between its boundary and the next reading). A week scoped to one model (`seven_day_fable`: Fable has its own allowance, half the week, and it binds first) names it in `model`, and its `usage`/`implied`/`usdPerPoint` count that model\'s requests alone; a 429 the harness spells `seven_day_overage_included` is that same Fable week and is listed under it. Install the mod: `claude plugin install limits@mods`.',
+      'pct is the account\'s own reading (the `limits` mod logs the status line\'s rate_limits on every whole-point move; a 429 in a transcript is a reading of 100). `usage` is the ledger inside the window up to the reading — main-thread requests, lore-visible sessions, list rates; `implied` scales it to 100% and assumes the quota tracks the ledger linearly, which the two recorded 429s say it does NOT by price (same tokens, 2x the dollars) — read `cacheRead`/`output` before `listUsd`. `usdPerPoint` is measured between two mod readings of the same window. A window reset on demand before its boundary (the percent DROPS inside one `resetsAt`: 100 to 0 on 2026-11-12) says so in `reset` — `at` the first reading after the drop, `pct` what it read there, `was`/`wasAt` the reading before — and its `usage`, `implied` and `usdPerPoint` then count from `reset.at`, with `implied` scaled by the points gained since. Each hit names the `rateLimitType` its 429 carried, verbatim. `windows` are the ones OPEN now; a window whose last reading names a boundary already past is in `ended` with that reading and nothing priced (the plan dropped `five_hour` around 2026-10-30, and a week sits there between its boundary and the next reading); a stale reading that names a boundary already past never moves an open window there. `since` bounds `hits`, `history` and `count` only — the windows always read every reading of the window, so a reset before `since` is still seen. A week scoped to one model (`seven_day_fable`: Fable has its own allowance, half the week, and it binds first) names it in `model`, and its `usage`/`implied`/`usdPerPoint` count that model\'s requests alone; a 429 the harness spells `seven_day_overage_included` is that same Fable week and is listed under it. Install the mod: `claude plugin install limits@mods`.',
   }
 }

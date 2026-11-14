@@ -163,7 +163,9 @@ export function createApp(
       sort,
       well: well ?? null,
       error,
-      ...(result ? { ...result, sessions: result.sessions.map((x) => ({ ...x, models: models.get(x.sessionId) ?? [] })) } : { query: '', sessions: [], hits: 0 }),
+      ...(result
+        ? { ...result, sessions: result.sessions.map((x) => ({ ...x, snippets: x.snippets.map((sn) => ({ ...sn, snippet: snippetText(sn.snippet) })), models: models.get(x.sessionId) ?? [] })) }
+        : { query: '', sessions: [], hits: 0 }),
     }
     if (wantsJson(c.req.raw)) return c.json(data)
     const laneOpt = (v: string, label: string) => html`<label><input type="radio" name="lanes" value="${v}" ${lanes.join(',') === v ? 'checked' : ''}> ${label}</label>`
@@ -436,9 +438,11 @@ export function createApp(
     // The front page's windows are LOCAL days — "today" is the day you are
     // having, not the one Greenwich is. `listUsage` turns each back into the
     // UTC instant of local midnight, so the window and its buckets agree.
+    // "The last n days" is today and the n − 1 before it (lastDays), the
+    // rule `/usage?range=7d` uses.
     const today = todayLocal()
-    const weekAgo = isoDay(Date.now() - 7 * 86_400_000)
-    const since45 = isoDay(Date.now() - 45 * 86_400_000)
+    const weekAgo = lastDays(7)
+    const since45 = lastDays(45)
     // Everything below the roster is a function of the index and the local
     // day: memoized together, keyed on both.
     const { recent, active, todayU, days } = cached('front', 300_000, `${indexKey()}|${today}`, () => {
@@ -561,9 +565,14 @@ export function createApp(
   app.get('/usage', (c) => {
     const db = getDb()
     const w = usageWindow(c.req.query())
-    // "all time" is really "since the first indexed request" — say so.
+    // "all time" is really "since the first indexed request" — say so, as
+    // the LOCAL day it fell on: the label and the pre-filled `since` input
+    // must name the chart's own first bucket. It was `substr(min(ts), 1, 10)`,
+    // the UTC date: a first request at 21:00 in Panama said "since 09-07"
+    // over a chart whose first bar was 09-06, and "go" on the pre-filled form
+    // then dropped that evening (2026-11-14).
     const firstDay = cached('usage.firstDay', 300_000, indexKey(), () =>
-      z.object({ d: z.string().nullable() }).parse(db.prepare('SELECT substr(min(ts), 1, 10) AS d FROM requests').get()).d,
+      day(z.object({ t: z.string().nullable() }).parse(db.prepare('SELECT min(ts) AS t FROM requests').get()).t) || null,
     )
     const q = { since: w.since ?? undefined, until: w.untilExclusive ?? undefined }
     const key = `${indexKey()}|${w.by}|${w.since ?? ''}|${w.until ?? ''}`
@@ -597,7 +606,7 @@ export function createApp(
         ${seg(['7d', '30d', '90d', 'all'], w.range, (r) => href({ range: r, since: null, until: null }))}
         ${seg(['day', 'week', 'month'], w.by, (b) => href({ by: b }))}
         <form method="get" action="/usage" class="range ${w.range === 'custom' ? 'on' : ''}">
-          <input type="date" name="since" value="${w.since ?? firstDay ?? ''}" aria-label="since" /><span class="muted">→</span><input type="date" name="until" value="${w.until ?? isoDay(Date.now())}" aria-label="until" />
+          <input type="date" name="since" value="${w.since ?? firstDay ?? ''}" aria-label="since" /><span class="muted">→</span><input type="date" name="until" value="${w.until ?? todayLocal()}" aria-label="until" />
           ${w.by !== 'day' ? html`<input type="hidden" name="by" value="${w.by}" />` : ''}<button type="submit">go</button>
         </form>
         <span class="sp muted">${label} · ${models.totals.requests.toLocaleString()} requests · ${models.totals.sessions} sessions${models.unpriced.length ? html` · <span class="err">unpriced: ${models.unpriced.join(', ')}</span>` : ''}</span>
@@ -773,10 +782,20 @@ function wantsJson(req: Request): boolean {
 
 
 
-// FTS5 snippet marks come back as « » in escaped text; turn them into <mark>.
-function markSnippet(s: string): string {
+// FTS5 snippet marks come back as U+0002 / U+0003 (search.ts) in the text;
+// escape the text, then turn them into <mark>. They were « », which real
+// transcripts contain: a prompt quoting «arreglalo opened a highlight that
+// ran through the rest of its snippet, two <mark> to one </mark>
+// (2026-11-14). Control characters never reach a transcript's prose.
+export const SNIPPET_OPEN = '\u0002'
+export const SNIPPET_CLOSE = '\u0003'
+export function markSnippet(s: string): string {
   const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return esc.replace(/«/g, '<mark>').replace(/»/g, '</mark>')
+  return esc.replaceAll(SNIPPET_OPEN, '<mark>').replaceAll(SNIPPET_CLOSE, '</mark>')
+}
+// The JSON keeps the « » it has always carried, for readers of `?json=1`.
+function snippetText(s: string): string {
+  return s.replaceAll(SNIPPET_OPEN, '«').replaceAll(SNIPPET_CLOSE, '»')
 }
 
 function shortPath(p: string): string {
@@ -834,26 +853,50 @@ function familiesIn(rows: UsageRow[]): ModelFamily[] {
 // is exclusive, so it gets the day after), and the bucket granularity.
 // Same names as `lore usage`'s flags. Anything unparseable falls back to the
 // default rather than 400ing — a bad URL still shows the profile.
-const DAY = 86_400_000
-const isoDay = (t: number) => day(new Date(t).toISOString())
+// A local day `n` calendar days from `d`, as strings: a day is a date, and a
+// date plus a day is calendar arithmetic, never an instant pushed through a
+// zone. The old `isoDay(Date.parse(until) + DAY)` took the UTC midnight of
+// `until`, added 24 h and read THAT instant's local day — which west of UTC
+// is `until` again, so the "exclusive" bound cut the last day off every
+// custom window and `since=X&until=X` came back empty (2026-11-14, measured
+// at America/Panama; UTC and UTC+14, the zones CI runs, cannot see it). And
+// `now - 6 × 24 h` lands two days back across a DST change; this does not.
+// The dates are read and written through Date.UTC, where no zone exists.
+export function shiftDay(d: string, n: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d)
+  if (!m) return d
+  const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n))
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}`
+}
 const UsageQuery = z.object({
   range: z.enum(['7d', '30d', '90d', 'all']).optional(),
   by: z.enum(['day', 'week', 'month']).optional(),
   since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
-function usageWindow(raw: Record<string, string | undefined>) {
+// `tz` is a parameter so a test can pin the zone the window is read in.
+export function usageWindow(raw: Record<string, string | undefined>, tz = TZ) {
   const clean = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined && v !== ''))
   const parsed = UsageQuery.safeParse(clean)
   const o = parsed.success ? parsed.data : {}
   const by = o.by ?? 'day'
   if (o.since || o.until) {
     const until = o.until ?? null
-    return { range: 'custom' as const, by, since: o.since ?? null, until, untilExclusive: until ? isoDay(Date.parse(until) + DAY) : null }
+    return { range: 'custom' as const, by, since: o.since ?? null, until, untilExclusive: until ? shiftDay(until, 1) : null }
   }
   const range = o.range ?? '90d'
   const days = { '7d': 7, '30d': 30, '90d': 90, all: null }[range]
-  return { range, by, since: days ? isoDay(Date.now() - (days - 1) * DAY) : null, until: null, untilExclusive: null }
+  return { range, by, since: days ? lastDays(days, tz) : null, until: null, untilExclusive: null }
+}
+
+// The first local day of a window of `n` days ending today: today and the
+// n − 1 before it. The front page's "this week" and `/usage?range=7d` are
+// both this, so they count the same requests — the front page used to start
+// at today − 7, eight days, and its week tiles read higher than the usage
+// page's for the same index (2026-11-14).
+export function lastDays(n: number, tz = TZ): string {
+  return shiftDay(todayLocal(tz), -(n - 1))
 }
 
 function bucketChart(rows: UsageRow[], height = 72) {

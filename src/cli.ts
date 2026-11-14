@@ -5,7 +5,7 @@ import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, CODEX_DIR, DB_PATH, DOCS
 import { getConversation } from './conversation'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
-import { harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
+import { compareVersions, harnessChangelog, harnessStatus, readHere, readThere, TOPIC_NAMES } from './harness'
 import { buildIndex } from './indexer'
 import { backfillJobNames, listJobs } from './job'
 import { indexJobs } from './jobs'
@@ -83,7 +83,7 @@ cli.command('sessions', {
     since: z
       .string()
       .optional()
-      .describe('Only sessions with ACTIVITY on/after this ISO date (e.g. 2026-08-01) — heartbeat-only tails do not qualify'),
+      .describe('Only sessions with ACTIVITY on/after this — a date (2026-08-01, the local day) or an ISO instant; heartbeat-only tails do not qualify'),
     limit: z.coerce.number().optional().describe('Max results (takes the newest n, then renders oldest-first). Default 100 — except under --since, where a delta window is sized by it and a silent cap mis-sized two ingests (#29, #32): no cap unless given. `capped` says when the cap bit.'),
   }),
   alias: { well: 'w', limit: 'n' },
@@ -143,7 +143,7 @@ cli.command('session', {
 
 cli.command('trace', {
   description:
-    'One session opened like a block (docs/EXPLORER.md): transactions (one turn and everything until the next), each with its steps (API requests), fee (four token classes + thinking, dated list-price `listUsd`), instructions (tool calls with the paired result\'s latency `ms` and `error` flag), the assistant\'s closing text, and wall time. Zero inference — every field is a transcript field or a join. Accepts a unique id prefix. `--steps` expands each transaction\'s requests (model, stop reason, per-request fee). Top level: `models` (what served the session, most requests first), `spawns` (the fan-out ledger — agent type x verified model x output tokens) and `lanes` (the OTHER fan-out: jobs this session spawned — `ccc spawn`, a backgrounded claude — from ccc\'s spawn ledger where it holds the spawn, else read off the spawn answer in this session\'s transcript, each a job as `lore jobs` lists it: state as of the last index and `gone` once reaped, spawn instant, its own first → last, model, requests, list price, opener; `totals.lanes`/`totals.laneUsd` sum them, and `listUsd` + `laneUsd` is what the run cost — a commander\'s page said `spawns: 0` for twenty lanes and $532 until this existed); each transaction carries the `model` that served most of its steps. `kind` says who opened the turn — `prompt` (the user typed it), `command` (a slash command), `relay` (another SESSION sent it) or `meta` (a harness injection, which opened nothing); `totals.turns` counts each kind, since `totals.transactions` alone reads a commander run where the user typed once and 44 lanes reported in as a 46-message conversation, and `totals.sent`/`lost` count the SendMessage calls it made and the ones the ack refused. `prompt` is the message with the harness envelope taken off and `tag` names what was taken off: the peer for a relay, the injection kind (`task`, `stdout`, `image`, `skill`) for meta. The raw record stays in the index — `lore session --lane relay` still shows it whole. A turn also has an INBOUND half that did not open it: `received[]` is every message read WHILE the turn ran — a peer\'s message (`kind: relay`, `tag` the peer), the user\'s own words typed mid-turn (`kind: prompt`), a task notification (`kind: meta`) — placed at its position among the instructions (`at`), the way `sent[]` places the SendMessage calls; on a long turn most of a peer thread arrives this way. `sent[].agent` is set when the address was one of the session\'s own spawns (a subagent follow-up, not a relay). Top-level `classes` says what the requests were SPENT ON — per tool class (`poll` a per-turn read of a background task\'s output file; `wait` a blocking one — Monitor, or an until/while loop around a sleep in ONE call, the cheap honest shape; `idle` a turn that ran nothing at all; `read`, `write`, `shell`, `spawn`, `relay`, `other`; `text` a request that called nothing), requests, output, `listUsd` and `share`; a request with several calls takes the highest class, poll first, so its share is a measurement, not a floor. Every request costs about the same whatever it does, so this is the lever a lane or a worker has. Top-level `polls` is the polling shape: `runs`/`longest`/`inRuns` count CONSECUTIVE reads of the same task file (a live guard\'s shape — refuse the third), `rereads` every read past the first however interleaved (the lint\'s), `medianGapS` the seconds between adjacent re-reads. Top-level `idle` is the other half of what waiting cost: turns that ran NOTHING (`true`, `:`, `echo waiting`) while a notification was already owed — `idles` from the first, since there is no honest idle turn, `longestIdle` separating a loop from sloppiness, `medianIdleGapS` the API round trip. A `true` reads no file, so a session can idle for hours with `polls.reads` at zero. `lore polls` is both over many sessions.',
+    'One session opened like a block (docs/EXPLORER.md): transactions (one turn and everything until the next), each with its steps (API requests), fee (four token classes + thinking, dated list-price `listUsd`), instructions (tool calls with the paired result\'s latency `ms` and `error` flag), the assistant\'s closing text, and wall time. Zero inference — every field is a transcript field or a join. Accepts a unique id prefix. `--steps` expands each transaction\'s requests (model, stop reason, per-request fee). Top-level `unplaced` lists requests no transaction holds (a response with nothing to index, such as a refusal carrying only redacted thinking); they count in `totals` and `classes`. Top level: `models` (what served the session, most requests first), `spawns` (the fan-out ledger — agent type x verified model x output tokens) and `lanes` (the OTHER fan-out: jobs this session spawned — `ccc spawn`, a backgrounded claude — from ccc\'s spawn ledger where it holds the spawn, else read off the spawn answer in this session\'s transcript, each a job as `lore jobs` lists it: state as of the last index and `gone` once reaped, spawn instant, its own first → last, model, requests, list price, opener; `totals.lanes`/`totals.laneUsd` sum them, and `listUsd` + `laneUsd` is what the run cost — a commander\'s page said `spawns: 0` for twenty lanes and $532 until this existed); each transaction carries the `model` that served most of its steps. `kind` says who opened the turn — `prompt` (the user typed it), `command` (a slash command), `relay` (another SESSION sent it) or `meta` (a harness injection, which opened nothing); `totals.turns` counts each kind, since `totals.transactions` alone reads a commander run where the user typed once and 44 lanes reported in as a 46-message conversation, and `totals.sent`/`lost` count the SendMessage calls it made and the ones the ack refused. `prompt` is the message with the harness envelope taken off and `tag` names what was taken off: the peer for a relay, the injection kind (`task`, `stdout`, `image`, `skill`) for meta. The raw record stays in the index — `lore session --lane relay` still shows it whole. A turn also has an INBOUND half that did not open it: `received[]` is every message read WHILE the turn ran — a peer\'s message (`kind: relay`, `tag` the peer), the user\'s own words typed mid-turn (`kind: prompt`), a task notification (`kind: meta`) — placed at its position among the instructions (`at`), the way `sent[]` places the SendMessage calls; on a long turn most of a peer thread arrives this way. `sent[].agent` is set when the address was one of the session\'s own spawns (a subagent follow-up, not a relay). Top-level `classes` says what the requests were SPENT ON — per tool class (`poll` a per-turn read of a background task\'s output file; `wait` a blocking one — Monitor, or an until/while loop around a sleep in ONE call, the cheap honest shape; `idle` a turn that ran nothing at all; `read`, `write`, `shell`, `spawn`, `relay`, `other`; `text` a request that called nothing), requests, output, `listUsd` and `share`; a request with several calls takes the highest class, poll first, so its share is a measurement, not a floor. Every request costs about the same whatever it does, so this is the lever a lane or a worker has. Top-level `polls` is the polling shape: `runs`/`longest`/`inRuns` count CONSECUTIVE reads of the same task file (a live guard\'s shape — refuse the third), `rereads` every read past the first however interleaved (the lint\'s), `medianGapS` the seconds between adjacent re-reads. Top-level `idle` is the other half of what waiting cost: turns that ran NOTHING (`true`, `:`, `echo waiting`) while a notification was already owed — `idles` from the first, since there is no honest idle turn, `longestIdle` separating a loop from sloppiness, `medianIdleGapS` the API round trip. A `true` reads no file, so a session can idle for hours with `polls.reads` at zero. `lore polls` is both over many sessions.',
   args: z.object({
     id: z.string().describe('Session id or unique prefix (see the sessions listing or `usage --by session`)'),
   }),
@@ -267,7 +267,7 @@ cli.command('spawns', {
       .optional()
       .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     agent: z.string().optional().describe('Filter to this agentType (e.g. lore-miner, general-purpose)'),
-    since: z.string().optional().describe('Only spawns on/after this ISO date (e.g. 2026-07-15)'),
+    since: z.string().optional().describe('Only spawns on/after this — a date (2026-07-15, the local day) or an ISO instant'),
     workflow: z
       .string()
       .optional()
@@ -344,7 +344,7 @@ cli.command('workflows', {
       .optional()
       .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     name: z.string().optional().describe('Filter to runs whose workflow name contains this substring'),
-    since: z.string().optional().describe('Only runs recorded on/after this ISO date (e.g. 2026-07-15)'),
+    since: z.string().optional().describe('Only runs recorded on/after this — a date (2026-07-15, the local day) or an ISO instant'),
     limit: z.coerce.number().default(25).describe('Max run rows (the rollup always covers all matches)'),
   }),
   alias: { well: 'w', limit: 'n' },
@@ -370,7 +370,7 @@ cli.command('tools', {
       .boolean()
       .optional()
       .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
-    since: z.string().optional().describe('Only invocations on/after this ISO date (e.g. 2026-06-17)'),
+    since: z.string().optional().describe('Only invocations on/after this — a date (2026-06-17, the local day) or an ISO instant'),
     prefix: z
       .string()
       .optional()
@@ -400,13 +400,14 @@ cli.command('polls', {
       .boolean()
       .optional()
       .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
-    since: z.string().optional().describe('Only sessions active on/after this ISO date (activity, not heartbeats)'),
+    since: z.string().optional().describe('Only sessions active on/after this — a date (the local day) or an ISO instant; activity, not heartbeats'),
+    until: z.string().optional().describe('Only sessions that began before this — a date (the local day) or an ISO instant'),
     limit: z.coerce.number().default(50).describe('Max rows (totals cover every matching session)'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
-    return listPolls(db, { well: options.well, exact: options.exact, since: options.since, limit: options.limit })
+    return listPolls(db, { well: options.well, exact: options.exact, since: options.since, until: options.until, limit: options.limit })
   },
 })
 
@@ -458,8 +459,8 @@ cli.command('usage', {
       .describe('Match --well exactly — the WHOLE well dir or real path from `lore wells`, never a fragment (the ~/code root well is a prefix of every other well, so LIKE cannot isolate it)'),
     session: z.string().optional().describe('Filter to one session id (or prefix) — the per-conversation profile'),
     model: z.string().optional().describe('Filter to models containing this substring (e.g. fable, opus-5, sonnet)'),
-    since: z.string().optional().describe('Only requests on/after this ISO date (e.g. 2026-08-28)'),
-    until: z.string().optional().describe('Only requests before this ISO date (exclusive)'),
+    since: z.string().optional().describe('Only requests on/after this — a date (2026-08-28, the local day) or an ISO instant'),
+    until: z.string().optional().describe('Only requests before this — a date (its local midnight, exclusive) or an ISO instant'),
     limit: z.coerce.number().default(50).describe('Max rows (totals cover every matching row, not just the page)'),
   }),
   alias: { by: 'b', well: 'w', session: 's', model: 'm', limit: 'n' },
@@ -483,7 +484,7 @@ cli.command('limits', {
     'The subscription as the account enforces it: each rate-limit window (`five_hour`, `seven_day`, and every week scoped to one model — `seven_day_fable`: Fable has its own allowance, half the week, and it binds first) at its latest reading — `pct` used, when it resets — beside the token ledger over the SAME window up to that reading (`usage`: requests, cacheRead, output, listUsd), and `implied`, that usage scaled to 100%. A scoped week names its `model` and its ledger is that model\'s requests alone; a 429 the harness spells `seven_day_overage_included` is the Fable week and is listed as `seven_day_fable`. `lore usage` prices tokens at list rates and the user\'s budget is a PERCENT of a weekly allowance nobody publishes; the two never mapped (two recorded 429s said a week ≈ 4.8B cache-read tokens whatever the list price; a /usage reading the same month implied half) — so this measures the exchange rate instead of believing one. `usdPerPoint` is list dollars per percent between two readings of one window. A window reset on demand before its boundary — the percent drops inside one `resetsAt` — carries `reset` (`at`, the first reading after the drop; `pct` there; `was`/`wasAt` the reading before), and its ledger, `implied` and `usdPerPoint` restart at `reset.at`: a week\'s spend over a day\'s percent read 57 USD a point on 2026-11-13 against 15 to 22 measured. Each of `hits` names the `rateLimitType` its 429 carried, verbatim. `windows` holds only the windows OPEN now: one whose last reading names a boundary already past is listed in `ended` with that reading and no ledger — the plan dropped `five_hour` around 2026-10-30 and its last reading was shown as a live window for two weeks. Readings come from the `limits` table: the `limits` mod (mods repo) appends the status line\'s rate_limits, and the per-model weeks the usage endpoint answers, to ~/.lore/limits.jsonl on every whole-point move, and every 429 a transcript carries is a reading of 100 (`hits`). The window is anchored on `resetsAt`, read off the data — nothing hardcodes a weekday. Populated by `lore index`; install the mod with `claude plugin install limits@mods`.',
   options: z.object({
     kind: z.string().optional().describe('One window: five_hour, seven_day, or a scoped week such as seven_day_fable'),
-    since: z.string().optional().describe('Only readings on/after this ISO instant'),
+    since: z.string().optional().describe('Only hits and history on/after this — a date (the local day) or an ISO instant. The windows always read every reading of their window, so a reset before it is still seen'),
     limit: z.coerce.number().default(20).describe('Max history rows and hits'),
   }),
   alias: { kind: 'k', limit: 'n' },
@@ -495,8 +496,11 @@ cli.command('limits', {
 
 // The explorer (docs/EXPLORER.md): one hono app, three surfaces. `serve`
 // binds the pages AND, on a 404, falls through to the CLI as a fetch handler
-// (incur's `Bun.serve(cli)` shape — every read verb a route, spec at
-// /openapi.json; writers blocked). `api` mounts the pages as CLI commands via
+// (incur's `Bun.serve(cli)` shape — the verbs in web.ts READ_VERBS and
+// READ_DOCS are routes, spec at /openapi.json; everything else 404s). The
+// `serve` description names that list, and must change with it: it said
+// "the read verbs" until 2026-11-14 while thread, conversation, loop, polls
+// and limits 404ed. `api` mounts the pages as CLI commands via
 // incur's fetch mount, forcing JSON so agents get data, not markup. `server`
 // is the launchd wrapper that keeps `serve` alive.
 // The server drives the index refresh (see `serve --refresh`); this holder
@@ -514,7 +518,7 @@ const web = createApp(heldDb, { build: BUILD_INFO, indexed })
 
 cli.command('serve', {
   description:
-    'Serve the explorer (docs/EXPLORER.md) in the foreground: / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee), /agents the live roster as a fleet tree, /job/<key> one background agent across its sessions, /run/<id> one workflow run, /thread/<a>/<b> the messages between two agents, /search, and /s/<trailer> from a commit to its transcript; every page answers JSON with ?json=1. Under /cli/ the read verbs are routes with the JSON envelope (GET /cli/usage?by=week, GET /cli/trace/<id>, spec at /cli/openapi.json); writers (archive, index, wiki commit…) are not exposed. `--host auto` binds the Tailscale address so the tailnet reaches http://<host>:<port>/ without binding the LAN; 0.0.0.0 when there is none. For always-on, use `lore server up`.',
+    'Serve the explorer (docs/EXPLORER.md) in the foreground: / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee), /agents the live roster as a fleet tree, /job/<key> one background agent across its sessions, /run/<id> one workflow run, /thread/<a>/<b> the messages between two agents, /search, and /s/<trailer> from a commit to its transcript; every page answers JSON with ?json=1. Under /cli/ these verbs are routes with the JSON envelope, and only these: wells, sessions, session, trace, usage, search, spawns, workflows, tools, stats, agents, jobs, docs search and docs list (GET /cli/usage?by=week, GET /cli/trace/<id>, spec at /cli/openapi.json). Every other verb answers 404 there, the writers (archive, index, purge, wiki commit…) and also thread, conversation, loop, polls, limits, worktrees and harness: run those as commands, or read the page (/thread/<a>/<b>). `--host auto` binds the Tailscale address so the tailnet reaches http://<host>:<port>/ without binding the LAN; 0.0.0.0 when there is none. For always-on, use `lore server up`.',
   options: z.object({
     port: z.coerce.number().default(4949).describe('Port'),
     host: z.string().default('auto').describe('Bind address: auto (Tailscale IP, else 0.0.0.0), 127.0.0.1 (this machine only), or an address'),
@@ -626,9 +630,9 @@ cli.command('api', {
 
 cli.command('worktrees', {
   description:
-    'The worktree inventory: every checkout the harness minted under a repo\'s `.claude/worktrees/` (and Codex\'s under `~/.codex/worktrees/<id>/<repo>`), largest first, with what a prune decision needs and nothing decided for you — `registered` (git still lists it; false is an ORPHAN dir a prune or a hand delete left behind, which git can no longer remove: `rm -rf` it), `branch`/`head`/`lastCommit` (UTC), `dirty` (porcelain lines; 0 is clean), `base` (the repo\'s default branch the next two are read against), `ancestor` (HEAD reachable from base: a plain merge), `landed` (every commit beyond base has an EQUIVALENT PATCH there, `git cherry` — a squash merge or a cherry-pick, which `ancestor` cannot see: on 2026-10-15 none of cuanto\'s 22 read as ancestors and 12 were merged PRs, and 29 of attrition\'s lanes had been cherry-picked into the queue branch), `pr` (GitHub\'s word on the branch, `MERGED#5195`, only with --pr: one `gh` call per branch), and `pids` (processes whose working directory is INSIDE it — a dev server left running is why a removed worktree keeps its swap). `orphanProcesses` is the other half: every process whose working directory no longer exists, a worktree or a job\'s tmp dir closed under it (five found on the first run: a 9-day Rails preloader, a 19-day adb server, two Expo servers in a worktree already deleted). Model-free; changes nothing — `git worktree remove` for a registered row, `rm -rf` + `git worktree prune` for an orphan or a tree with submodules, `kill` for a pid, are a person\'s to type. Byte sizes come from `du`, so a run over a hundred worktrees takes a minute.',
+    'The worktree inventory: every checkout the harness minted under a repo\'s `.claude/worktrees/` (and Codex\'s under `~/.codex/worktrees/<id>/<repo>`), largest first, with what a prune decision needs and nothing decided for you — `registered` (git still lists it; false is an ORPHAN dir a prune or a hand delete left behind, which git can no longer remove: `rm -rf` it; a dir there with no `.git` at all, such as a stray node_modules, is also false, with every git field null), `branch`/`head`/`lastCommit` (UTC), `dirty` (porcelain lines; 0 is clean), `base` (the repo\'s default branch the next two are read against), `ancestor` (HEAD reachable from base: a plain merge), `landed` (the work is in base though HEAD is not reachable from it: every commit beyond base has an EQUIVALENT PATCH there, `git cherry`, which sees a cherry-pick or a one-commit squash, or every path the branch changed since the merge-base reads the same in base as at HEAD, which sees a squash of many commits, though a squash whose files base edited again afterwards still reads not landed. `ancestor` sees neither: on 2026-10-15 none of cuanto\'s 22 read as ancestors and 12 were merged PRs, and 29 of attrition\'s lanes had been cherry-picked into the queue branch), `pr` (GitHub\'s word on the branch, `MERGED#5195`, only with --pr: one `gh` call per branch), and `pids` (processes whose working directory is INSIDE it — a dev server left running is why a removed worktree keeps its swap). `orphanProcesses` is the other half: every process whose working directory no longer exists, a worktree or a job\'s tmp dir closed under it (five found on the first run: a 9-day Rails preloader, a 19-day adb server, two Expo servers in a worktree already deleted). Model-free; changes nothing — `git worktree remove` for a registered row, `rm -rf` + `git worktree prune` for an orphan or a tree with submodules, `kill` for a pid, are a person\'s to type. Repos are found at any depth up to four under the code dir (`~/code/mirador` and `~/code/games/rs/runelite-mobile` as well as `~/code/fun/lore`). Byte sizes come from `du`, so a run over a hundred worktrees takes a minute; `--repo` narrows before any of it runs.',
   options: z.object({
-    repo: z.string().optional().describe('Only worktrees whose repo key (`fun/attrition`) or path contains this'),
+    repo: z.string().optional().describe('Only worktrees whose repo key (`fun/attrition`) or path contains this. Applied before du, git and gh run, so a narrowed run sizes and asks GitHub about its own worktrees only (Codex worktrees are read with git first, since their repo is known only from git)'),
     pr: z.boolean().optional().describe('Ask GitHub for each branch\'s PR state (one `gh pr list` per branch; needs `gh auth`)'),
   }),
   run: async ({ options }) => listWorktrees({ codeDir: CODE_DIR, codexDir: CODEX_DIR, repo: options.repo, pr: options.pr }),
@@ -653,14 +657,19 @@ const KINDS = ['added', 'fixed', 'improved', 'changed', 'removed', 'other'] as c
 
 harness.command('status', {
   description:
-    'Is there a new Claude Code, and what would taking it disturb. `installed` is read off the `claude` symlink (the native install links to `versions/<version>`); `channels` are the two the native installer reads, each with its release date; `behind` counts the releases between installed and latest, and `pending` is one row per such release — entries, how many apply to the terminal CLI (`cli`), their `kinds` (added/fixed/improved/changed/removed) and the fleet `topics` they touch, so you know where to read before reading. `daemon` and `workers` are what is RUNNING: both keep the binary they started with, so a version there that differs from `installed` is an agent still on the old one, and the worker rows (name, state, tempo) are who an install would bounce — an update restarts the daemon under all of them. `onDisk` is what `claude install <version>` can roll back to without a download. `autoUpdate` reads settings.json `env.DISABLE_AUTOUPDATER`. Each remote source fails alone into `warnings`. The install itself is typed in a plain terminal at a rest point (`claude install <version>`), never from a background session: that session lives under the daemon the install restarts.',
+    'Is there a new Claude Code, and what would taking it disturb. `installed` is read off the `claude` symlink (the native install links to `versions/<version>`); `channels` are the two the native installer reads, each with its release date; `behind` counts the releases between installed and latest that the changelog has a section for (a latest channel with no section yet is a warning, never a silent 0), and `pending` is one row per such release — entries, how many apply to the terminal CLI (`cli`), their `kinds` (added/fixed/improved/changed/removed) and the fleet `topics` they touch, so you know where to read before reading. `daemon` and `workers` are what is RUNNING: both keep the binary they started with, so a version there that differs from `installed` is an agent still on the old one, and the worker rows (name, state, tempo) are who an install would bounce — an update restarts the daemon under all of them. `onDisk` is what `claude install <version>` can roll back to without a download. `autoUpdate` reads settings.json `env.DISABLE_AUTOUPDATER`. Each remote source fails alone into `warnings`. The install itself is typed in a plain terminal at a rest point (`claude install <version>`), never from a background session: that session lives under the daemon the install restarts.',
   run: async (c) => {
     const [here, there] = await Promise.all([readHere({ claudeDir: CLAUDE_DIR, bin: Bun.which('claude') }), readThere()])
     const status = harnessStatus(here, there)
+    // Ahead by the CHANNEL, not by `behind`: `behind` counts changelog
+    // headings and read 0 while the latest channel was a release ahead with
+    // no changelog section yet (harness.ts warns; 2026-11-14).
+    const latest = status.channels.latest?.version
+    const ahead = status.behind > 0 || (status.installed != null && latest != null && compareVersions(status.installed, latest) < 0)
     return c.ok(status, {
-      cta: status.behind
+      cta: ahead
         ? {
-            description: `${status.behind} release(s) behind:`,
+            description: status.behind ? `${status.behind} release(s) behind:` : `latest ${latest} is ahead of installed ${status.installed}, with no changelog entry yet:`,
             commands: [
               { command: 'harness changelog', description: 'What they change for the terminal CLI' },
               { command: 'harness changelog --kind changed', description: 'Behaviour that moved — read these first' },
@@ -697,7 +706,7 @@ cli.command('jobs', {
     'The jobs: every background agent the index knows, live or long deleted, newest activity first — one row per JOB, which is an agent over time across /clears and daemon respawns (CLAUDE.md, the three ids), not per session and not per well. Keyed on the bridge id (`key`, the id in commit trailers and every transcript), which survives everything; the root for pre-bridge sessions; an interactive session is its own one-session job (`--all` includes them). `name` is a property, not the key: `nameSource` says whose word it is — `state` (the daemon\'s state.json, so `jobId` and `state` are set — and `state` reads `gone` once the daemon has deleted the job: the row outlives its source, its last live state does not) or `peer` (the daemon has forgotten the job; the name is what the other side of its threads called it, recovered through msg_id). `incarnations` counts the roots under the bridge (every respawn minted one); `wells` is where its sessions live (a job crosses worktrees); `peers` every agent it exchanged messages with (`lore thread <name> <peer>`); `latest` the newest session and its opener — what the job is on now. `lore api job <key>` (or a name, a session id, the daemon id) is one job with its sessions. `repo` is where the job works, a worktree folded into its base checkout; `parent` is the job that SPAWNED it — from ccc\'s spawn ledger first (one line per `ccc spawn`, written by ccc with the caller\'s job, session and bridge id; indexed by `lore index`), and for edges older than the ledger or spawns that never went through ccc, read off the parent\'s transcript (a `ccc spawn --json` answer carries the child\'s daemon id; the harness\'s own `backgrounded · <id>` line does too). The daemon records no parentage, and a child whose transcript is not indexed has no edge yet. The agents page groups on `repo` and hangs each job under its `parent`: the fleet tree.',
   options: z.object({
     all: z.boolean().optional().describe('Include interactive sessions as one-session jobs'),
-    since: z.string().optional().describe('Only jobs active since this ISO date (by last activity)'),
+    since: z.string().optional().describe('Only jobs active since this — a date (the local day) or an ISO instant, by last activity'),
     limit: z.coerce.number().default(200).describe('Max rows'),
   }),
   alias: { limit: 'n' },

@@ -67,18 +67,16 @@ export async function wikiInit(wikiDir: string): Promise<WikiInitResult> {
   await git(wikiDir, 'add', '-A')
   // Identity from the user's git config when present; a fallback so init
   // works on a machine that has never committed (the first thing a stranger
-  // runs), without writing config anywhere.
-  const commit = await git(
-    wikiDir,
-    '-c',
-    'user.name=lore',
-    '-c',
-    'user.email=lore@localhost',
-    'commit',
-    '-q',
-    '-m',
-    'lore wiki init: the schema, the map, the log',
-  )
+  // runs), without writing config anywhere. The fallback is per key and only
+  // for a key the config lacks: `-c` OVERRIDES config, and until 2026-11-14
+  // both were passed unconditionally, so every wiki's first commit was
+  // authored `lore` whatever the user had configured.
+  const fallback: string[] = []
+  for (const [key, value] of [['user.name', 'lore'], ['user.email', 'lore@localhost']] as const) {
+    const set = await git(wikiDir, 'config', key)
+    if (!set.ok || !set.out) fallback.push('-c', `${key}=${value}`)
+  }
+  const commit = await git(wikiDir, ...fallback, 'commit', '-q', '-m', 'lore wiki init: the schema, the map, the log')
   if (!commit.ok) throw new Error(`initial commit failed in ${wikiDir}`)
   return { dir: wikiDir, files, sha: (await git(wikiDir, 'rev-parse', '--short', 'HEAD')).out }
 }

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { z } from 'zod'
 
 export type SessionFile = { sessionId: string; path: string; size: number; mtimeMs: number }
 
@@ -28,14 +29,23 @@ export async function listWells(projectsDir: string): Promise<Well[]> {
     for (const f of readdirSync(path)) {
       if (!f.endsWith('.jsonl')) continue
       const p = join(path, f)
-      const fst = statSync(p)
+      // A transcript can vanish between the readdir and the stat: worktree
+      // entry MOVES the file to another well (CLAUDE.md), and that races a
+      // running index. Unguarded, one ENOENT aborted the whole scan
+      // (2026-11-14 review); the next index finds the file where it landed.
+      let fst
+      try {
+        fst = statSync(p)
+      } catch {
+        continue
+      }
       sessions.push({ sessionId: f.slice(0, -'.jsonl'.length), path: p, size: fst.size, mtimeMs: fst.mtimeMs })
     }
     sessions.sort((a, b) => b.mtimeMs - a.mtimeMs)
     wells.push({
       dir: name,
       path,
-      realPath: (await resolveRealPath(sessions)) ?? deslugWellDir(name),
+      realPath: (await resolveRealPath(name, sessions)) ?? deslugWellDir(name),
       // Detects wells born in Claude Code's own worktree home
       // (<repo>/.claude/worktrees/, where EnterWorktree puts them) — worktrees
       // added elsewhere by hand read as regular wells.
@@ -137,19 +147,44 @@ export function isAbsolute(path: string): boolean {
   return /^([/\\]|[A-Za-z]:[/\\])/.test(path)
 }
 
-// Peek the head of the newest session files for a record carrying `cwd` — the
-// only trustworthy source for the well's real project path.
-async function resolveRealPath(sessions: SessionFile[]): Promise<string | null> {
-  for (const s of sessions.slice(0, 3)) {
-    const head = await Bun.file(s.path).slice(0, 65_536).text()
-    for (const line of head.split('\n')) {
+// The well's real project path, off the records' own `cwd` — but a cwd is
+// only a CANDIDATE until it slugs back to the well's dir (CLAUDE.md: a slug
+// is verified, never trusted). Records do not all carry the well's path: a
+// mid-session worktree entry moves the whole transcript into the worktree's
+// well, pre-entry records included, so a moved file OPENS with the parent's
+// cwd. Taking the first cwd in the newest file's head gave 117 of 1,780 real
+// wells a path that did not slug to their dir (2026-11-14 review): ~90 cuanto
+// worktrees read as ~/code/work/cuanto, so `--well <path> --exact` summed
+// them all as one, and two root wells read as one of their worktrees.
+//
+// Newest session first; in each, the tail before the head — the tail is
+// where the session is NOW, which is the well its file sits in. The first
+// cwd that verifies wins. None verifying leaves the path to deslugWellDir
+// (which walks the disk) or unknown, never wrong.
+const SLICE = 65_536
+const CwdLine = z.object({ cwd: z.string() })
+
+async function resolveRealPath(dir: string, sessions: SessionFile[]): Promise<string | null> {
+  for (const s of sessions) {
+    let tail: string
+    let head: string
+    try {
+      const file = Bun.file(s.path)
+      head = await file.slice(0, SLICE).text()
+      tail = s.size > SLICE ? await file.slice(s.size - SLICE).text() : ''
+    } catch {
+      continue // moved or deleted mid-scan, as above
+    }
+    for (const line of [...tail.split('\n').reverse(), ...head.split('\n')]) {
       if (!line.includes('"cwd"')) continue
+      let parsed: unknown
       try {
-        const cwd = JSON.parse(line).cwd
-        if (typeof cwd === 'string' && isAbsolute(cwd)) return cwd
+        parsed = JSON.parse(line)
       } catch {
-        // partial last line of the head slice — ignore
+        continue // a slice cuts its first and last lines
       }
+      const r = CwdLine.safeParse(parsed)
+      if (r.success && isAbsolute(r.data.cwd) && slugWellDir(r.data.cwd) === dir) return r.data.cwd
     }
   }
   return null

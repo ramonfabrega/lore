@@ -326,6 +326,37 @@ describe('limits: a window reset on demand', () => {
     ])
   })
 
+  // 2026-11-14 review: `--since` filtered the readings before the reset
+  // detection, so a since between the 100 and the 0 hid the drop and the
+  // ledger counted from the window's start again — a3 and a1/a2 back in.
+  test('a --since that falls after the drop does not erase the reset', async () => {
+    const db = await seed()
+    const whole = readLimits(db, { limit: 20, now: NOV }).windows.find((w) => w.kind === 'seven_day')!
+    const since = readLimits(db, { limit: 20, now: NOV, since: '2026-11-12T04:11:30.000Z' })
+    const week = since.windows.find((w) => w.kind === 'seven_day')!
+    expect(week.reset).toEqual(whole.reset)
+    expect(week.usage).toEqual(whole.usage)
+    expect(week.usage).toMatchObject({ requests: 4, cacheRead: 700_000_000 })
+    // What --since does bound: the readings it lists.
+    expect(since.history.every((h) => h.ts >= '2026-11-12T04:11:30.000Z')).toBe(true)
+    expect(since.hits).toEqual([])
+  })
+
+  // 2026-11-14 review: the newest reading of a kind picked the window, so a
+  // stale status line naming last week, logged seconds after this week's
+  // first reading, filed the open week under `ended` at 97.
+  test('a stale reading naming a past boundary, logged last, does not end the open week', () => {
+    const db = openDb(':memory:')
+    db.prepare(
+      "INSERT INTO limits(ts, session_id, kind, pct, resets_at, source) VALUES ('2026-11-07T11:00:02.000Z','a','seven_day',1,'2026-11-14T11:00:00.000Z','mod'), ('2026-11-07T11:00:05.000Z','stale','seven_day',97,'2026-11-07T11:00:00.000Z','mod')",
+    ).run()
+    const r = readLimits(db, { limit: 10, now: '2026-11-07T11:30:00.000Z' })
+    expect(r.windows.map((w) => [w.kind, w.pct, w.until])).toEqual([['seven_day', 1, '2026-11-14T11:00:00.000Z']])
+    expect(r.ended).toEqual([])
+    // Both readings are still history.
+    expect(r.history.map((h) => h.pct)).toEqual([97, 1])
+  })
+
   test('a reading that names LAST week, logged after this week began, opens nothing and resets nothing', async () => {
     const db = openDb(':memory:')
     db.prepare(

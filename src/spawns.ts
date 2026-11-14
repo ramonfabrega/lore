@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { dayStart, weekKeySql } from './fmt'
 import { modelDrift } from './model'
 
 // The spawn observatory (lore#5): every subagent leaves a transcript at
@@ -236,6 +237,20 @@ export async function indexSpawns(
       const rec = AssistantRecord.safeParse(raw)
       if (!rec.success) continue
       const msg = rec.data.message
+      // `<synthetic>` is the harness standing in for the model (an API
+      // error, a usage-limit refusal): no request behind it, usage all 0,
+      // `stop_reason: stop_sequence`. parse.ts skips it; this loop took it
+      // for the first request, so a spawn refused at its first call was
+      // "served" by `<synthetic>`, flagged as drift and counted one request
+      // (review 2026-11-14). It is no request and no model — but it IS the
+      // record the spawn ended on, so it still closes the run (a refused
+      // spawn ended; it is not in flight) and reopens any handback.
+      if (msg.model?.startsWith('<')) {
+        lastStopReason = msg.stop_reason ?? null
+        handbackId = null
+        handbackDelivered = false
+        continue
+      }
       const reqId = msg.id ?? `line-${outputByRequest.size}`
       if (!outputByRequest.has(reqId)) {
         // First snapshot of the first request carries the boot envelope.
@@ -434,8 +449,12 @@ export function listSpawns(
     params.push(opts.agent)
   }
   if (opts.since) {
+    // A typed day is the instant of LOCAL midnight (CLAUDE.md, dayStart); it
+    // was compared raw, so `--since 2026-11-13` meant UTC midnight — 19:00
+    // the evening before at UTC-5, 14:00 into the day at UTC+14 (review
+    // 2026-11-14). A full ISO instant passes through untouched.
     where.push('p.first_ts >= ?')
-    params.push(opts.since)
+    params.push(dayStart(opts.since))
   }
   if (opts.workflow) {
     // Run-id prefix match (run ids are long; `wf_390a` should just work).
@@ -524,8 +543,13 @@ export function listSpawns(
     .map((r) => ({ ...r, models: r.models ?? '' }))
   // The trend view — lore#6's whole point: boot cost by agentType × ISO week,
   // so config changes (lean profiles, plugin diets) show up as a step.
+  // An ISO week in the LOCAL zone, like every week key (2026-11-14): this was
+  // `%Y-W%W` on the UTC instant, which is neither — a Sunday evening at
+  // UTC-5 fell into the next week, `usage --by week` put the same instant
+  // in another bucket, and New Year's week split in two (`2027-W00`). The
+  // SQL is `weekKeySql` (fmt.ts), shared with `usage --by week`.
   const trendSql = `
-    SELECT strftime('%Y-W%W', p.first_ts) AS week, p.agent_type AS agentType, COUNT(*) AS n,
+    SELECT ${weekKeySql('p.first_ts')} AS week, p.agent_type AS agentType, COUNT(*) AS n,
            CAST(AVG(p.boot_tokens) AS INTEGER) AS avgBoot,
            ${reuse} AS bootReusePct
     ${base}

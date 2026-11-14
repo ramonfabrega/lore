@@ -5,8 +5,8 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
-import { createApp } from '../src/web'
-import { day } from '../src/fmt'
+import { createApp, lastDays, markSnippet, shiftDay, usageWindow } from '../src/web'
+import { day, dayStart, todayLocal } from '../src/fmt'
 
 const Any = z.any()
 
@@ -211,5 +211,109 @@ describe('explorer routes', () => {
         expect(text, path).toContain('<time datetime="')
       }
     }
+  })
+})
+
+// ---- windows are local days (2026-11-14) ----------------------------------
+
+// A fixture of one session whose requests sit at the given instants.
+// `extra` lines sit between the prompt and those requests.
+async function appAt(stamps: string[], extra: string[] = [], promptAt = stamps[0]!) {
+  const dir = mkdtempSync(join(tmpdir(), 'lore-web-win-'))
+  mkdirSync(join(dir, WELL), { recursive: true })
+  const lines = [prompt(promptAt, 'p1', 'go'), ...extra]
+  stamps.forEach((ts, i) => lines.push(assistant(ts, `msg_${i}`, [{ type: 'text', text: 'ok' }], 10, 'end_turn')))
+  writeFileSync(join(dir, WELL, 'sess-1.jsonl'), lines.join('\n') + '\n')
+  const db = openDb(':memory:')
+  await buildIndex(db, { projectsDir: dir, historyPath: join(dir, 'nope.jsonl') })
+  return createApp(() => db, { agents: async () => [] })
+}
+
+describe('a window a person picks is local days', () => {
+  test('shiftDay is calendar arithmetic on the date', () => {
+    expect(shiftDay('2026-09-07', 1)).toBe('2026-09-08')
+    expect(shiftDay('2026-12-31', 1)).toBe('2027-01-01')
+    expect(shiftDay('2026-03-01', -1)).toBe('2026-02-28')
+    expect(shiftDay('2026-03-09', -6)).toBe('2026-03-03') // across the US spring-forward
+  })
+
+  // `until` is inclusive and the query's bound exclusive. It was
+  // `isoDay(Date.parse(until) + DAY)` — the local day of 00:00Z the next day,
+  // which west of UTC is `until` itself: the last day fell out of every custom
+  // window, and since=X&until=X was empty. The zone is pinned here because CI
+  // runs only UTC and UTC+14, where the old expression happened to be right.
+  test('the custom window includes its until day, in a zone west of UTC', () => {
+    for (const tz of ['America/Panama', 'UTC', 'Pacific/Kiritimati']) {
+      const w = usageWindow({ since: '2026-09-07', until: '2026-09-07' }, tz)
+      expect(w.untilExclusive, tz).toBe('2026-09-08')
+    }
+  })
+
+  test('a relative range is today and the n − 1 days before it', () => {
+    expect(usageWindow({ range: '7d' }).since).toBe(shiftDay(todayLocal(), -6))
+    expect(lastDays(1)).toBe(todayLocal())
+  })
+
+  // The front page started its week at today − 7: eight days, so its week
+  // tiles counted a request /usage?range=7d did not.
+  test('the front page week and /usage 7d count the same requests', async () => {
+    // local noon seven and six days back, as instants
+    const noon = (n: number) => new Date(Date.parse(dayStart(shiftDay(todayLocal(), n))) + 12 * 3_600_000).toISOString()
+    const app = await appAt([noon(-7), noon(-6)])
+    const front = Any.parse(await (await app.request('/?json=1')).json())
+    const usage = Any.parse(await (await app.request('/usage?range=7d&json=1')).json())
+    expect(front.week.requests).toBe(usage.models.totals.requests)
+  })
+
+  // "since <first day>" was substr(min(ts), 1, 10), the UTC date. It bites
+  // wherever the local day and the UTC day differ — at UTC+14 every morning,
+  // so CI's second pass carries this test.
+  test('/usage names its first LOCAL day, the chart’s own first bucket', async () => {
+    const cand = ['2026-09-06T18:00:00.000Z', '2026-09-07T02:00:00.000Z']
+    const ts = cand.find((t) => day(t) !== t.slice(0, 10)) ?? cand[0]!
+    const app = await appAt([ts])
+    const json = Any.parse(await (await app.request('/usage?range=all&json=1')).json())
+    const first = json.buckets.rows.map((r: { key: string }) => r.key).sort()[0]
+    expect(first).toBe(day(ts))
+    expect(json.window.since).toBe(first)
+    const html = await (await app.request('/usage?range=all')).text()
+    expect(/since \d{4}-\d{2}-\d{2}/.exec(html)?.[0]).toBe(`since ${day(ts)}`)
+    expect(html).toContain(`name="since" value="${day(ts)}"`)
+  })
+})
+
+describe('rendered text from the transcript', () => {
+  // The search markers were « », which transcripts contain (2026-11-14).
+  test('a literal « or » is text, only the FTS marks highlight', () => {
+    expect(markSnippet('el dijo «arreglalo y \u0002zanahoria\u0003 » <b>')).toBe('el dijo «arreglalo y <mark>zanahoria</mark> » &lt;b&gt;')
+  })
+
+  test('a search hit whose text holds « opens exactly one <mark>', async () => {
+    const app = await appAt([at(1)], [prompt(at(2), 'p2', 'el dijo «arreglalo y luego zanahoria funciona')])
+    const html = await (await app.request('/search?q=zanahoria')).text()
+    const snip = /<div class="snippet">[\s\S]*?<\/div>/.exec(html)?.[0] ?? ''
+    expect(snip).toContain('<mark>zanahoria</mark>')
+    expect((snip.match(/<mark>/g) ?? []).length).toBe((snip.match(/<\/mark>/g) ?? []).length)
+    const json = Any.parse(await (await app.request('/search?q=zanahoria&json=1')).json())
+    expect(json.sessions[0].snippets[0].snippet).toContain('«zanahoria»')
+  })
+
+  // The conversation view's sent beat read its body off an input cut to 400
+  // characters, and the fallback returned null for it (2026-11-14).
+  test('a SendMessage over 400 characters keeps its body in the conversation view', async () => {
+    const brief = `Kickoff brief for the lane. ${'Read CLAUDE.md, then docs/DESIGN.md, then run the suite. '.repeat(12)}`
+    const app = await appAt(
+      [at(9)],
+      [
+        assistant(at(5), 'msg_s', [{ type: 'tool_use', id: 'tu_s', name: 'SendMessage', input: { to: 'ccc', summary: 'brief for v0', message: brief } }], 10),
+        result(at(6), 'p1', 'tu_s', '{"success":true,"message":"sent"}'),
+      ],
+      at(0),
+    )
+    const json = Any.parse(await (await app.request('/session/sess-1?view=conversation&json=1')).json())
+    const sent = json.flatMap((t: { beats: unknown[] }) => t.beats).find((b: { kind: string }) => b.kind === 'sent')
+    expect(sent.summary).toBe('brief for v0')
+    expect(sent.message).toStartWith('Kickoff brief for the lane.')
+    expect(sent.message.endsWith('…')).toBe(true)
   })
 })

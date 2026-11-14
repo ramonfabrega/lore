@@ -95,22 +95,52 @@ export function mdBlock(s: string): string {
 // like markdown.
 export function mdUser(s: string): string {
   const lines: string[] = []
-  let fenced = false
+  let fence: Fence | null = null
   for (const line of s.split('\n')) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced
-    lines.push(!fenced && line.trim() !== '' ? `${line}  ` : line)
+    if (fence) {
+      if (closes(line, fence)) fence = null
+      lines.push(line)
+      continue
+    }
+    fence = opens(line)
+    lines.push(!fence && line.trim() !== '' ? `${line}  ` : line)
   }
   return mdBlock(lines.join('\n'))
 }
 
+// A fence by CommonMark's rule, not by its first three characters. A run of
+// three or more backticks or tildes opens one, but a backtick run whose rest
+// holds a backtick is an inline code span (```lore index``` failed), and only
+// the same character, at least as long, with nothing after it, closes it.
+// Toggling on any line that began with ``` or ~~~ read that code span as an
+// opening and stripped the line breaks from every line the user typed after
+// it — "then I ran it again" / "and it passed" ran together as one sentence
+// (2026-11-14); a ~~~ inside a backtick fence flipped it the same way.
+type Fence = { ch: string; n: number }
+function opens(line: string): Fence | null {
+  const m = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)
+  if (!m) return null
+  const run = m[1]!
+  if (run[0] === '`' && m[2]!.includes('`')) return null
+  return { ch: run[0]!, n: run.length }
+}
+function closes(line: string, f: Fence): boolean {
+  const m = /^\s*(`{3,}|~{3,})\s*$/.exec(line)
+  return m != null && m[1]![0] === f.ch && m[1]!.length >= f.n
+}
+
 // One line of markdown inside a heading or a row: code spans, emphasis,
 // links, and no block wrapper. A line that parses as a heading or a list
-// item keeps only its text — it is sitting in someone else's layout.
+// item keeps only its text — it is sitting in someone else's layout. md4c
+// writes a newline between `<ul>` and `<li>`, so a strip that wanted them
+// adjacent took the list and left the item: a one-line note `- check the
+// build first` rendered `<li>` inside `<p class="note">`, which closes the
+// paragraph and draws a bullet outside any list (2026-11-14).
 export function mdInline(s: string): string {
   return mdBlock(s)
     .trim()
-    .replace(/^<(p|h[1-6]|ul|ol)\b[^>]*>(?:<li>)?/, '')
-    .replace(/(?:<\/li>)?<\/(p|h[1-6]|ul|ol)>$/, '')
+    .replace(/^<(p|h[1-6]|ul|ol)\b[^>]*>\s*(?:<li\b[^>]*>)?/, '')
+    .replace(/(?:<\/li>\s*)?<\/(p|h[1-6]|ul|ol)>$/, '')
 }
 
 // The first thing a reply SAYS, as plain text for a one-line preview: the
@@ -120,13 +150,14 @@ export function mdInline(s: string): string {
 export function mdLead(s: string): string {
   const lines = s.split('\n').map((l) => l.trim())
   let head = ''
-  let fenced = false
+  let fence: Fence | null = null
   for (const l of lines) {
-    if (/^(```|~~~)/.test(l)) {
-      fenced = !fenced
+    if (fence) {
+      if (closes(l, fence)) fence = null
       continue
     }
-    if (fenced || l === '' || l.startsWith('|') || /^([-*_])\1{2,}$/.test(l)) continue
+    if ((fence = opens(l))) continue
+    if (l === '' || l.startsWith('|') || /^([-*_])\1{2,}$/.test(l)) continue
     const h = /^#{1,6}\s+(.*)$/.exec(l)
     if (h) {
       head ||= h[1]!

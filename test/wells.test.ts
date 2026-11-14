@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -97,7 +97,7 @@ describe('isAbsolute', () => {
 })
 
 describe('listWells realPath fallback', () => {
-  test('memory-only well resolves realPath from its dir name; cwd still wins when present', async () => {
+  test('memory-only well resolves realPath from its dir name; a cwd wins only when it slugs back to the dir', async () => {
     const projects = tempDir()
     const src = tempDir()
 
@@ -107,13 +107,26 @@ describe('listWells realPath fallback', () => {
     const zineWell = join(projects, mangle(zineSrc))
     mkdirSync(join(zineWell, 'memory'), { recursive: true })
 
-    // A well with a transcript: cwd is ground truth even if it disagrees
-    // with the dir name (mid-session worktree entry, respawns).
+    // A well whose only cwd does not slug back to its dir: a candidate, not
+    // the answer. This used to assert the cwd won regardless — and on real
+    // data that made 117 of 1,780 wells name a path that is not theirs
+    // (2026-11-14: worktree wells reading as their parent repo, because a
+    // moved transcript opens with the pre-entry cwd). Unverified, the path is
+    // left to the disk walk, which here finds nothing: unknown, not wrong.
     const cwdSrc = join(src, 'fun', 'other')
     mkdirSync(cwdSrc, { recursive: true })
     const cwdWell = join(projects, mangle(join(src, 'fun', 'stale-name')))
     mkdirSync(cwdWell, { recursive: true })
     writeFileSync(join(cwdWell, 'a.jsonl'), `${JSON.stringify({ cwd: cwdSrc })}\n`)
+
+    // A verifying cwd wins over the dir walk even when it is not the first
+    // cwd in the file — the worktree-entry shape: pre-entry records carry the
+    // parent's cwd, the rest the worktree's.
+    const parentSrc = join(src, 'fun', 'repo')
+    const wtSrc = join(parentSrc, '.claude', 'worktrees', 'v1')
+    const wtWell = join(projects, mangle(wtSrc))
+    mkdirSync(wtWell, { recursive: true })
+    writeFileSync(join(wtWell, 'b.jsonl'), `${JSON.stringify({ cwd: parentSrc })}\n${JSON.stringify({ cwd: wtSrc })}\n`)
 
     // A deleted source: no fallback, stays null.
     const goneWell = join(projects, mangle(join(src, 'fun', 'gone')))
@@ -123,8 +136,27 @@ describe('listWells realPath fallback', () => {
     const byDir = new Map(wells.map((w) => [w.dir, w]))
     expect(byDir.get(mangle(zineSrc))?.realPath).toBe(zineSrc)
     expect(byDir.get(mangle(zineSrc))?.hasMemory).toBe(true)
-    expect(byDir.get(mangle(join(src, 'fun', 'stale-name')))?.realPath).toBe(cwdSrc)
+    expect(byDir.get(mangle(join(src, 'fun', 'stale-name')))?.realPath).toBeNull()
+    // Not on disk (wtSrc was never created), so only the record can name it.
+    expect(byDir.get(mangle(wtSrc))?.realPath).toBe(wtSrc)
     expect(byDir.get(mangle(join(src, 'fun', 'gone')))?.realPath).toBeNull()
+  })
+})
+
+describe('listWells: a transcript that vanishes mid-scan', () => {
+  // Worktree entry MOVES a transcript to another well, racing a running
+  // index (CLAUDE.md). One ENOENT out of statSync aborted the whole scan
+  // (2026-11-14 review). A dangling symlink fails the stat the same way;
+  // Windows runners cannot make one without developer mode, so POSIX only.
+  test.skipIf(process.platform === 'win32')('is skipped, and every other well is still listed', async () => {
+    const projects = tempDir()
+    mkdirSync(join(projects, '-u-a'), { recursive: true })
+    mkdirSync(join(projects, '-u-b'), { recursive: true })
+    writeFileSync(join(projects, '-u-b', 'ok.jsonl'), `${JSON.stringify({ cwd: '/u/b' })}\n`)
+    symlinkSync(join(tempDir(), 'gone.jsonl'), join(projects, '-u-a', 'moved.jsonl'))
+    const wells = await listWells(projects)
+    expect(wells.map((w) => w.dir)).toEqual(['-u-a', '-u-b'])
+    expect(wells[0]!.sessions).toEqual([])
   })
 })
 

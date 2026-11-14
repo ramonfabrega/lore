@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { sessionHead } from '../src/block'
 import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { getTrace } from '../src/trace'
@@ -303,5 +304,36 @@ describe('getTrace', () => {
       { lane: 'tool', type: 'assistant', prompt_id: 'p1', tool_use_id: 'tu_2', is_error: 0, request_id: 'msg_2' },
       { lane: 'tool', type: 'user', prompt_id: 'p1', tool_use_id: 'tu_2', is_error: 0, request_id: null },
     ])
+  })
+
+  // Review 2026-11-14: a refusal whose only block is an EMPTY (redacted)
+  // thinking block indexes no message row, so no transaction holds it — and
+  // the trace left a real full-context request out of every total while
+  // `models` (and `lore usage`) counted it. 5 in the corpus that day.
+  test('a request no transaction holds still counts: totals, classes, and `unplaced`', async () => {
+    const db = openDb(':memory:')
+    const projectsDir = seed([
+      prompt('2026-09-01T10:00:00.000Z', 'p1', 'do the thing'),
+      assistant('2026-09-01T10:00:05.000Z', 'msg_r', [{ type: 'thinking', thinking: '', signature: 'sig' }], 130, 'refusal'),
+      prompt('2026-09-01T10:01:00.000Z', 'p2', 'try again'),
+      assistant('2026-09-01T10:01:05.000Z', 'msg_2', [{ type: 'text', text: 'Done.' }], 10, 'end_turn'),
+    ])
+    await buildIndex(db, { projectsDir, historyPath: join(projectsDir, 'nope.jsonl') })
+    const t = getTrace(db, 'sess', { limit: 10 })
+    // Not invented into a turn: the two prompts are still the two turns, and
+    // the refusal's turn shows no step.
+    expect(t.transactions.map((x) => [x.prompt, x.steps])).toEqual([
+      ['do the thing', 0],
+      ['try again', 1],
+    ])
+    expect(t.unplaced.map((s) => [s.requestId, s.stopReason, s.cacheRead, s.output])).toEqual([['msg_r', 'refusal', 100000, 130]])
+    // Every total covers it, so the page agrees with `models` and the ledger.
+    expect(t.models).toEqual([{ model: 'claude-opus-5', requests: 2 }])
+    expect([t.totals.requests, t.totals.steps, t.totals.cacheRead, t.totals.output]).toEqual([2, 2, 200000, 140])
+    // opus-5: (2×5 + 1000×6.25 + 100000×0.5 + out×25) µ$ — 59,510 + 56,510.
+    expect(t.totals.listUsd).toBe(0.12)
+    expect(t.classes.find((c) => c.class === 'text')?.requests).toBe(2)
+    // The steps tile names it, where the number is read.
+    expect(String(await sessionHead(t))).toContain('2 · 1 unplaced')
   })
 })

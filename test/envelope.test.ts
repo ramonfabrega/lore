@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { metaHead, relayHead, sentHead } from '../src/envelope'
+import { metaHead, relayHead, sentHead, sentMessage } from '../src/envelope'
 import { cut, cutProse, plain } from '../src/fmt'
 
 const ESC = ''
@@ -142,6 +142,45 @@ describe('sentHead — the outbound half', () => {
   test('a call that is not a relay yields nothing to show', () => {
     expect(sentHead('{"pattern":"foo"}')).toEqual({ to: null, name: null, agent: null, summary: null })
     expect(sentHead('not json at all')).toEqual({ to: null, name: null, agent: null, summary: null })
+  })
+})
+
+// The conversation view reads the body off the instruction's input, which
+// reaches it cut to the page's `head` (400): the fallback wanted a closing
+// quote and returned null for every message worth reading (2026-11-14).
+describe('sentMessage — the body of a cut send', () => {
+  const FULL = JSON.stringify({ to: 'ccc', summary: 'brief for v0', message: `Kickoff brief. ${'Read CLAUDE.md first. '.repeat(30)}` })
+
+  test('a whole input reads whole', () => {
+    expect(sentMessage(FULL)).toStartWith('Kickoff brief. Read CLAUDE.md first.')
+  })
+
+  test('a cut input reads as far as it goes, ending in one ellipsis', () => {
+    const m = sentMessage(cut(FULL, 400))
+    expect(m).toStartWith('Kickoff brief. Read CLAUDE.md first.')
+    expect(m!.endsWith('…')).toBe(true)
+    expect(m!.endsWith('……')).toBe(false)
+    // a raw slice (no ellipsis of its own) gets one
+    expect(sentMessage(FULL.slice(0, 120))).toMatch(/^Kickoff brief\. [^…]+[^…]…$/)
+  })
+
+  test('escapes decode as JSON: \\n is a newline, never the letter n', () => {
+    expect(sentMessage('{"to":"lore","message":"line one\\nline two","summary":"short gl')).toBe('line one\nline two')
+    expect(sentMessage('{"to":"lore","message":"caf\\u00e9 \\"ok\\" a\\\\b')).toBe('café "ok" a\\b…')
+  })
+
+  test('a half-written escape at the cut is dropped, not shown', () => {
+    expect(sentMessage('{"to":"lore","message":"tail \\u00')).toBe('tail …')
+    expect(sentMessage('{"to":"lore","message":"tail \\')).toBe('tail …')
+  })
+
+  test('the address is never partial', () => {
+    expect(sentHead('{"to":"cc').to).toBeNull()
+    expect(sentMessage('{"to":"lore","message":"')).toBeNull()
+  })
+
+  test('with no summary, a cut message is the label', () => {
+    expect(sentHead('{"to":"lore","message":"corpus is gr').summary).toBe('corpus is gr…')
   })
 })
 
