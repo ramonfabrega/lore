@@ -168,7 +168,7 @@ describe('agents join', () => {
       ]),
       (sid) =>
         sid === 'sess-1'
-          ? { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-opus-5', requests: 5 }] }
+          ? { well: WELL, requests: 5, output: 200, listUsd: 0.23, spawnUsd: 0, allInUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-opus-5', requests: 5 }] }
           : null,
     )
     expect(rows.map((r) => r.id)).toEqual(['bbb', 'ccc', 'eee', 'ddd', 'aaa'])
@@ -187,7 +187,7 @@ describe('explorer pages: search, agents, job, anchors', () => {
     const db = await seeded()
     const app = createApp(() => db, {
       agents: async () => [
-        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, ctx: 640_000, children: [], attach: 'claude attach bbb', attachUrl: 'ccc://attach/bbb', model: 'claude-fable-5-1', modelSource: 'transcript', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-fable-5-1', requests: 5 }] } },
+        { id: 'bbb', name: 'live', state: 'working', waitingFor: null, detail: 'running tests', tempo: 'active', cwd: '/u/code/fun/app', branch: null, sessionId: 'sess-1', startedAt: '2026-09-01T09:00:00.000Z', updatedAt: null, liveTokens: 999, ctx: 640_000, children: [], attach: 'claude attach bbb', attachUrl: 'ccc://attach/bbb', model: 'claude-fable-5-1', modelSource: 'transcript', indexed: { well: WELL, requests: 5, output: 200, listUsd: 0.23, spawnUsd: 0, allInUsd: 0.23, last: '2026-09-01T10:00:50Z', models: [{ model: 'claude-fable-5-1', requests: 5 }] } },
       ],
       wikiDir: '/nonexistent',
     })

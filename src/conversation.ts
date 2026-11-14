@@ -86,7 +86,11 @@ export type Conversation = {
     beats: { work: number; said: number; you: number; peer: number; sent: number }
     steps: number
     instructions: number
+    // The sessions' main threads (the turns' fees sum to it), the subagents
+    // they ran, and the two together (trace.ts totals).
     listUsd: number | null
+    spawnUsd: number | null
+    allInUsd: number | null
     ms: number | null
   }
   turns: Turn[]
@@ -294,9 +298,15 @@ export function conversationFrom(traces: Trace[], job: Conversation['job'], tail
       beats,
       steps: traces.reduce((s, t) => s + t.totals.steps, 0),
       instructions: traces.reduce((s, t) => s + t.totals.instructions, 0),
-      listUsd: sum((t) => t.totals.listUsd),
+      listUsd: round2n(sum((t) => t.totals.listUsd)),
+      spawnUsd: round2n(sum((t) => t.totals.spawnUsd)),
+      allInUsd: round2n(sum((t) => t.totals.allInUsd)),
       ms: sum((t) => t.totals.ms),
     },
     turns,
   }
+}
+
+function round2n(n: number | null): number | null {
+  return n == null ? null : Math.round(n * 100) / 100
 }

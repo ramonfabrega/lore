@@ -41,7 +41,7 @@ describe('block view thoughts', () => {
       session: { well: '-u-app', sessionId: 's1', name: null, jobSessionId: null, jobKey: null, first: at(0), last: at(3), lines: 3 },
       totals: {
         transactions: 1, turns: { prompt: 1, command: 0, relay: 0, meta: 0 }, sent: 0, lost: 0, steps: 1, requests: 1, instructions: 0, errors: 0,
-        input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: null, spawns: 0, spawnOutput: 0, lanes: 0, laneUsd: 0, ms: 3000,
+        input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: null, spawnUsd: null, allInUsd: null, spawns: 0, spawnOutput: 0, lanes: 0, laneUsd: 0, ms: 3000,
       },
       models: [], spawns: [], lanes: [], classes: [],
       polls: { reads: 0, files: 0, rereads: 0, runs: 0, longest: 0, inRuns: 0, medianGapS: null },

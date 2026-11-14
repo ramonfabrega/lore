@@ -5,7 +5,7 @@ import { type Beat, type Turn, type Work, conversationOf } from './conversation'
 import { cut, cutMarkdown, day, dayName, ms, tok, usd } from './fmt'
 import { mdBlock, mdLead, mdUser } from './md'
 import type { Trace, Transaction } from './trace'
-import { clockEl, modelChip, spanEl } from './viz'
+import { clockEl, costEl, modelChip, spanEl } from './viz'
 
 // The conversation view (docs/EXPLORER.md): a session read top to bottom as
 // the dialogue it was. Every turn is open — the message, the assistant's
@@ -62,7 +62,7 @@ function selfOf(trace: Trace, name?: string | null): string {
 // rules of bare clocks with no date anywhere above them (2026-11-14).
 function sessionRule(trace: Trace) {
   const s = trace.session
-  return html`<div class="sess" id="s-${s.sessionId.slice(0, 8)}"><a class="mono" href="/session/${s.sessionId}">${s.sessionId.slice(0, 8)}</a> · ${spanEl(s.first, s.last)} · ${trace.totals.steps} steps · ${usd(trace.totals.listUsd)}</div>`
+  return html`<div class="sess" id="s-${s.sessionId.slice(0, 8)}"><a class="mono" href="/session/${s.sessionId}">${s.sessionId.slice(0, 8)}</a> · ${spanEl(s.first, s.last)} · ${trace.totals.steps} steps · ${costEl(trace.totals)}</div>`
 }
 
 // The turn's anchor; a beat inside it is `<turn>-b<index>` so the rail can
@@ -210,7 +210,7 @@ export function railBody(traces: Trace[], o: { name?: string | null; pages?: boo
 
 function sessionRailRule(trace: Trace, at = '', label?: string) {
   const s = trace.session
-  return html`<a class="r sess" href="${at || `#s-${s.sessionId.slice(0, 8)}`}">${label ? html`<span class="kind">${label}</span>` : ''}<span class="mono">${s.sessionId.slice(0, 8)}</span><span>${dayName(day(s.first))} ${clockEl(s.first)}</span><span class="muted">${trace.totals.transactions} turns · ${usd(trace.totals.listUsd)}</span></a>`
+  return html`<a class="r sess" href="${at || `#s-${s.sessionId.slice(0, 8)}`}">${label ? html`<span class="kind">${label}</span>` : ''}<span class="mono">${s.sessionId.slice(0, 8)}</span><span>${dayName(day(s.first))} ${clockEl(s.first)}</span><span class="muted">${trace.totals.transactions} turns · ${usd(trace.totals.allInUsd)}</span></a>`
 }
 
 function turnRows(turn: Turn, x: Transaction, i: number, self: string, at = ''): H[] {

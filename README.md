@@ -126,9 +126,12 @@ step:
   14-day sparklines.
 - `/usage` — the token profile in the four billed classes (input, cache write,
   cache read, output) plus thinking, by day/week/month over any window, with a
-  dated list-price equivalent (`listUsd` — an exchange rate, not a bill: the
-  tool assumes a subscription, and Fable 5.1 repriced cache reads mid-corpus,
-  so rates are per model *and* date).
+  dated list-price equivalent (an exchange rate, not a bill: the tool assumes
+  a subscription, and Fable 5.1 repriced cache reads mid-corpus, so rates are
+  per model *and* date). Every dollar the explorer prints is all-in — the
+  main thread (`listUsd`) plus the subagents it ran (`spawnUsd`), as
+  `allInUsd` — with the split stated where subagents ran; a session's
+  per-turn fees are the main thread.
 - `/well/<dir>` — one directory's arc spine: every session in order, what
   served it (the model chip), fees.
 - `/session/<id>` — one session opened like a block: each prompt is a

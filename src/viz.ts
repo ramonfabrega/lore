@@ -81,6 +81,31 @@ export function ibar(v: number, max: number, o: { of?: string; fmt?: (n: number)
   return html`<span class="ib" aria-hidden="true" title="${pct}% of the ${o.of ?? 'largest row listed'} (${shown})"><i style="width:${Math.max(2, pct)}%"></i></span>`
 }
 
+// ---- a cost (usage.ts `allInUsd`) ---------------------------------------
+
+// Every dollar a page prints for a session, a job, a well or a window is the
+// ALL-IN figure — the main thread plus the subagents it ran — read off
+// `allInUsd`, never re-added here. Where subagents ran, the split is stated
+// once, in these words; a row with none shows no split.
+export type Cost = { listUsd: number | null; spawnUsd?: number | null; allInUsd?: number | null }
+export function allInOf(c: Cost | null | undefined): number | null {
+  return c?.allInUsd ?? null
+}
+export function costSplit(c: Cost | null | undefined): string {
+  if (!c || !c.spawnUsd) return ''
+  return `main ${usd(c.listUsd)} · subagents ${usd(c.spawnUsd)}`
+}
+// The figure, with the split in its tooltip when there is one.
+export function costEl(c: Cost | null | undefined) {
+  const split = costSplit(c)
+  return split ? html`<span title="${split}">${usd(allInOf(c))}</span>` : html`${usd(allInOf(c))}`
+}
+// A column's inline bar and figure, the shape every priced list row wears.
+export function costCell(c: Cost | null | undefined, max: number, of: string) {
+  const v = allInOf(c)
+  return v ? html`${ibar(v, max, { of })}${costEl(c)}` : html``
+}
+
 // The list-price fee split by token class as one stacked bar. Dollars, not
 // tokens — cache reads are 100× the tokens and a tenth of the money.
 export type FeeSplit = { input: number; cacheWrite: number; cacheRead: number; output: number }

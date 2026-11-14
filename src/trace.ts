@@ -6,7 +6,7 @@ import { cut, cutMarkdown, cutProse } from './fmt'
 import { JOB_KEY_SQL, listJobs, spawnEdges } from './job'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
-import { priceOf, rateFor } from './usage'
+import { listUsage, priceOf, rateFor } from './usage'
 
 // The explorer's block view (docs/EXPLORER.md): one session decomposed into
 // transactions (one user prompt and everything until the next), each with
@@ -258,7 +258,13 @@ export type Trace = {
     cacheRead: number
     output: number
     thinking: number
+    // The main thread's list price — the sum of the turns' fees below.
     listUsd: number | null
+    // The subagents this session ran (`spawn_requests`, every request priced
+    // by its own model), and the session's whole cost, `listUsd + spawnUsd`.
+    // A subagent request is counted here and in no turn.
+    spawnUsd: number | null
+    allInUsd: number | null
     spawns: number
     spawnOutput: number
     // The lanes this session spawned as JOBS (below) and what they cost —
@@ -312,7 +318,10 @@ export type Lane = {
   models: { model: string; requests: number }[]
   requests: number
   output: number
+  // As `lore jobs` prices it: main thread, its subagents, the two together.
   listUsd: number | null
+  spawnUsd: number | null
+  allInUsd: number | null
   // What the lane was set to work on: its newest session's opener.
   opener: string | null
 }
@@ -339,6 +348,8 @@ function lanesOf(db: Database, sessionId: string): Lane[] {
       requests: j.requests,
       output: j.output,
       listUsd: j.listUsd,
+      spawnUsd: j.spawnUsd,
+      allInUsd: j.allInUsd,
       opener: j.latest?.firstPrompt ?? null,
     }))
     .sort((a, b) => (a.spawnedAt ?? '').localeCompare(b.spawnedAt ?? '') || a.key.localeCompare(b.key))
@@ -696,9 +707,13 @@ export function getTrace(
     },
   )
 
+  // The subagent side, by the ledger `lore usage` reads: the same session,
+  // every request of every subagent file under it.
+  const listUsd = totals.listUsd == null ? null : round2(totals.listUsd)
+  const spawnUsd = listUsage(db, { by: 'session', sessions: [sessionId], limit: 1, subagents: true }).totals.spawnUsd ?? null
   return {
     session,
-    totals: { ...totals, listUsd: totals.listUsd == null ? null : round2(totals.listUsd) },
+    totals: { ...totals, listUsd, spawnUsd, allInUsd: listUsd == null || spawnUsd == null ? null : round2(listUsd + spawnUsd) },
     models,
     spawns: spawnGroups,
     lanes,

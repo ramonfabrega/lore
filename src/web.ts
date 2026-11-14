@@ -14,7 +14,7 @@ import { FAMILIES, type ModelFamily, modelFamily } from './model'
 import { searchSessions } from './search'
 import { resolveSessionId } from './session'
 import { listSessions, modelsFor } from './sessions'
-import { annotationLine, sessionBody, sessionHead, tile } from './block'
+import { annotationLine, costTile, sessionBody, sessionHead, tile } from './block'
 import { conversationFrom, conversationOf, jobTraces } from './conversation'
 import { conversationBody, railBody } from './convoview'
 import { getRun } from './run'
@@ -22,7 +22,7 @@ import { runBody } from './runview'
 import { cut, day, dayName, stamp, tok, todayLocal, usd } from './fmt'
 import LORE_SVG from '../assets/lore.svg' with { type: 'text' }
 import { CSS, tick } from './style'
-import { bars, clockEl, feeBar, feeLegend, ibar, modelChip, modelChips, spanEl, spark, stackedBars, timeEl } from './viz'
+import { allInOf, bars, clockEl, costCell, costEl, costSplit, feeBar, feeLegend, ibar, modelChip, modelChips, spanEl, spark, stackedBars, timeEl } from './viz'
 import { getThread, listThreads } from './thread'
 import { threadBody, threadsBody } from './threadview'
 import { getTrace } from './trace'
@@ -42,6 +42,13 @@ const FAVICON = 'data:image/svg+xml,' + encodeURIComponent(LORE_SVG)
 // title names the series); one hue from the reference palette (series-1
 // blue, stepped for dark), 2px lines, 2px surface gaps, per-mark <title>
 // tooltips. Numbers wear text ink, never the series color.
+//
+// A dollar is ALL-IN on every page: the main thread plus the subagents it
+// ran (usage.ts `allInUsd`) — every headline figure, every bar, every max a
+// bar is scaled by, every ranking. Every `listUsage` here passes
+// `subagents`, and the split is stated once where there is room
+// (viz.ts `costEl`/`costTile`). The one dollar that stays the main thread is
+// a session's per-turn fee: subagent requests are not placed in turns.
 //
 // Model attribution (model.ts) runs through every listing that names a
 // conversation — recent, a well's sessions, a search hit, the roster — as
@@ -224,7 +231,7 @@ export function createApp(
     const data = { count: rows.length, live: live.length, agents: live, jobs, error }
     if (wantsJson(c.req.raw)) return c.json(data)
     const maxLive = Math.max(...live.map((a) => a.liveTokens ?? 0), 0)
-    const maxUsd = Math.max(...jobs.map((j) => j.listUsd ?? 0), 0)
+    const maxUsd = Math.max(...jobs.map((j) => j.allInUsd ?? 0), 0)
     const counts = new Map<string, number>()
     for (const a of live) counts.set(a.state, (counts.get(a.state) ?? 0) + 1)
     const body = html`
@@ -235,7 +242,7 @@ export function createApp(
           <span class="sp small">a row is a JOB — an agent across /clears and respawns, keyed on its bridge id · grouped by repo, a job under the job that spawned it (read off the parent's transcript, never guessed) · the daemon's roster for what runs now · a deleted job keeps the name its peers gave it · attach in a terminal</span></header>
         ${error ? html`<p class="footnote err">${error}</p>` : ''}
         <div class="scroll list jobsall">
-          <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num" title="the context the next turn carries — input + cache read + cache write of the last request, read from the transcript; the number a /clear decision needs">ctx</span><span class="num">sess</span><span class="num">req</span><span class="num">list $</span><span>last</span><span>peers</span><span>attach</span></div>
+          <div class="row head"><span>state</span><span>name</span><span>model</span><span>where</span><span>doing</span><span class="num">live tokens</span><span class="num" title="the context the next turn carries — input + cache read + cache write of the last request, read from the transcript; the number a /clear decision needs">ctx</span><span class="num">sess</span><span class="num">req</span><span class="num" title="main thread and subagents, at list price">list $</span><span>last</span><span>peers</span><span>attach</span></div>
           ${fleetRows(rows).map((r) =>
             r.kind === 'group'
               ? html`<div class="row group"><span></span><span class="mono" title="${r.repo}">${shortPath(r.repo)}</span><span></span><span></span><span class="muted">${r.n} job${r.n === 1 ? '' : 's'}${r.live ? html` · ${r.live} live` : ''}</span></div>`
@@ -266,7 +273,7 @@ export function createApp(
       .parse(db.prepare(`SELECT s.session_id AS sessionId, s.job_session_id AS root FROM sessions s WHERE ${JOB_KEY_SQL} = ? ORDER BY s.first_ts, s.session_id`).all(ref.key))
     const ids = members.map((m) => m.sessionId)
     const rootOf = new Map(members.map((m) => [m.sessionId, m.root]))
-    const fee = new Map(listUsage(db, { by: 'session', sessions: ids, limit: 10000 }).rows.map((r) => [r.key, r]))
+    const fee = new Map(listUsage(db, { by: 'session', sessions: ids, limit: 10000, subagents: true }).rows.map((r) => [r.key, r]))
     // Oldest first here, to see the root change; rendered newest first.
     let prevRoot: string | null = null
     const sessions = listSessions(db, { sessions: ids, limit: ids.length }).map((s) => {
@@ -301,7 +308,7 @@ export function createApp(
     const data = { job, sessions }
     if (wantsJson(c.req.raw)) return c.json(data)
     const today = todayLocal()
-    const maxUsd = Math.max(...sessions.map((s) => s.usage?.listUsd ?? 0), 0)
+    const maxUsd = Math.max(...sessions.map((s) => allInOf(s.usage) ?? 0), 0)
     const days = new Map<string, typeof sessions>()
     for (const s of sessions.slice().reverse()) {
       const d = s.first ?? '?'
@@ -310,9 +317,9 @@ export function createApp(
     const body = html`
       ${jobHead(job, lanes, byName, { view: 'sessions' })}
       <div class="panel"><div class="scroll list jobsess">
-        <div class="row head"><span title="when the session began — these rows are grouped under the day they started">started</span><span>well</span><span>model</span><span>opening</span><span class="num">turns</span><span class="num">req</span><span class="num">out</span><span class="num">list $</span></div>
+        <div class="row head"><span title="when the session began — these rows are grouped under the day they started">started</span><span>well</span><span>model</span><span>opening</span><span class="num">turns</span><span class="num">req</span><span class="num">out</span><span class="num" title="main thread and subagents, at list price">list $</span></div>
         ${[...days].map(
-          ([d, ss]) => html`<div class="row day"><span>${dayName(d)}${d === today ? ' · today' : ''}</span><span>${ss.length} session${ss.length === 1 ? '' : 's'}</span><span class="sp">${usd(ss.reduce((n, s) => n + (s.usage?.listUsd ?? 0), 0))}</span></div>
+          ([d, ss]) => html`<div class="row day"><span>${dayName(d)}${d === today ? ' · today' : ''}</span><span>${ss.length} session${ss.length === 1 ? '' : 's'}</span><span class="sp">${costEl(sumCost(ss.map((s) => s.usage)))}</span></div>
           ${ss.map(
             (s) => html`<div class="row">
               <span class="mono"><a href="/session/${s.sessionId}">${clockEl(s.firstAt)}</a></span>
@@ -322,7 +329,7 @@ export function createApp(
               <span class="num">${s.prompts || ''}</span>
               <span class="num">${s.usage?.requests ?? ''}</span>
               <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
-              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd, { of: 'priciest session in this job' })}${usd(s.usage.listUsd)}` : ''}</span>
+              <span class="num">${costCell(s.usage, maxUsd, 'priciest session in this job')}</span>
             </div>`,
           )}`,
         )}
@@ -382,7 +389,7 @@ export function createApp(
     const peers = standing.slice(0, NAMED)
     const tail = standing.slice(NAMED)
     const lanePeers = job.peers.filter(isLane)
-    const laneUsd = lanes.some((l) => l.listUsd != null) ? lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0) : null
+    const laneUsd = lanes.some((l) => l.allInUsd != null) ? lanes.reduce((n, l) => n + (l.allInUsd ?? 0), 0) : null
     const threadTo = (p: string) => `/thread/${encodeURIComponent(job.name ?? job.key)}/${encodeURIComponent(p)}`
     const sw = (v: typeof o.view, label: string) => (v === o.view ? html`<b>${label}</b>` : html`<a href="?view=${v}">${label}</a>`)
     return html`
@@ -406,7 +413,7 @@ export function createApp(
         ${
           lanes.length
             ? html`<details class="lanes-ledger" id="lanes"><summary class="fan small"><span class="muted">lanes</span> <span class="g"><b>${lanes.length}</b> spawned${laneUsd != null ? html` · ${usd(laneUsd)}` : ''}</span></summary>
-              <p class="chips small">${lanes.map((l) => html`<a class="kind ${l.name != null && lanePeers.includes(l.name) ? 'relay' : 'peer'}" href="/job/${encodeURIComponent(l.key)}" title="${l.state ?? '?'} · ${usd(l.listUsd)} · ${cut(l.latest?.firstPrompt ?? '', 120)}">@${l.name ?? l.key.slice(0, 8)}</a> `)}</p></details>`
+              <p class="chips small">${lanes.map((l) => html`<a class="kind ${l.name != null && lanePeers.includes(l.name) ? 'relay' : 'peer'}" href="/job/${encodeURIComponent(l.key)}" title="${l.state ?? '?'} · ${usd(l.allInUsd)}${costSplit(l) ? ` (${costSplit(l)})` : ''} · ${cut(l.latest?.firstPrompt ?? '', 120)}">@${l.name ?? l.key.slice(0, 8)}</a> `)}</p></details>`
             : ''
         }
         ${
@@ -420,7 +427,7 @@ export function createApp(
           ${tile(html`<span title="distinct roots under the bridge: one per daemon respawn">incarnations</span>`, String(job.incarnations))}
           ${tile('requests', job.requests.toLocaleString())}
           ${tile('output', tok(job.output))}
-          ${tile('list $', usd(job.listUsd))}
+          ${costTile(job)}
           ${tile('lines', job.lines.toLocaleString())}
         </div>
       </div>`
@@ -450,7 +457,7 @@ export function createApp(
       // times a day); the window is sized for the rows that survive folding.
       const recentSessions = listSessions(db, { limit: 100, byActivity: true }).reverse()
       const feeById = new Map(
-        listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 200 }).rows.map((r) => [r.key, r]),
+        listUsage(db, { by: 'session', sessions: recentSessions.map((s) => s.sessionId), limit: 200, subagents: true }).rows.map((r) => [r.key, r]),
       )
       // Harness-only sessions (no prompt, no request) are noise here.
       const recentRows = recentSessions.map((s) => ({ ...s, usage: feeById.get(s.sessionId) ?? null })).filter((s) => s.prompts > 0 || s.usage)
@@ -460,9 +467,9 @@ export function createApp(
       const recent = groupRecent(recentRows, jobsOfSessions(db, recentRows.map((s) => s.sessionId)), jobNames(db))
       return {
         recent,
-        active: listUsage(db, { by: 'well', since: weekAgo, limit: 40 }),
-        todayU: listUsage(db, { by: 'day', since: today, limit: 2 }),
-        days: listUsage(db, { by: 'day', since: since45, limit: 60, split: true }),
+        active: listUsage(db, { by: 'well', since: weekAgo, limit: 40, subagents: true }),
+        todayU: listUsage(db, { by: 'day', since: today, limit: 2, subagents: true }),
+        days: listUsage(db, { by: 'day', since: since45, limit: 60, split: true, subagents: true }),
       }
     })
     let live: AgentRow[] = []
@@ -479,15 +486,15 @@ export function createApp(
 
     const working = live.filter((a) => a.state === 'working').length
     const blocked = live.filter((a) => a.state === 'blocked').length
-    const maxRecent = Math.max(...recent.map((s) => s.usage?.listUsd ?? 0), 0)
-    const maxActive = Math.max(...active.rows.map((r) => r.listUsd ?? 0), 0)
+    const maxRecent = Math.max(...recent.map((s) => allInOf(s.usage) ?? 0), 0)
+    const maxActive = Math.max(...active.rows.map((r) => allInOf(r) ?? 0), 0)
     const maxLive = Math.max(...live.map((a) => a.liveTokens ?? 0), 0)
     // The stat tiles' sparklines: the last 14 days, oldest first.
     const byDay = days.rows.slice().sort((a, b) => (a.key < b.key ? -1 : 1)).slice(-14)
     const body = html`
       <div class="area-kpi kpis">
-        ${stat('today', usd(todayU.totals.listUsd), byDay, (d) => d.listUsd ?? 0, usd)}
-        ${stat('this week', usd(active.totals.listUsd), byDay, (d) => d.listUsd ?? 0, usd)}
+        ${stat('today', costEl(todayU.totals), byDay, (d) => allInOf(d) ?? 0, usd)}
+        ${stat('this week', costEl(active.totals), byDay, (d) => allInOf(d) ?? 0, usd)}
         ${stat('requests · wk', active.totals.requests.toLocaleString(), byDay, (d) => d.requests, (v) => v.toLocaleString())}
         ${stat('sessions · wk', String(active.totals.sessions), byDay, (d) => d.sessions, String)}
         ${stat('out · wk', tok(active.totals.output), byDay, (d) => d.output, tok)}
@@ -503,7 +510,7 @@ export function createApp(
       <div class="area-recent panel">
         <header><h2>recent</h2><span>newest by last activity</span><span class="sp small"><a href="/search">search →</a></span></header>
         <div class="scroll list recent">
-          <div class="row head"><span title="the newest activity in the job — what this list is sorted by">last</span><span>who · where</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num">list $</span></div>
+          <div class="row head"><span title="the newest activity in the job — what this list is sorted by">last</span><span>who · where</span><span>model</span><span>opening</span><span class="num hide">pr</span><span class="num hide">req</span><span class="num hide">out</span><span class="num" title="main thread and subagents, at list price">list $</span></div>
           ${recent.map(
             (s) => html`<div class="row">
               <span class="mono"><a href="/session/${s.sessionId}">${timeEl(s.lastAt)}</a></span>
@@ -515,7 +522,7 @@ export function createApp(
               <span class="num hide">${s.prompts || ''}</span>
               <span class="num hide">${s.usage?.requests ?? ''}</span>
               <span class="num hide">${s.usage ? tok(s.usage.output) : ''}</span>
-              <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxRecent, { of: 'priciest session listed' })}${usd(s.usage.listUsd)}` : ''}</span>
+              <span class="num">${costCell(s.usage, maxRecent, 'priciest session listed')}</span>
             </div>`,
           )}
         </div>
@@ -536,7 +543,7 @@ export function createApp(
               <span class="muted">${a.detail ?? ''}</span>
               <span class="num">${a.liveTokens != null ? html`${ibar(a.liveTokens, maxLive, { of: 'largest live context here', fmt: tok })}${tok(a.liveTokens)}` : ''}</span>
               <span class="num ${ctxClass(a.ctx)}" title="${a.ctx != null ? `${a.ctx.toLocaleString()} tokens in the window at the last request` : ''}">${a.ctx != null ? tok(a.ctx) : ''}</span>
-              <span class="num">${a.indexed ? usd(a.indexed.listUsd) : ''}</span>
+              <span class="num">${a.indexed ? costEl(a.indexed) : ''}</span>
             </div>`,
           )}
         </div>
@@ -544,13 +551,13 @@ export function createApp(
       <div class="area-active panel">
         <header><h2>active this week</h2><span>since ${weekAgo}</span><span class="sp small"><a href="/usage">usage →</a></span></header>
         <div class="scroll list active">
-          <div class="row head"><span>well</span><span class="num">sess</span><span class="num">req</span><span class="num">list $</span></div>
+          <div class="row head"><span>well</span><span class="num">sess</span><span class="num">req</span><span class="num" title="main thread and subagents, at list price">list $</span></div>
           ${active.rows.map(
             (r) => html`<div class="row">
               <span class="mono"><a href="/well/${encodeURIComponent(r.key)}" title="${r.key}">${shortWell(r.key)}</a></span>
               <span class="num">${r.sessions}</span>
               <span class="num">${r.requests.toLocaleString()}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxActive, { of: 'busiest well listed' })}${usd(r.listUsd)}</span>
+              <span class="num">${ibar(allInOf(r) ?? 0, maxActive, { of: 'busiest well listed' })}${costEl(r)}</span>
             </div>`,
           )}
         </div>
@@ -576,9 +583,9 @@ export function createApp(
     )
     const q = { since: w.since ?? undefined, until: w.untilExclusive ?? undefined }
     const key = `${indexKey()}|${w.by}|${w.since ?? ''}|${w.until ?? ''}`
-    const buckets = cached('usage.buckets', 300_000, key, () => listUsage(db, { by: w.by, ...q, limit: 400, split: true }))
-    const models = cached('usage.models', 300_000, key, () => listUsage(db, { by: 'model', ...q, limit: 20, split: true }))
-    const wells = cached('usage.wells', 300_000, key, () => listUsage(db, { by: 'well', ...q, limit: 60, split: true }))
+    const buckets = cached('usage.buckets', 300_000, key, () => listUsage(db, { by: w.by, ...q, limit: 400, split: true, subagents: true }))
+    const models = cached('usage.models', 300_000, key, () => listUsage(db, { by: 'model', ...q, limit: 20, split: true, subagents: true }))
+    const wells = cached('usage.wells', 300_000, key, () => listUsage(db, { by: 'well', ...q, limit: 60, split: true, subagents: true }))
     const data = { window: { range: w.range, by: w.by, since: w.since ?? firstDay, until: w.until }, buckets, models, wells }
     if (wantsJson(c.req.raw)) return c.json(data)
     const label = w.range === 'all' ? (firstDay ? `since ${firstDay}` : 'all time') : w.range === 'custom' ? `${w.since ?? firstDay ?? '…'} → ${w.until ?? 'today'}` : `last ${w.range.slice(0, -1)} days`
@@ -597,9 +604,11 @@ export function createApp(
     }
     const seg = (items: string[], on: string, to: (v: string) => string) =>
       html`<span class="seg">${items.map((v) => html`<a class="${v === on ? 'on' : ''}" href="${to(v)}">${v}</a>`)}</span>`
-    const maxModel = Math.max(...models.rows.map((r) => r.listUsd ?? 0), 0)
-    const maxWell = Math.max(...wells.rows.map((r) => r.listUsd ?? 0), 0)
-    const maxBucket = Math.max(...buckets.rows.map((r) => r.listUsd ?? 0), 0)
+    const maxModel = Math.max(...models.rows.map((r) => allInOf(r) ?? 0), 0)
+    const maxWell = Math.max(...wells.rows.map((r) => allInOf(r) ?? 0), 0)
+    const maxBucket = Math.max(...buckets.rows.map((r) => allInOf(r) ?? 0), 0)
+    // The subagents column: their share of the row, blank where none ran.
+    const subOf = (r: UsageRow) => (r.spawnUsd ? usd(r.spawnUsd) : '')
     const feeOf = (r: UsageRow) => (r.usd ? feeBar(r.usd, { caption: false }) : html``)
     const body = html`
       <div class="area-bar toolbar">
@@ -613,13 +622,13 @@ export function createApp(
       </div>
       <div class="area-chart panel">
         <header><h2>by ${w.by}</h2><span class="sub">${label}, list $ by model</span>${modelLegend(buckets.rows)}
-          <span class="sp">${usd(models.totals.listUsd)} <span class="muted">${label}</span></span></header>
+          <span class="sp">${usd(allInOf(models.totals))} <span class="muted">${label}${costSplit(models.totals) ? ` · ${costSplit(models.totals)}` : ''}</span></span></header>
         <div class="body">${bucketChart(buckets.rows, 96)}</div>
       </div>
       <div class="area-models panel">
         <header><h2>by model</h2><span>${label}</span><span class="sp">${feeLegend()}</span></header>
         <div class="scroll list models">
-          <div class="row head"><span>model</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span>fee by class</span><span class="num">list $</span></div>
+          <div class="row head"><span>model</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span>fee by class</span><span class="num" title="the subagent requests' list price, by the model that served them">subagents</span><span class="num" title="main thread and subagents, at list price">list $</span></div>
           ${models.rows.map(
             (r) => html`<div class="row">
               <span class="mono" title="${r.key}"><i class="sw m-${modelFamily(r.key)}"></i>${r.key}</span>
@@ -628,7 +637,8 @@ export function createApp(
               <span class="num">${tok(r.output)}</span>
               <span class="num">${tok(r.thinking)}</span>
               <span>${feeOf(r)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxModel, { of: 'priciest model in this window' })}${usd(r.listUsd)}</span>
+              <span class="num muted">${subOf(r)}</span>
+              <span class="num">${ibar(allInOf(r) ?? 0, maxModel, { of: 'priciest model in this window' })}${costEl(r)}</span>
             </div>`,
           )}
         </div>
@@ -636,14 +646,15 @@ export function createApp(
       <div class="area-wells panel">
         <header><h2>by well</h2><span>${label}, top ${wells.rows.length}</span></header>
         <div class="scroll list wells">
-          <div class="row head"><span>well</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">list $</span></div>
+          <div class="row head"><span>well</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num" title="the list price of the subagents this well's sessions ran">subagents</span><span class="num" title="main thread and subagents, at list price">list $</span></div>
           ${wells.rows.map(
             (r) => html`<div class="row">
               <span class="mono"><a href="/well/${encodeURIComponent(r.key)}" title="${r.key}">${shortWell(r.key)}</a></span>
               <span class="num">${r.requests.toLocaleString()}</span>
               <span class="num">${r.sessions}</span>
               <span class="num">${tok(r.output)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxWell, { of: 'priciest well in this window' })}${usd(r.listUsd)}</span>
+              <span class="num muted">${subOf(r)}</span>
+              <span class="num">${ibar(allInOf(r) ?? 0, maxWell, { of: 'priciest well in this window' })}${costEl(r)}</span>
             </div>`,
           )}
         </div>
@@ -651,7 +662,7 @@ export function createApp(
       <div class="area-days panel">
         <header><h2>by ${w.by}</h2><span>${label}, newest first</span></header>
         <div class="scroll list days">
-          <div class="row head"><span>${w.by}</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span class="num">list $</span></div>
+          <div class="row head"><span>${w.by}</span><span class="num">req</span><span class="num">sess</span><span class="num">out</span><span class="num">think</span><span class="num" title="the list price of the subagent requests in this bucket">subagents</span><span class="num" title="main thread and subagents, at list price">list $</span></div>
           ${buckets.rows.slice().sort((a, b) => (a.key < b.key ? 1 : -1)).map(
             (r) => html`<div class="row">
               <span class="mono">${r.key}</span>
@@ -659,7 +670,8 @@ export function createApp(
               <span class="num">${r.sessions}</span>
               <span class="num">${tok(r.output)}</span>
               <span class="num">${tok(r.thinking)}</span>
-              <span class="num">${ibar(r.listUsd ?? 0, maxBucket, { of: `priciest ${w.by} in this window` })}${usd(r.listUsd)}</span>
+              <span class="num muted">${subOf(r)}</span>
+              <span class="num">${ibar(allInOf(r) ?? 0, maxBucket, { of: `priciest ${w.by} in this window` })}${costEl(r)}</span>
             </div>`,
           )}
         </div>
@@ -673,15 +685,15 @@ export function createApp(
     const dir = c.req.param('dir')
     const sessions = listSessions(db, { well: dir, exact: true, limit: 1000 })
     if (sessions.length === 0) return c.notFound()
-    const usage = listUsage(db, { by: 'session', well: dir, exact: true, limit: 5000 })
-    const weeks = listUsage(db, { by: 'week', well: dir, exact: true, limit: 26 })
+    const usage = listUsage(db, { by: 'session', well: dir, exact: true, limit: 5000, subagents: true })
+    const weeks = listUsage(db, { by: 'week', well: dir, exact: true, limit: 26, subagents: true })
     const byId = new Map(usage.rows.map((r) => [r.key, r]))
     const rows = sessions.map((s) => ({ ...s, usage: byId.get(s.sessionId) ?? null }))
     // The well's own mix: every model that served it, heaviest first.
     const wellModels = tallyWellModels(rows)
     const data = { well: dir, totals: usage.totals, models: wellModels, sessions: rows }
     if (wantsJson(c.req.raw)) return c.json(data)
-    const maxUsd = Math.max(...rows.map((s) => s.usage?.listUsd ?? 0), 0)
+    const maxUsd = Math.max(...rows.map((s) => allInOf(s.usage) ?? 0), 0)
     const wiki = wikiPageFor(dir, wikiDir)
     const body = html`
       <div class="page-head">
@@ -692,14 +704,14 @@ export function createApp(
           ${tile('requests', usage.totals.requests.toLocaleString())}
           ${tile('output', tok(usage.totals.output))}
           ${tile('cache-read', tok(usage.totals.cacheRead))}
-          ${tile('list $', usd(usage.totals.listUsd))}
+          ${costTile(usage.totals)}
           ${usage.totals.spawns ? tile('spawns', `${usage.totals.spawns} · ${tok(usage.totals.spawnOutput ?? 0)} out`) : ''}
           ${wellModels.length ? html`<div class="tile models"><div class="v">${wellModels.map((m) => modelChip(m.model, { title: `${m.model} · ${m.requests.toLocaleString()} requests` }))}</div><div class="l">models</div></div>` : ''}
-          ${weeks.rows.length > 1 ? html`<div class="tile wide">${bars(weeks.rows.map((r) => ({ label: r.key, value: r.listUsd ?? 0, title: `${r.key}: ${usd(r.listUsd)}` })), { height: 28 })}</div>` : ''}
+          ${weeks.rows.length > 1 ? html`<div class="tile wide">${bars(weeks.rows.map((r) => ({ label: r.key, value: allInOf(r) ?? 0, title: `${r.key}: ${usd(allInOf(r))}${costSplit(r) ? ` · ${costSplit(r)}` : ''}` })), { height: 28 })}</div>` : ''}
         </div>
       </div>
       <div class="panel"><div class="scroll list sessions">
-        <div class="row head"><span>first</span><span>last</span><span>model</span><span>opening</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num">list $</span><span class="num">spawns</span></div>
+        <div class="row head"><span>first</span><span>last</span><span>model</span><span>opening</span><span class="num">pr</span><span class="num">req</span><span class="num">out</span><span class="num">cache</span><span class="num" title="main thread and subagents, at list price">list $</span><span class="num">spawns</span></div>
         ${rows.map(
           (s) => html`<div class="row">
             <span class="mono"><a href="/session/${s.sessionId}">${timeEl(s.firstAt)}</a></span>
@@ -716,7 +728,7 @@ export function createApp(
             <span class="num">${s.usage?.requests ?? ''}</span>
             <span class="num">${s.usage ? tok(s.usage.output) : ''}</span>
             <span class="num">${s.usage ? tok(s.usage.cacheRead) : ''}</span>
-            <span class="num">${s.usage?.listUsd ? html`${ibar(s.usage.listUsd, maxUsd, { of: 'priciest session in this well' })}${usd(s.usage.listUsd)}` : ''}</span>
+            <span class="num">${costCell(s.usage, maxUsd, 'priciest session in this well')}</span>
             <span class="num">${s.usage?.spawns || ''}</span>
           </div>`,
         )}
@@ -829,7 +841,7 @@ function shortWell(dir: string): string {
   return tail.replace('--claude-worktrees-', ' · ').replace(/^(fun|work|personal|games)-/, '$1/')
 }
 // A stat tile: the number, its label, and the 14-day trend behind it.
-function stat(label: string, value: string, days: UsageRow[], pick: (d: UsageRow) => number, fmt: (v: number) => string) {
+function stat(label: string, value: string | HtmlEscapedString | Promise<HtmlEscapedString>, days: UsageRow[], pick: (d: UsageRow) => number, fmt: (v: number) => string) {
   return html`<div class="tile stat"><div><div class="v">${value}</div><div class="l">${label}</div></div>${spark(
     days.map(pick),
     { title: (i) => `${days[i]!.key}: ${fmt(pick(days[i]!))}` },
@@ -837,7 +849,9 @@ function stat(label: string, value: string, days: UsageRow[], pick: (d: UsageRow
 }
 
 
-// The day chart: list $ stacked by model FAMILY (model.ts). Stacking by
+// The day chart: list $ stacked by model FAMILY (model.ts), all-in — a
+// subagent request stacks under the model that served it, so a column sums
+// to the figure its tooltip states. Stacking by
 // exact id meant the colours were assigned by rank within the window — the
 // same blue was opus in one window and fable in another, and a chip
 // elsewhere on the page agreed with neither. Families are four, fixed, and
@@ -845,7 +859,7 @@ function stat(label: string, value: string, days: UsageRow[], pick: (d: UsageRow
 // where the generation belongs.
 function familiesIn(rows: UsageRow[]): ModelFamily[] {
   const present = new Set<ModelFamily>()
-  for (const d of rows) for (const m of d.models ?? []) if ((m.listUsd ?? 0) > 0) present.add(modelFamily(m.model))
+  for (const d of rows) for (const m of d.models ?? []) if ((m.allInUsd ?? 0) > 0) present.add(modelFamily(m.model))
   return FAMILIES.filter((f) => present.has(f))
 }
 // The usage page's window: a relative range (7d/30d/90d/all) or absolute
@@ -904,20 +918,20 @@ function bucketChart(rows: UsageRow[], height = 72) {
   const series = familiesIn(days).map((f) => ({
     name: f,
     cls: `m-${f}`,
-    values: days.map((d) => (d.models ?? []).filter((x) => modelFamily(x.model) === f).reduce((a, x) => a + (x.listUsd ?? 0), 0)),
+    values: days.map((d) => (d.models ?? []).filter((x) => modelFamily(x.model) === f).reduce((a, x) => a + (x.allInUsd ?? 0), 0)),
   }))
   const detail = (d: UsageRow) =>
     (d.models ?? [])
-      .filter((m) => (m.listUsd ?? 0) > 0)
-      .sort((a, b) => (b.listUsd ?? 0) - (a.listUsd ?? 0))
-      .map((m) => `${m.model} ${usd(m.listUsd)}`)
+      .filter((m) => (m.allInUsd ?? 0) > 0)
+      .sort((a, b) => (b.allInUsd ?? 0) - (a.allInUsd ?? 0))
+      .map((m) => `${m.model} ${usd(m.allInUsd ?? null)}`)
       .join('\n')
   return stackedBars(
     days.map((d) => d.key),
     series,
     {
       height,
-      title: (i) => `${days[i]!.key}: ${usd(days[i]!.listUsd)} · ${tok(days[i]!.output)} out · ${days[i]!.requests} req\n${detail(days[i]!)}`,
+      title: (i) => `${days[i]!.key}: ${usd(allInOf(days[i]))}${costSplit(days[i]) ? ` (${costSplit(days[i])})` : ''} · ${tok(days[i]!.output)} out · ${days[i]!.requests} req\n${detail(days[i]!)}`,
     },
   )
 }
@@ -961,7 +975,9 @@ type RecentJob = {
   models: { model: string; requests: number }[]
   sessions: number
   prompts: number
-  usage: { requests: number; output: number; listUsd: number }
+  // Summed over the job's sessions in the window; the dollars as usage.ts
+  // states them (main thread, subagents, all-in).
+  usage: { requests: number; output: number; listUsd: number; spawnUsd: number; allInUsd: number }
 }
 
 // The recent panel's rows: sessions (newest first) folded into their jobs,
@@ -975,7 +991,7 @@ function groupRecent(rows: RecentSession[], refs: Map<string, { key: string; kin
       g = {
         key: ref.key, kind: ref.kind, name: name(ref.key, ref.kind),
         sessionId: s.sessionId, well: s.well, lastAt: s.lastAt, firstPrompt: s.firstPrompt, openedBy: s.openedBy,
-        models: [], sessions: 0, prompts: 0, usage: { requests: 0, output: 0, listUsd: 0 }, members: [],
+        models: [], sessions: 0, prompts: 0, usage: { requests: 0, output: 0, listUsd: 0, spawnUsd: 0, allInUsd: 0 }, members: [],
       }
       groups.set(ref.key, g)
     }
@@ -983,7 +999,9 @@ function groupRecent(rows: RecentSession[], refs: Map<string, { key: string; kin
     g.prompts += s.prompts
     g.usage.requests += s.usage?.requests ?? 0
     g.usage.output += s.usage?.output ?? 0
-    g.usage.listUsd += s.usage?.listUsd ?? 0
+    g.usage.listUsd = round2(g.usage.listUsd + (s.usage?.listUsd ?? 0))
+    g.usage.spawnUsd = round2(g.usage.spawnUsd + (s.usage?.spawnUsd ?? 0))
+    g.usage.allInUsd = round2(g.usage.allInUsd + (s.usage?.allInUsd ?? 0))
     g.members.push(s)
   }
   return [...groups.values()].map(({ members, ...g }) => ({ ...g, models: tallyWellModels(members) }))
@@ -1093,11 +1111,22 @@ function agentRow(r: AgentJob, maxLive: number, maxUsd: number, depth = 0) {
     <span class="num ${ctxClass(a?.ctx)}" title="${a?.ctx != null ? `${a.ctx.toLocaleString()} tokens in the window at the last request` : ''}">${a?.ctx != null ? tok(a.ctx) : ''}</span>
     <span class="num" title="${j ? `${j.incarnations} incarnation${j.incarnations === 1 ? '' : 's'}` : ''}">${j?.sessions ?? ''}</span>
     <span class="num">${j ? j.requests.toLocaleString() : (a?.indexed?.requests ?? '')}</span>
-    <span class="num">${j ? html`${ibar(j.listUsd ?? 0, maxUsd, { of: 'priciest job here' })}${usd(j.listUsd)}` : a?.indexed ? usd(a.indexed.listUsd) : ''}</span>
+    <span class="num">${j ? html`${ibar(j.allInUsd ?? 0, maxUsd, { of: 'priciest job here' })}${costEl(j)}` : a?.indexed ? costEl(a.indexed) : ''}</span>
     <span class="mono">${sid && (j || a?.indexed) ? html`<a href="/session/${sid}">${lastAt ? timeEl(lastAt) : 'yes'}</a>` : sid ? html`<span class="muted">not yet</span>` : ''}</span>
     <span>${(j?.peers ?? []).map((p, i) => html`${i ? ' ' : ''}<a href="/thread/${encodeURIComponent(name ?? r.key ?? '')}/${encodeURIComponent(p)}">@${p}</a>`)}</span>
     <span class="mono">${a?.attachUrl ? html`<a href="${a.attachUrl}" title="${a.attach ?? ''} — opens the pane in ccc">attach</a>` : ''}</span>
   </div>`
+}
+
+// A set of rows' cost, summed side by side (a day's sessions on the job
+// page): null on a side when any row's is.
+function sumCost(rows: (UsageRow | null)[]): { listUsd: number | null; spawnUsd: number | null; allInUsd: number | null } {
+  const add = (pick: (r: UsageRow) => number | null | undefined) =>
+    rows.reduce<number | null>((n, r) => (n == null || (r && pick(r) == null) ? null : round2(n + (r ? (pick(r) ?? 0) : 0))), 0)
+  return { listUsd: add((r) => r.listUsd), spawnUsd: add((r) => r.spawnUsd), allInUsd: add((r) => r.allInUsd) }
+}
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
 // Every model a well's sessions ran on, heaviest first.

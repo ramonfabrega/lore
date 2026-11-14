@@ -6,7 +6,7 @@ import { mdBlock, mdInline, mdLead, mdUser } from './md'
 import { modelDrift, modelLabel } from './model'
 import type { Annotations, Instruction, Lane, SpawnGroup, Trace, Transaction } from './trace'
 import { priceOf, rateFor } from './usage'
-import { clockEl, type FeeSplit, feeBar, ibar, modelChip, modelChips, spanEl } from './viz'
+import { allInOf, clockEl, type Cost, costEl, costSplit, type FeeSplit, feeBar, ibar, modelChip, modelChips, spanEl } from './viz'
 
 // The block view (docs/EXPLORER.md, design pass 2026-09-01): one session
 // rendered from `getTrace` alone. Three reads, top to bottom —
@@ -47,8 +47,15 @@ export function family(tool: string): string {
   return FAMILY[tool] ?? 'other'
 }
 
-export function tile(label: string | H, value: string, cls = '') {
+export function tile(label: string | H, value: string | H, cls = '') {
   return html`<div class="tile ${cls}"><div class="v">${value}</div><div class="l">${label}</div></div>`
+}
+
+// The cost tile of a page head: the all-in figure, and the split under it
+// when subagents ran (viz.ts `costSplit`).
+export function costTile(c: Cost | null | undefined) {
+  const split = costSplit(c)
+  return tile(split ? html`list $ <span class="muted">· ${split}</span>` : 'list $', usd(allInOf(c)))
 }
 
 export function annotationLine(a: Annotations) {
@@ -99,6 +106,7 @@ export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
   const peers = spoke.filter((p) => !laneNames.has(p))
   const lanePeers = spoke.length - peers.length
   const sw = (v: SessionView, label: string) => (v === view ? html`<b>${label}</b>` : html`<a href="?view=${v}">${label}</a>`)
+  const laneAllIn = laneTotal(trace.lanes)
   return html`
     <div class="page-head">
     <p class="crumbs"><a href="/">lore</a> / <a href="/well/${encodeURIComponent(s.well)}">${s.well}</a> / session
@@ -127,12 +135,13 @@ export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
       ${tile('errors', String(t.errors), t.errors > 0 ? 'warn' : '')}
       ${tile('output', tok(t.output))}
       ${tile('cache-read', tok(t.cacheRead))}
-      ${tile('list $', usd(t.listUsd))}
+      ${costTile(t)}
       ${t.spawns ? tile('spawns', `${t.spawns} · ${tok(t.spawnOutput)} out`) : ''}
-      ${t.lanes ? tile(html`<span title="jobs this session spawned (ccc spawn) — their own sessions' list price">lanes</span>`, `${t.lanes} · ${usd(t.laneUsd)}`) : ''}
-      ${t.lanes ? tile(html`<span title="this session's list price plus its lanes' — what the run cost">run $</span>`, usd(t.listUsd == null || t.laneUsd == null ? null : t.listUsd + t.laneUsd)) : ''}
+      ${t.lanes ? tile(html`<span title="jobs this session spawned (ccc spawn) — their own sessions' list price, main thread and subagents">lanes</span>`, `${t.lanes} · ${usd(laneAllIn)}`) : ''}
+      ${t.lanes ? tile(html`<span title="this session's list price plus its lanes', subagents included on both sides — what the run cost">run $</span>`, usd(t.allInUsd == null || laneAllIn == null ? null : t.allInUsd + laneAllIn)) : ''}
     </div>
     ${feeBar(fee, { unpriced: fee.unpriced })}
+    ${t.spawnUsd ? html`<p class="footnote small muted">The fee bar and the turns below are the main thread, ${usd(t.listUsd)}; the ${usd(t.spawnUsd)} its subagents ran is in the list $ tile — subagent requests are not placed in turns.</p>` : ''}
     ${fanout(trace.spawns)}
     ${timeline(trace, num)}
     ${laneLedger(trace.lanes)}
@@ -205,7 +214,8 @@ function laneLedger(lanes: Lane[]) {
   if (lanes.length === 0) return html``
   const states = new Map<string, number>()
   for (const l of lanes) states.set(l.state ?? '?', (states.get(l.state ?? '?') ?? 0) + 1)
-  const total = lanes.every((l) => l.listUsd != null) ? lanes.reduce((n, l) => n + (l.listUsd ?? 0), 0) : null
+  const total = laneTotal(lanes)
+  const maxUsd = Math.max(...lanes.map((l) => l.allInUsd ?? 0), 0)
   return html`<details class="lanes-ledger" id="lanes">
     <summary class="fan small"><span class="muted">lanes</span> <span class="g"><b>${lanes.length}</b> · ${usd(total)}</span>
       ${[...states].sort((a, b) => b[1] - a[1]).map(([st, n]) => html`<span class="g"><span class="kind st-${st}">${st}</span> <span class="muted">×${n}</span></span>`)}</summary>
@@ -221,12 +231,18 @@ function laneLedger(lanes: Lane[]) {
         <td>${modelChips(l.models, { max: 2 })}</td>
         <td class="num">${l.requests.toLocaleString()}</td>
         <td class="num">${tok(l.output)}</td>
-        <td class="num">${usd(l.listUsd)}</td>
+        <td class="num">${l.allInUsd ? html`${ibar(l.allInUsd, maxUsd, { of: 'priciest lane here' })}${costEl(l)}` : usd(l.allInUsd)}</td>
         <td class="muted small">${cut(l.opener ?? '', 90)}</td>
       </tr>`,
       )}</tbody>
     </table>
   </details>`
+}
+
+// The lanes' all-in total (main thread and subagents of each), null when any
+// lane is unpriced.
+function laneTotal(lanes: Lane[]): number | null {
+  return lanes.every((l) => l.allInUsd != null) ? lanes.reduce((n, l) => n + (l.allInUsd ?? 0), 0) : null
 }
 
 // Lanes packed into rows for the timeline: a lane takes the first row whose
@@ -352,7 +368,7 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
     const lx = ((a - t0) / span) * PW
     const lw = Math.max(1.5, ((b - a) / span) * PW)
     const y = LY + r * LH
-    laneBars.push(html`<a href="/job/${encodeURIComponent(l.key)}"><rect class="ln st-${l.state ?? ''}" x="${lx.toFixed(2)}" y="${y + 2}" width="${lw.toFixed(2)}" height="${LH - 4}"><title>@${l.name ?? l.key.slice(0, 8)} · ${l.state ?? '?'} · spawned ${hms(l.spawnedAt)} · ${hms(l.first)} → ${hms(l.last)} · ${l.ms != null ? ms(l.ms) : ''} · ${usd(l.listUsd)}\n${cut(l.opener ?? '', 120)}</title></rect></a>`)
+    laneBars.push(html`<a href="/job/${encodeURIComponent(l.key)}"><rect class="ln st-${l.state ?? ''}" x="${lx.toFixed(2)}" y="${y + 2}" width="${lw.toFixed(2)}" height="${LH - 4}"><title>@${l.name ?? l.key.slice(0, 8)} · ${l.state ?? '?'} · spawned ${hms(l.spawnedAt)} · ${hms(l.first)} → ${hms(l.last)} · ${l.ms != null ? ms(l.ms) : ''} · ${usd(l.allInUsd)}\n${cut(l.opener ?? '', 120)}</title></rect></a>`)
   }
   const laneLabels = Array.from({ length: packed.n }, (_, i) => (i === 0 ? 'lanes' : ''))
 

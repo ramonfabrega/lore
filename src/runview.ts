@@ -5,7 +5,7 @@ import { railBody } from './convoview'
 import { cut, hm, hms, ms, tok, usd } from './fmt'
 import type { Run, RunLane } from './run'
 import type { Trace } from './trace'
-import { clockEl, modelChip, spanEl } from './viz'
+import { clockEl, costEl, costSplit, modelChip, spanEl } from './viz'
 
 // The run page (docs/EXPLORER.md §The run page): a job and the lanes it
 // spawned, the question "how is it doing" answered on one screen. The head
@@ -50,8 +50,8 @@ function runHead(run: Run, job: Trace[]) {
       ${tile('lanes', `${run.lanes.length}${run.lanes.some((l) => l.live) ? ` · ${run.lanes.filter((l) => l.live).length} live` : ''}`)}
       ${!closed && loop.running.length ? tile(html`<span title="${loop.running.map((r) => r.label ?? '').join('\n')}">running</span>`, String(loop.running.length)) : ''}
       ${tile(html`<span title="the job's own list price in the window plus its lanes'">spend</span>`, usd(loop.spend.totalUsd))}
-      ${tile(`${j.name ?? 'job'} $`, usd(loop.spend.jobUsd))}
-      ${tile('lanes $', usd(loop.spend.laneUsd))}
+      ${tile(html`<span title="${costSplit({ listUsd: loop.spend.jobUsd, spawnUsd: loop.spend.jobSpawnUsd }) || 'main thread and subagents'}">${j.name ?? 'job'} $</span>`, usd(loop.spend.jobAllInUsd))}
+      ${tile(html`<span title="${costSplit({ listUsd: loop.spend.laneUsd, spawnUsd: loop.spend.laneSpawnUsd }) || 'main thread and subagents'}">lanes $</span>`, usd(loop.spend.laneAllInUsd))}
     </div>
     ${timeline(run, job)}
   </div>`
@@ -107,7 +107,7 @@ function timeline(run: Run, job: Trace[]) {
     const lx = ((a - t0) / span) * PW
     const lw = Math.max(1.5, ((b - a) / span) * PW)
     const y = yLane(r)
-    parts.push(html`<a href="/job/${encodeURIComponent(l.key)}"><rect class="ln st-${l.state ?? ''}" x="${lx.toFixed(2)}" y="${y + 2}" width="${lw.toFixed(2)}" height="${LH - 4}"><title>@${l.name ?? l.key.slice(0, 8)} · ${l.state ?? '?'} · spawned ${hms(l.spawnedAt)} → ${hms(l.last)} · ${usd(l.listUsd)}</title></rect></a>`)
+    parts.push(html`<a href="/job/${encodeURIComponent(l.key)}"><rect class="ln st-${l.state ?? ''}" x="${lx.toFixed(2)}" y="${y + 2}" width="${lw.toFixed(2)}" height="${LH - 4}"><title>@${l.name ?? l.key.slice(0, 8)} · ${l.state ?? '?'} · spawned ${hms(l.spawnedAt)} → ${hms(l.last)} · ${usd(l.allInUsd)}</title></rect></a>`)
     for (const m of l.msgs) {
       const mx = x(m)
       if (mx != null) parts.push(html`<rect class="m msg" x="${(mx - 1).toFixed(2)}" y="${y + 2}" width="2" height="${LH - 4}"><title>${hms(m)} @${l.name} → ${loop.job.name ?? 'job'}</title></rect>`)
@@ -170,7 +170,7 @@ function lanesTable(run: Run) {
           <td class="num">${wall}</td>
           <td class="num ${l.deep ? 'warn' : ''}">${l.ctx != null ? tok(l.ctx) : ''}</td>
           <td class="num">${l.requests.toLocaleString()}</td>
-          <td class="num">${usd(l.listUsd)}</td>
+          <td class="num">${costEl(l)}</td>
           <td class="num">${l.msgs.length || ''}</td>
         </tr>`
       })}</tbody>

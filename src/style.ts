@@ -189,9 +189,9 @@ tr.meta td, tr.command td, tr.done td { color: var(--ink-3); }
 .list.roster .row { grid-template-columns: calc(78px * var(--z)) calc(130px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(64px * var(--z)) calc(88px * var(--z)) calc(64px * var(--z)) calc(178px * var(--z)); }
 /* a model read from the index, not the transcript: only as fresh as the last index run */
 .list.roster .row .stale .mchip { color: var(--ink-3); } .list.roster .row .stale .sw { opacity: .55; }
-.list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(122px * var(--z)); }
-.list.wells .row { grid-template-columns: minmax(0, 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
-.list.days .row { grid-template-columns: calc(74px * var(--z)) calc(52px * var(--z)) calc(34px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(112px * var(--z)); }
+.list.models .row { grid-template-columns: minmax(calc(120px * var(--z)), 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(120px * var(--z)) calc(72px * var(--z)) calc(122px * var(--z)); }
+.list.wells .row { grid-template-columns: minmax(0, 1fr) calc(56px * var(--z)) calc(36px * var(--z)) calc(48px * var(--z)) calc(72px * var(--z)) calc(112px * var(--z)); }
+.list.days .row { grid-template-columns: calc(74px * var(--z)) calc(52px * var(--z)) calc(34px * var(--z)) calc(48px * var(--z)) calc(48px * var(--z)) calc(72px * var(--z)) calc(112px * var(--z)); }
 .list.sessions .row { grid-template-columns: calc(84px * var(--z)) calc(92px * var(--z)) calc(76px * var(--z)) minmax(0, 1fr) calc(28px * var(--z)) calc(44px * var(--z)) calc(44px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(44px * var(--z)); }
 /* the agents page: every job, live first — state · name · model · where · doing · live · sess · req · $ · last · peers · attach */
 .list.jobsall .row { grid-template-columns: calc(78px * var(--z)) calc(150px * var(--z)) calc(80px * var(--z)) calc(170px * var(--z)) minmax(0, 1fr) calc(96px * var(--z)) calc(36px * var(--z)) calc(52px * var(--z)) calc(104px * var(--z)) calc(72px * var(--z)) calc(120px * var(--z)) calc(178px * var(--z)); }

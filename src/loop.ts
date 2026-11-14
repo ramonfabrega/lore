@@ -62,9 +62,11 @@ export type LoopLane = {
   peak: number | null
   deep: boolean
   requests: number
-  // The lane's main-thread fee inside the window, and its subagents' beside it.
+  // The lane's main-thread fee inside the window, its subagents' beside it,
+  // and the two together (`allInUsd`, what the run page prints).
   listUsd: number | null
   spawnUsd: number | null
+  allInUsd: number | null
   last: string | null
 }
 
@@ -101,8 +103,17 @@ export type Loop = {
   // lanes; `jobSpawnUsd`/`laneSpawnUsd` the subagents those sessions ran,
   // each request by its own instant inside the window; `totalUsd` is all
   // four — what the account counted. Until 2026-11-14 the total was the two
-  // main threads alone.
-  spend: { jobUsd: number | null; jobSpawnUsd: number | null; laneUsd: number | null; laneSpawnUsd: number | null; totalUsd: number | null }
+  // main threads alone. `jobAllInUsd`/`laneAllInUsd` are each side's main
+  // thread and subagents together, so the run page's three tiles add up.
+  spend: {
+    jobUsd: number | null
+    jobSpawnUsd: number | null
+    jobAllInUsd: number | null
+    laneUsd: number | null
+    laneSpawnUsd: number | null
+    laneAllInUsd: number | null
+    totalUsd: number | null
+  }
   spoke: { lastPrompt: string | null; lastText: string | null; lastSent: string | null }
 }
 
@@ -164,15 +175,18 @@ function feeOf(
   sessions: string[],
   since: string | undefined,
   until?: string,
-): { requests: number; listUsd: number | null; spawnUsd: number | null; models: { model: string; requests: number }[] } {
-  if (sessions.length === 0) return { requests: 0, listUsd: 0, spawnUsd: 0, models: [] }
+): { requests: number; listUsd: number | null; spawnUsd: number | null; allInUsd: number | null; models: { model: string; requests: number }[] } {
+  if (sessions.length === 0) return { requests: 0, listUsd: 0, spawnUsd: 0, allInUsd: 0, models: [] }
   const u = listUsage(db, { by: 'session', sessions, since, until, limit: 100_000, split: true, subagents: true })
   const models = new Map<string, number>()
-  for (const r of u.rows) for (const m of r.models ?? []) models.set(m.model, (models.get(m.model) ?? 0) + m.requests)
+  // The main thread's mix: with `subagents` the split also lists models only
+  // the subagents ran, at zero main-thread requests.
+  for (const r of u.rows) for (const m of r.models ?? []) if (m.requests > 0) models.set(m.model, (models.get(m.model) ?? 0) + m.requests)
   return {
     requests: u.totals.requests,
     listUsd: u.totals.listUsd,
     spawnUsd: u.totals.spawnUsd ?? null,
+    allInUsd: u.totals.allInUsd ?? null,
     models: [...models].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests),
   }
 }
@@ -261,6 +275,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
         requests: fee.requests,
         listUsd: fee.listUsd,
         spawnUsd: fee.spawnUsd,
+        allInUsd: fee.allInUsd,
         last: lsp.last,
       }
     })
@@ -275,10 +290,12 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
   const ownFee = feeOf(db, sessions, since ?? undefined, until ?? undefined)
   const jobUsd = sessions.length ? ownFee.listUsd : null
   const jobSpawnUsd = sessions.length ? ownFee.spawnUsd : null
+  const jobAllInUsd = sessions.length ? ownFee.allInUsd : null
   const sumLanes = (pick: (l: LoopLane) => number | null) =>
     allLanes.length ? (allLanes.every((l) => pick(l) != null) ? round2(allLanes.reduce((n, l) => n + (pick(l) ?? 0), 0)) : null) : 0
   const laneUsd = sumLanes((l) => l.listUsd)
   const laneSpawnUsd = sumLanes((l) => l.spawnUsd)
+  const laneAllInUsd = sumLanes((l) => l.allInUsd)
   const parts = [jobUsd, jobSpawnUsd, laneUsd, laneSpawnUsd]
   const totalUsd = parts.some((p) => p == null) ? null : round2(parts.reduce<number>((n, p) => n + (p ?? 0), 0))
 
@@ -304,7 +321,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
     running,
     lanes,
     lanesTotal: allLanes.length,
-    spend: { jobUsd, jobSpawnUsd, laneUsd, laneSpawnUsd, totalUsd },
+    spend: { jobUsd, jobSpawnUsd, jobAllInUsd, laneUsd, laneSpawnUsd, laneAllInUsd, totalUsd },
     spoke: {
       lastPrompt: lastTs(db, sessions, "lane = 'prompt' AND type = 'user'"),
       lastText: lastTs(db, sessions, "lane = 'text'"),

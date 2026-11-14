@@ -12,12 +12,15 @@ import { z } from 'zod'
 // subagent request (`spawn_requests`, the same token classes, priced through
 // the same rates) in `spawn*` fields of each row and of the totals — never
 // folded into `listUsd`, which stays the main thread so every reader that
-// knew it keeps the number it knew. A subagent request is attributed by its
-// own model and its own instant, and to its PARENT session (and that
-// session's well); every filter bounds both sides the same way. Opt-in
-// because the readers that only want the main thread (the explorer's pages,
-// the agents roster) aggregate the whole index on every poll and would pay
-// for a second table they do not show.
+// knew it keeps the number it knew. `allInUsd` is the sum, computed here once
+// so no reader re-adds it: the figure every totals surface prints (the
+// explorer's pages, `agents`, `jobs`, `trace`). A subagent request is
+// attributed by its own model and its own instant, and to its PARENT session
+// (and that session's well); every filter bounds both sides the same way.
+// With `split` too, the class split (`usd`) and the model split (`models`)
+// cover both sides, so a stacked bar sums to the all-in figure beside it.
+// Opt-in: a reader that wants the main thread alone (`polls`) does not pay
+// for the second table.
 //
 // Cost is a LIST-PRICE EQUIVALENT at first-party API rates, not a bill — the
 // fleet runs on subscription OAuth, where the price only matters as the
@@ -167,10 +170,26 @@ export type UsageRow = {
   spawnCacheRead?: number
   spawnRequestOutput?: number
   spawnUsd?: number | null
+  // With `subagents`: listUsd + spawnUsd, null when either side is unpriced.
+  // The one figure a totals surface prints; never re-add the two.
+  allInUsd?: number | null
   // With `split`: the list price by token class (the fee bar) and by model
-  // (the stacked day chart), from the same (key, model, day) cells.
+  // (the stacked day chart), from the same (key, model, day) cells. With
+  // `subagents` too, both splits cover the subagent requests as well.
   usd?: { input: number; cacheWrite: number; cacheRead: number; output: number }
-  models?: { model: string; requests: number; listUsd: number | null }[]
+  models?: UsageModel[]
+}
+// One model's share of a row. `requests` and `listUsd` are the main thread
+// (a model only subagents ran is here at 0, so a mix read off `requests`
+// still names what served the conversation — filter on `requests > 0`);
+// with `subagents`, the subagent side and the sum ride beside them.
+export type UsageModel = {
+  model: string
+  requests: number
+  listUsd: number | null
+  spawnRequests?: number
+  spawnUsd?: number | null
+  allInUsd?: number | null
 }
 export type UsageReport = {
   by: Grouping
@@ -233,7 +252,7 @@ export function listUsage(
   },
 ): UsageReport {
   const sub = opts.subagents === true
-  const subZero = sub ? { spawnRequests: 0, spawnCacheWrite: 0, spawnCacheRead: 0, spawnRequestOutput: 0, spawnUsd: 0 } : {}
+  const subZero = sub ? { spawnRequests: 0, spawnCacheWrite: 0, spawnCacheRead: 0, spawnRequestOutput: 0, spawnUsd: 0, allInUsd: 0 } : {}
   const where: string[] = ['1=1']
   const params: (string | number)[] = []
   if (opts.sessions) {
@@ -334,7 +353,7 @@ export function listUsage(
       const ms = (row.models ??= [])
       const name = c.model ?? '?'
       let m = ms.find((x) => x.model === name)
-      if (!m) ms.push((m = { model: name, requests: 0, listUsd: 0 }))
+      if (!m) ms.push((m = { model: name, requests: 0, listUsd: 0, ...(sub ? { spawnRequests: 0, spawnUsd: 0 } : {}) }))
       m.requests += c.requests
       m.listUsd = cellUsd ? (m.listUsd ?? 0) + cellUsd.input + cellUsd.cacheWrite + cellUsd.cacheRead + cellUsd.output : null
     }
@@ -394,15 +413,34 @@ export function listUsage(
       row.spawnCacheRead = (row.spawnCacheRead ?? 0) + c.cacheRead
       row.spawnRequestOutput = (row.spawnRequestOutput ?? 0) + c.output
       const rate = rateFor(c.model, c.day)
-      if (rate) {
-        const u = priceOf(c, rate)
+      const billed = c.input + c.cacheWrite + c.cacheRead + c.output > 0
+      const u = rate ? priceOf(c, rate) : null
+      if (u) {
         row.spawnUsd = (row.spawnUsd ?? 0) + u.input + u.cacheWrite + u.cacheRead + u.output
-      } else if (c.input + c.cacheWrite + c.cacheRead + c.output > 0) {
+      } else if (billed) {
         // A usage-less record is a row at zero (spawns.ts) and may carry no
         // model: nothing to price, so it must not null the row's dollars —
         // `lore limits` would then read the window's subagents as 0.
         row.subPriced = false
         unpriced.add(c.model ?? '?')
+      }
+      // The splits take the subagent side too, each request under its own
+      // model — but a usage-less record (no model, nothing billed) adds no
+      // model to the mix.
+      if (opts.split && (u || billed)) {
+        const cls = (row.usd ??= { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 })
+        if (u) {
+          cls.input += u.input
+          cls.cacheWrite += u.cacheWrite
+          cls.cacheRead += u.cacheRead
+          cls.output += u.output
+        }
+        const ms = (row.models ??= [])
+        const name = c.model ?? '?'
+        let m = ms.find((x) => x.model === name)
+        if (!m) ms.push((m = { model: name, requests: 0, listUsd: 0, spawnRequests: 0, spawnUsd: 0 }))
+        m.spawnRequests = (m.spawnRequests ?? 0) + c.requests
+        m.spawnUsd = u ? (m.spawnUsd ?? 0) + u.input + u.cacheWrite + u.cacheRead + u.output : null
       }
       rows.set(c.key, row)
     }
@@ -502,15 +540,24 @@ export function listUsage(
     }
   }
 
-  const finished: UsageRow[] = [...rows.values()].map(({ priced, subPriced, ...r }) => ({
-    ...r,
-    listUsd: priced ? round2(r.listUsd ?? 0) : null,
-    ...(sub ? { spawnUsd: subPriced ? round2(r.spawnUsd ?? 0) : null } : {}),
-  }))
+  // allInUsd is the sum of the two ROUNDED sides, so a page showing
+  // `main $X · subagents $Y` beside it always adds up to the cent.
+  const finished: UsageRow[] = [...rows.values()].map(({ priced, subPriced, ...r }) => {
+    const listUsd = priced ? round2(r.listUsd ?? 0) : null
+    if (!sub) return { ...r, listUsd }
+    const spawnUsd = subPriced ? round2(r.spawnUsd ?? 0) : null
+    return {
+      ...r,
+      listUsd,
+      spawnUsd,
+      allInUsd: allIn(listUsd, spawnUsd),
+      ...(r.models ? { models: r.models.map((m) => ({ ...m, allInUsd: m.listUsd == null || m.spawnUsd == null ? null : m.listUsd + m.spawnUsd })) } : {}),
+    }
+  })
   const timeGrouped = opts.by === 'day' || opts.by === 'week' || opts.by === 'month'
   // Ranked by what the row cost: the main thread, plus its subagents when
   // they are counted (a model only subagents ran would otherwise sink).
-  const cost = (r: UsageRow) => (r.listUsd ?? -1) + (sub ? (r.spawnUsd ?? 0) : 0)
+  const cost = (r: UsageRow) => (sub ? (r.allInUsd ?? (r.listUsd ?? -1) + (r.spawnUsd ?? 0)) : (r.listUsd ?? -1))
   finished.sort((a, b) => (timeGrouped ? a.key.localeCompare(b.key) : cost(b) - cost(a) || b.output - a.output))
   const page = timeGrouped ? finished.slice(-opts.limit) : finished.slice(0, opts.limit)
 
@@ -538,6 +585,7 @@ export function listUsage(
     }),
     { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0, ...subZero },
   )
+  if (sub) totals.allInUsd = allIn(totals.listUsd, totals.spawnUsd ?? null)
   // `sessions` in totals is distinct across the whole filter, not a sum of rows.
   if (opts.by !== 'session') {
     totals.sessions = z
@@ -561,10 +609,14 @@ export function listUsage(
     note:
       'listUsd is a list-price equivalent at first-party API rates (dated; cache reads priced per model/date, cache writes per TTL — 1.25x base input at 5 minutes, 2x at 1 hour, with cacheWrite1h the 1-hour slice of cacheWrite) — not a bill. listUsd and requests/input/cacheWrite/cacheRead/output/thinking are MAIN-THREAD requests only. ' +
       (sub
-        ? "spawnRequests/spawnCacheWrite/spawnCacheRead/spawnRequestOutput/spawnUsd are the SUBAGENT requests of the same row, priced at the same rates and never folded into listUsd (all-in = listUsd + spawnUsd): each counted by its own model and instant, and under its parent session and that session's well; every filter bounds both sides. Spawns on harness 2.1.285 – 2.1.299 lost the completion record of every tool_use-ended request, so their output (and spawnUsd) is a floor there — priced as written, nothing invented. "
+        ? "spawnRequests/spawnCacheWrite/spawnCacheRead/spawnRequestOutput/spawnUsd are the SUBAGENT requests of the same row, priced at the same rates and never folded into listUsd; allInUsd = listUsd + spawnUsd, the row's whole cost: each counted by its own model and instant, and under its parent session and that session's well; every filter bounds both sides. Spawns on harness 2.1.285 – 2.1.299 lost the completion record of every tool_use-ended request, so their output (and spawnUsd) is a floor there — priced as written, nothing invented. "
         : '') +
       'spawns/spawnOutput (well/session) join the subagent observatory per spawn, by when it started (`lore spawns` for detail). Open a session with `lore session <id>`.',
   }
+}
+
+function allIn(main: number | null, sub: number | null): number | null {
+  return main == null || sub == null ? null : round2(main + sub)
 }
 
 function round2(n: number): number {

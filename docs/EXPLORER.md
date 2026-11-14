@@ -90,6 +90,27 @@ script picks, owning only the duration head. Server-rendered text stays the
 truth of the page — it reads correctly with JS off, and the tests assert on
 HTML rather than on what a browser would have done to it.
 
+**A dollar is all-in.** Every dollar a page prints for a session, a job, a
+well, a model or a window is the main thread plus the subagents it ran, at
+list price: `allInUsd` (`listUsage` with `subagents`), read and never
+re-added. That holds for every headline figure, every bar, every max a bar
+is scaled by and every ranking — the home page's today and week tiles and
+its 45-day chart, the recent and active-well rows, the agents page and its
+job rows, `/job/<key>` (tile, session rows, day rows, lane chips), `/usage`
+(the header total, the model, well and bucket tables, the chart), the well
+page and the session header. Where subagents ran, the split is stated once
+in the same words — `main $X · subagents $Y` — in a tile's label or a
+figure's tooltip; a row with none shows no split. `/usage`'s three tables
+carry a `subagents` column, and its chart stacks a subagent request under
+the model that served it, so a column sums to the figure beside it. One
+dollar stays the main thread: a session's per-turn fees (the spine, the
+conversation view's turns, the fee bar), because a subagent request is not
+placed in a turn; the session header says so in one line. The `?json=1`
+answers carry the fields the pages read: `listUsd` (main thread),
+`spawnUsd` (subagents) and `allInUsd` on every usage row and total, on
+`/agents`'s jobs and roster rows, on `/job/<key>`'s job and its sessions,
+and in `/session/<id>`'s `totals`.
+
 - `/` — the control room: today and the week, the day chart by model,
   recent activity folded by JOB (a job /cleared a dozen times today is one
   row, headed by its newest session), the live agents, the active wells.
@@ -110,7 +131,7 @@ HTML rather than on what a browser would have done to it.
   `totals.sent`/`lost`.
   A commander's page carries its LANES — the jobs it spawned (`ccc spawn`),
   read off the spawn answers in its own transcript: a `lanes` tile and a
-  `run $` tile (its fee plus theirs), a `lanes` band on the timeline (one
+  `run $` tile (its all-in fee plus theirs), a `lanes` band on the timeline (one
   bar per job, first → last activity, packed so concurrent lanes stack,
   colored by state), and a folded ledger (state as of the last index,
   `gone` once reaped, spawn instant, span, model, fee, opener), each row a
@@ -874,7 +895,11 @@ beside the dialogue, only not tall enough for a fixed head above both.
 
 `listUsage` gains `split`: per row, the list $ by token class (`usd`) and
 by model (`models`), from the same (key, model, day) cells — that is
-what the stacked chart and the per-model fee bars read.
+what the stacked chart and the per-model fee bars read. With `subagents`
+both splits cover the subagent requests too, each under its own model
+(`models[]` keeps `requests`/`listUsd` as the main thread and adds
+`spawnRequests`, `spawnUsd`, `allInUsd`), so the chart and the fee bars
+sum to the all-in figure beside them.
 
 Deferred: a TUI. The web console at this density *is* the terminal-shaped
 explorer; a curses surface would re-implement it for one screen.

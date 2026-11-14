@@ -105,7 +105,11 @@ export type AgentRow = {
     well: string
     requests: number
     output: number
+    // The session's list price: `listUsd` its main thread, `spawnUsd` the
+    // subagents it ran, `allInUsd` the two together — what the session cost.
     listUsd: number | null
+    spawnUsd: number | null
+    allInUsd: number | null
     last: string | null
     models: { model: string; requests: number }[]
   } | null
@@ -183,8 +187,10 @@ const IndexedRow = z.object({ sessionId: z.string(), well: z.string(), last: z.s
 
 export function indexedLookup(db: Database): (sessionId: string) => AgentRow['indexed'] {
   // `split` costs nothing here — the same (key, model, day) cells the fee is
-  // already folded from carry the model mix.
-  const fee = new Map(listUsage(db, { by: 'session', limit: 100000, split: true }).rows.map((r) => [r.key, r]))
+  // already folded from carry the model mix. The mix is the main thread's
+  // (`requests > 0`): it names what runs the conversation, and a model only
+  // its subagents ran does not.
+  const fee = new Map(listUsage(db, { by: 'session', limit: 100000, split: true, subagents: true }).rows.map((r) => [r.key, r]))
   const meta = new Map(
     z
       .array(IndexedRow)
@@ -207,8 +213,10 @@ export function indexedLookup(db: Database): (sessionId: string) => AgentRow['in
       requests: f?.requests ?? 0,
       output: f?.output ?? 0,
       listUsd: f?.listUsd ?? null,
+      spawnUsd: f?.spawnUsd ?? null,
+      allInUsd: f?.allInUsd ?? null,
       last: m.last,
-      models: (f?.models ?? []).map((x) => ({ model: x.model, requests: x.requests })),
+      models: (f?.models ?? []).filter((x) => x.requests > 0).map((x) => ({ model: x.model, requests: x.requests })),
     }
   }
 }

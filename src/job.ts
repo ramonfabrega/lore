@@ -495,7 +495,11 @@ export type JobRow = {
   models: { model: string; requests: number }[]
   requests: number
   output: number
+  // The job's list price over its sessions: `listUsd` the main thread,
+  // `spawnUsd` the subagents those sessions ran, `allInUsd` the two together.
   listUsd: number | null
+  spawnUsd: number | null
+  allInUsd: number | null
   // Every agent this job exchanged a message with, by name, most messages
   // first.
   peers: string[]
@@ -560,18 +564,27 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
   const keyOf = new Map(
     z.array(SessionKey).parse(db.prepare(`SELECT s.session_id AS sessionId, ${JOB_KEY_SQL} AS key FROM sessions s`).all()).map((r) => [r.sessionId, r.key]),
   )
-  const usage = new Map<string, { requests: number; output: number; listUsd: number; priced: boolean; models: Map<string, number> }>()
-  for (const r of listUsage(db, { by: 'session', limit: 1_000_000, split: true }).rows) {
+  // Each side is priced when any of its sessions is (a session with no rate
+  // is left out of the sum, as it always was for the main thread); the
+  // all-in figure is the two summed sides, null when either is. The model
+  // mix is the main thread's: a model only the subagents ran is not one the
+  // job ran on.
+  const usage = new Map<string, { requests: number; output: number; listUsd: number; priced: boolean; spawnUsd: number; spawnPriced: boolean; models: Map<string, number> }>()
+  for (const r of listUsage(db, { by: 'session', limit: 1_000_000, split: true, subagents: true }).rows) {
     const key = keyOf.get(r.key)
     if (!key || !keys.has(key)) continue
-    const u = usage.get(key) ?? { requests: 0, output: 0, listUsd: 0, priced: false, models: new Map() }
+    const u = usage.get(key) ?? { requests: 0, output: 0, listUsd: 0, priced: false, spawnUsd: 0, spawnPriced: false, models: new Map() }
     u.requests += r.requests
     u.output += r.output
     if (r.listUsd != null) {
       u.listUsd += r.listUsd
       u.priced = true
     }
-    for (const m of r.models ?? []) u.models.set(m.model, (u.models.get(m.model) ?? 0) + m.requests)
+    if (r.spawnUsd != null) {
+      u.spawnUsd += r.spawnUsd
+      u.spawnPriced = true
+    }
+    for (const m of r.models ?? []) if (m.requests > 0) u.models.set(m.model, (u.models.get(m.model) ?? 0) + m.requests)
     usage.set(key, u)
   }
   // Peers: who wrote to this job (the relay rows in its sessions name the
@@ -636,6 +649,8 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
     const u = usage.get(g.key)
     const l = latest.get(g.latest)
     const parentKey = parentOf.get(g.key)?.key ?? null
+    const listUsd = u?.priced ? round2(u.listUsd) : null
+    const spawnUsd = u?.spawnPriced ? round2(u.spawnUsd) : null
     return {
       key: g.key,
       kind: g.kind,
@@ -653,11 +668,17 @@ export function listJobs(db: Database, opts: { all?: boolean; since?: string; li
       models: [...(u?.models ?? [])].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests || (a.model < b.model ? -1 : 1)),
       requests: u?.requests ?? 0,
       output: u?.output ?? 0,
-      listUsd: u?.priced ? u.listUsd : null,
+      listUsd,
+      spawnUsd,
+      allInUsd: listUsd == null || spawnUsd == null ? null : round2(listUsd + spawnUsd),
       peers: [...(peers.get(g.key) ?? [])].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([p]) => p),
       repo: repoOf(j?.cwd ?? g.paths?.split(',')[0] ?? null),
       parent: parentKey ? { key: parentKey, name: nameOf(parentKey) } : null,
       latest: l ? { sessionId: l.sessionId, firstPrompt: l.firstPrompt, openedBy: l.openedBy } : null,
     }
   })
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
