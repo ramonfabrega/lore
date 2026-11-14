@@ -128,6 +128,9 @@ import { z } from 'zod'
 // the table). New, so no bump; an existing index fills it on its next plain
 // `lore index`, which re-reads once every spawn row that counts requests and
 // has none here (spawns.ts).
+// (no version) spawn_origins — where each subagent came from, so `trace` can
+// charge its requests to a turn (see the table). New, so no bump; filled the
+// same way, by one re-read of every spawn row that has no origin row.
 const SCHEMA_VERSION = 22
 // What a rebuild DROPS. `spawn_ledger` is deliberately absent: its rows are
 // ccc's own lines verbatim, nothing in them is derived, and ledger.ts keeps
@@ -136,7 +139,8 @@ const SCHEMA_VERSION = 22
 // present: it is derived from the same files as `spawns`, row for row, and a
 // rebuild that kept it while dropping `spawns` would leave requests whose
 // spawn (and so whose well) is gone, under rules an older build applied.
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'spawn_requests', 'workflow_runs', 'requests', 'jobs', 'limits']
+// `spawn_origins` is present for the same reason: one row per spawn file.
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'spawn_requests', 'spawn_origins', 'workflow_runs', 'requests', 'jobs', 'limits']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -372,6 +376,25 @@ CREATE TABLE IF NOT EXISTS spawn_requests(
 );
 CREATE INDEX IF NOT EXISTS idx_spawn_requests_session ON spawn_requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_spawn_requests_ts ON spawn_requests(ts);
+-- Where each subagent came from (no version; spawns.ts), so \`trace\` can charge
+-- its requests to the turn that called it. \`tool_use_id\` is meta.json's
+-- \`toolUseId\`: the id of the Agent call that spawned it, which matches a
+-- main-thread tool row of the same session for 1,995 of 1,999 depth-1 spawns
+-- on disk (2026-11-14). \`prompt_id\` is the \`promptId\` of the FIRST user
+-- record in the agent's file — the parent's turn when it started — the
+-- fallback for a nested spawn (its call is inside another subagent, in no
+-- main-thread row: 77 of 77 resolve) and for harnesses before meta carried
+-- the call id (4 of 4). Only the first: a later user record's prompt id
+-- tracks whatever turn the parent is in by then, not the one that caused the
+-- work. Either may be null. One row for EVERY spawn file, nulls included, so
+-- the backfill is exact and happens once.
+CREATE TABLE IF NOT EXISTS spawn_origins(
+  agent_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  tool_use_id TEXT,
+  prompt_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_spawn_origins_session ON spawn_origins(session_id);
 CREATE TABLE IF NOT EXISTS jobs(
   id INTEGER PRIMARY KEY,
   job_id TEXT UNIQUE NOT NULL,

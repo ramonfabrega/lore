@@ -102,14 +102,30 @@ page and the session header. Where subagents ran, the split is stated once
 in the same words — `main $X · subagents $Y` — in a tile's label or a
 figure's tooltip; a row with none shows no split. `/usage`'s three tables
 carry a `subagents` column, and its chart stacks a subagent request under
-the model that served it, so a column sums to the figure beside it. One
-dollar stays the main thread: a session's per-turn fees (the spine, the
-conversation view's turns, the fee bar), because a subagent request is not
-placed in a turn; the session header says so in one line. The `?json=1`
-answers carry the fields the pages read: `listUsd` (main thread),
-`spawnUsd` (subagents) and `allInUsd` on every usage row and total, on
-`/agents`'s jobs and roster rows, on `/job/<key>`'s job and its sessions,
-and in `/session/<id>`'s `totals`.
+the model that served it, so a column sums to the figure beside it. A
+session's turns are all-in too: every subagent request is charged to the
+turn of the latest call addressed to its agent at or before the request's
+instant — the `Agent` call that spawned it (meta.json `toolUseId`, kept in
+`spawn_origins`), the `Workflow` call whose result names its run, else the
+turn its first prompt id names (a nested spawn, an older harness), and from
+a `SendMessage` to it on, the send's turn. Not each request's own prompt id:
+it tracks whatever turn the PARENT is in, and a background agent that ran
+three hours read as twenty segments over twenty unrelated turns. The spine's
+`list $` and its bar are the turn's all-in figure, split in the tooltip; an
+open turn shows each charged call's agent (model, requests, $) in its fee
+cell, and the agents charged by prompt id alone, which have no row, in one
+line at the turn's head; the fee bar's four token classes are the main
+thread and a fifth, neutral segment is the subagents, so the bar sums to the
+list $ tile. An agent no call of the session reaches is `unplacedAgents`,
+named on the spawns tile and counted in the total; the turns plus those sum
+to the session's `spawnUsd`, the figure `lore usage` prints. The
+conversation view's turns carry the same three figures, a work run the
+subagents its calls are charged with, and a follow-up to a subagent what
+that agent did from the send on. The `?json=1` answers carry the fields the
+pages read: `listUsd` (main thread), `spawnUsd` (subagents) and `allInUsd`
+on every usage row and total, on `/agents`'s jobs and roster rows, on
+`/job/<key>`'s job and its sessions, and in `/session/<id>`'s `totals` and
+each of its `transactions` (with `agents[]`).
 
 - `/` — the control room: today and the week, the day chart by model,
   recent activity folded by JOB (a job /cleared a dozen times today is one

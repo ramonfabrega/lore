@@ -131,7 +131,9 @@ step:
   per model *and* date). Every dollar the explorer prints is all-in — the
   main thread (`listUsd`) plus the subagents it ran (`spawnUsd`), as
   `allInUsd` — with the split stated where subagents ran; a session's
-  per-turn fees are the main thread.
+  turns too, each subagent request charged to the turn whose call (the
+  `Agent` or `Workflow` call that started it, or a `SendMessage` that
+  resumed it) it answered.
 - `/well/<dir>` — one directory's arc spine: every session in order, what
   served it (the model chip), fees.
 - `/session/<id>` — one session opened like a block: each prompt is a

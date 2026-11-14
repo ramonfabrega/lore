@@ -34,6 +34,10 @@ export type Work = {
   errors: number
   ms: number | null
   listUsd: number | null
+  // The subagent requests charged to a call inside the run (trace.ts
+  // TurnAgent: an Agent or Workflow call whose `at` is in [from, to)): 0
+  // when none, null when one is unpriced.
+  spawnUsd: number | null
   tools: { tool: string; n: number }[]
   // Harness notifications read inside the run.
   notifications: number
@@ -50,6 +54,10 @@ export type SentOut = {
   summary: string | null
   message: string | null
   delivered: boolean | null
+  // A follow-up to one of the session's own subagents is a charged call too
+  // (`via: 'message'`), and it is a beat of its own rather than a row inside
+  // a work run: what the agent did from this send on. Present only then.
+  spawnUsd?: number | null
 }
 export type Beat = Work | Said | Heard | SentOut
 
@@ -71,7 +79,11 @@ export type Turn = {
   steps: number
   instructions: number
   errors: number
+  // The turn's main thread, the subagents charged to it, the two together
+  // (trace.ts Transaction).
   listUsd: number | null
+  spawnUsd: number | null
+  allInUsd: number | null
   ms: number | null
 }
 
@@ -119,6 +131,8 @@ export function conversationOf(trace: Trace): Turn[] {
       instructions: x.instructions.length,
       errors: x.errors,
       listUsd: x.listUsd,
+      spawnUsd: x.spawnUsd,
+      allInUsd: x.allInUsd,
       ms: x.ms,
     }
   })
@@ -139,6 +153,7 @@ export function beatsOf(x: Transaction): Beat[] {
   for (const note of x.notes) events.push({ at: note.at, rank: 1, beat: { kind: 'said', at: note.at, ts: note.ts, text: note.body ?? note.text } })
   x.instructions.forEach((ix, i) => {
     if (ix.tool !== 'SendMessage') return
+    const charged = x.agents.filter((a) => a.at === i)
     events.push({
       at: i,
       rank: 2,
@@ -152,6 +167,7 @@ export function beatsOf(x: Transaction): Beat[] {
         summary: summaryOf(ix.input),
         message: sentMessage(ix.input),
         delivered: ix.delivered ?? null,
+        ...(charged.length ? { spawnUsd: agentUsd(charged) } : {}),
       },
     })
   })
@@ -198,6 +214,7 @@ function workOf(x: Transaction, from: number, to: number): Work {
     errors,
     ms,
     listUsd,
+    spawnUsd: agentUsd(x.agents.filter((a) => a.at != null && a.at >= from && a.at < to)),
     tools: [...tools].map(([tool, n]) => ({ tool, n })),
     notifications: x.received.filter((r) => r.kind === 'meta' && r.at >= from && (r.at < to || (last && r.at === to))).length,
   }
@@ -214,6 +231,11 @@ function summaryOf(input: string): string | null {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100
+}
+
+// What some charged rows cost: 0 for none, null when one is unpriced.
+function agentUsd(rows: Transaction['agents']): number | null {
+  return rows.reduce<number | null>((n, a) => (n == null || a.listUsd == null ? null : round2(n + a.listUsd)), 0)
 }
 
 const PROSE = 20_000

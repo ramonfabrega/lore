@@ -12,7 +12,7 @@ function tx(over: Partial<Transaction>): Transaction {
     promptId: 'p1', kind: 'prompt', ts: at(0), tag: null, prompt: 'go', message: null, sent: [], received: [],
     steps: 1, instructions: [], notes: [], thoughts: [],
     annotations: { files: [], commands: 0, tests: { ran: 0, passed: 0, failed: 0 }, commits: [], retries: 0 },
-    errors: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: null, model: null,
+    errors: 0, input: 0, cacheWrite: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: null, spawnUsd: 0, allInUsd: null, agents: [], model: null,
     reply: 'All good.', ms: 3000,
     ...over,
   }
@@ -47,6 +47,7 @@ describe('block view thoughts', () => {
       polls: { reads: 0, files: 0, rereads: 0, runs: 0, longest: 0, inRuns: 0, medianGapS: null },
       idle: { idles: 0, longestIdle: 0, medianIdleGapS: null },
       unplaced: [],
+      unplacedAgents: [],
       transactions: [x],
     }
     expect(String(await sessionBody(trace))).toContain('ONLY-THOUGHT')

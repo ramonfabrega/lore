@@ -118,17 +118,26 @@ export const FEE_PARTS = [
 function feeValues(f: FeeSplit) {
   return [f.output, f.cacheRead, f.cacheWrite, f.input]
 }
-export function feeBar(f: FeeSplit, o: { caption?: boolean; unpriced?: number } = {}) {
+// `subagents`: a fifth segment, for a bar whose four classes are one thread's
+// (the session page prices its main thread by class from the steps it holds)
+// while the figure beside it is all-in — the subagents' dollars as one
+// segment, so the bar sums to that figure instead of silently to less.
+export function feeBar(f: FeeSplit, o: { caption?: boolean; unpriced?: number; subagents?: number } = {}) {
+  const parts: { key: string; label: string }[] = [...FEE_PARTS]
   const vals = feeValues(f)
+  if (o.subagents) {
+    parts.push({ key: 'subagents', label: 'subagents' })
+    vals.push(o.subagents)
+  }
   const total = vals.reduce((a, v) => a + v, 0)
   if (total <= 0) return html``
   return html`<figure class="fee">
-    <div class="feebar" role="img" aria-label="${FEE_PARTS.map((p, i) => `${p.label} ${usd(vals[i]!)}`).join(', ')}">
-      ${FEE_PARTS.map((p, i) => html`<span class="seg ${p.key}" style="flex-basis:${((vals[i]! / total) * 100).toFixed(2)}%" title="${p.label} ${usd(vals[i]!)} · ${Math.round((vals[i]! / total) * 100)}%"></span>`)}
+    <div class="feebar" role="img" aria-label="${parts.map((p, i) => `${p.label} ${usd(vals[i]!)}`).join(', ')}">
+      ${parts.map((p, i) => html`<span class="seg ${p.key}" style="flex-basis:${((vals[i]! / total) * 100).toFixed(2)}%" title="${p.label} ${usd(vals[i]!)} · ${Math.round((vals[i]! / total) * 100)}%"></span>`)}
     </div>
     ${o.caption === false
       ? ''
-      : html`<figcaption class="small muted">${FEE_PARTS.map(
+      : html`<figcaption class="small muted">${parts.map(
           (p, i) => html`<span class="key"><i class="sw ${p.key}"></i>${p.label} <b>${usd(vals[i]!)}</b> <span class="pct">${Math.round((vals[i]! / total) * 100)}%</span></span>`,
         )}${o.unpriced ? html`<span class="key err">${o.unpriced} unpriced</span>` : ''}</figcaption>`}
   </figure>`

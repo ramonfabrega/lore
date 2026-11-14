@@ -94,7 +94,7 @@ function timeline(run: Run, job: Trace[]) {
       const bx = x(tx.ts)
       if (bx == null || !tx.ms) return
       const bw = Math.max(1, (tx.ms / span) * PW)
-      parts.push(html`<a href="/session/${t.session.sessionId}?view=conversation#tx-${tx.promptId ?? i}"><rect class="band ${i % 2 ? 'alt' : ''} ${tx.kind}" x="${bx.toFixed(2)}" y="${yJob}" width="${bw.toFixed(2)}" height="${LH}"><title>${tx.kind === 'relay' ? `@${tx.tag}` : tx.kind} ${hms(tx.ts)} · ${cut(tx.prompt, 100)} · ${ms(tx.ms)} · ${usd(tx.listUsd)}</title></rect></a>`)
+      parts.push(html`<a href="/session/${t.session.sessionId}?view=conversation#tx-${tx.promptId ?? i}"><rect class="band ${i % 2 ? 'alt' : ''} ${tx.kind}" x="${bx.toFixed(2)}" y="${yJob}" width="${bw.toFixed(2)}" height="${LH}"><title>${tx.kind === 'relay' ? `@${tx.tag}` : tx.kind} ${hms(tx.ts)} · ${cut(tx.prompt, 100)} · ${ms(tx.ms)} · ${usd(tx.allInUsd)}</title></rect></a>`)
       if (tx.reply && tx.ts) {
         const rx = x(Date.parse(tx.ts) + tx.ms)
         if (rx != null) parts.push(html`<rect class="m say" x="${(rx - 1.5).toFixed(2)}" y="${yJob + 1}" width="1.5" height="${LH - 2}"><title>${hms(tx.ts)} ${loop.job.name ?? 'job'}: ${cut(tx.reply, 140)}</title></rect>`)

@@ -16,7 +16,7 @@ import { z } from 'zod'
 // A purge that misses one copy un-purges itself:
 //   - the well transcript + <session>/ dir (subagents, workflow runs, title)
 //   - the archive mirror of both
-//   - the index rows (7 tables, two of them FTS)
+//   - the index rows (10 tables, plus both FTS)
 //   - ~/.claude/history.jsonl, which `lore index` reloads WHOLESALE every run
 //     (indexer.ts) — leave those lines and the prompts are searchable again
 //     after the next index, with the session row gone to point at.
@@ -52,9 +52,9 @@ const WellRow = z.object({ dir: z.string() }).nullish()
 
 // Rows keyed on the transcript's session id. messages_fts/history_fts hang off
 // their parent's rowid, so they go first, in the same transaction.
-// `spawn_requests` keys on the PARENT session, so the purged session's
-// subagent requests go with it, as its spawns do.
-const ROW_TABLES = ['messages', 'requests', 'spawns', 'spawn_requests', 'workflow_runs', 'history'] as const
+// `spawn_requests` and `spawn_origins` key on the PARENT session, so the
+// purged session's subagent requests and origins go with it, as its spawns do.
+const ROW_TABLES = ['messages', 'requests', 'spawns', 'spawn_requests', 'spawn_origins', 'workflow_runs', 'history'] as const
 // Two tables carry a session id and are NOT the session's alone.
 // `limits`: a refusal read off the transcript (`source = 'transcript'`) goes
 // with it — nothing else would ever delete it, the file being gone. A

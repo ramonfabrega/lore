@@ -6,7 +6,7 @@ import { cut, cutMarkdown, cutProse } from './fmt'
 import { JOB_KEY_SQL, listJobs, spawnEdges } from './job'
 import { dominantModel, tallyModels } from './model'
 import { resolveSessionId } from './session'
-import { listUsage, priceOf, rateFor } from './usage'
+import { priceOf, rateFor } from './usage'
 
 // The explorer's block view (docs/EXPLORER.md): one session decomposed into
 // transactions (one user prompt and everything until the next), each with
@@ -69,6 +69,68 @@ const SpawnGroup = z.object({
   output: z.number(),
 })
 export type SpawnGroup = z.infer<typeof SpawnGroup>
+// The session's subagents, each with where it came from (spawn_origins), and
+// every one of their requests (spawn_requests) — the same rows, joined the
+// same way, that `listUsage` with `subagents` prices for this session.
+const SpawnAgent = z.object({
+  agentId: z.string(),
+  agentType: z.string().nullable(),
+  description: z.string().nullable(),
+  model: z.string().nullable(),
+  workflowRunId: z.string().nullable(),
+  toolUseId: z.string().nullable(),
+  promptId: z.string().nullable(),
+})
+const SpawnReq = z.object({
+  agentId: z.string(),
+  ts: z.string().nullable(),
+  model: z.string().nullable(),
+  input: z.number(),
+  cacheWrite: z.number(),
+  cacheWrite1h: z.number(),
+  cacheRead: z.number(),
+  output: z.number(),
+})
+
+// One subagent's requests charged to one call (docs/EXPLORER.md). A request
+// is charged to the turn of the LATEST call addressed to its agent at or
+// before the request's instant, and a call is one of:
+//   `spawn`    the Agent call that created it (meta.json `toolUseId` matched
+//              to this session's tool row; 1,995 of 1,999 depth-1 spawns on
+//              disk, 2026-11-14);
+//   `workflow` the Workflow call whose result names the agent's run id
+//              (`wf_…`; 16 of 16 runs);
+//   `turn`     neither: the turn whose prompt id the agent's FIRST user record
+//              carries — a nested spawn (its call is inside another subagent)
+//              or a harness before meta carried the call id; no instruction
+//              holds it, so `at` is null;
+//   `message`  a SendMessage to the agent's id: what it does from that send on
+//              is the send's turn's (150 resumes in the corpus, 145 followed by
+//              requests in the same file).
+// `none` is only ever in `unplacedAgents`: no call of this session reaches it
+// (its call lives in another session, or its prompt id matches no turn).
+//
+// Why not each request's own key: only `user` records in a subagent file carry
+// a `promptId`, and it tracks whatever turn the PARENT is in at that moment —
+// a background agent that ran three hours read as twenty segments over twenty
+// unrelated turns (relays, task notifications). So it is used once, for the
+// home, never per request.
+//
+// `at` is the index into the turn's `instructions` of the call charged (the
+// cursor `notes[].at` uses). `model` is the spawn's verified model; `listUsd`
+// is null when a charged request is billed and unpriced, and a usage-less
+// request with no model is a request at zero (usage.ts, the same rule).
+export type TurnAgent = {
+  agentId: string
+  agentType: string | null
+  description: string | null
+  model: string | null
+  via: 'spawn' | 'message' | 'workflow' | 'turn' | 'none'
+  at: number | null
+  requests: number
+  output: number
+  listUsd: number | null
+}
 
 export type Instruction = {
   tool: string
@@ -218,7 +280,17 @@ export type Transaction = {
   cacheRead: number
   output: number
   thinking: number
+  // The main thread's requests in this turn (the token fields above are
+  // theirs too).
   listUsd: number | null
+  // The subagent requests charged to this turn (TurnAgent): 0 when none,
+  // null when one is billed and unpriced. `allInUsd` is the two together,
+  // what the turn cost, summed from the rounded sides.
+  spawnUsd: number | null
+  allInUsd: number | null
+  // Who those requests were: one row per (agent, charged call), in
+  // instruction order — the `turn` rows, which no instruction holds, first.
+  agents: TurnAgent[]
   // The model that served most of this transaction's steps (model.ts) —
   // present whether or not `steps` was asked for, because "which model ran
   // this prompt" is a question about the transaction, not about its detail.
@@ -262,7 +334,9 @@ export type Trace = {
     listUsd: number | null
     // The subagents this session ran (`spawn_requests`, every request priced
     // by its own model), and the session's whole cost, `listUsd + spawnUsd`.
-    // A subagent request is counted here and in no turn.
+    // Summed from the same rows as the turns: Σ transactions[].spawnUsd +
+    // Σ unplacedAgents[].listUsd, unrounded, is this — and it equals what
+    // `listUsage` with `subagents` reports for the session.
     spawnUsd: number | null
     allInUsd: number | null
     spawns: number
@@ -301,6 +375,10 @@ export type Trace = {
   // refusal carrying only redacted thinking), oldest first. Counted in
   // `totals` and `classes`; listed here because no turn can show them.
   unplaced: Step[]
+  // The same for subagents: agents (or the part of one before its first
+  // follow-up) no call of this session reaches, `via: 'none'`. Counted in
+  // `totals.spawnUsd`; listed here because no turn can show them.
+  unplacedAgents: TurnAgent[]
   transactions: Transaction[]
 }
 
@@ -453,12 +531,40 @@ export function getTrace(
   // The other kind of address: the session's own spawns, by task id. A
   // SendMessage to `af80d234d489e766f` is a follow-up to a subagent, not a
   // relay to a peer, and the spawns table knows what that agent was.
-  const agentByTask = new Map(
-    z
-      .array(z.object({ agentId: z.string(), description: z.string().nullable(), agentType: z.string().nullable() }))
-      .parse(db.prepare('SELECT agent_id AS agentId, description, agent_type AS agentType FROM spawns WHERE session_id = ?').all(sessionId))
-      .map((a) => [a.agentId, a.description ?? a.agentType ?? a.agentId] as const),
+  const spawnAgents = z.array(SpawnAgent).parse(
+    db
+      .prepare(
+        `SELECT sp.agent_id AS agentId, sp.agent_type AS agentType, sp.description, sp.model, sp.workflow_run_id AS workflowRunId,
+                o.tool_use_id AS toolUseId, o.prompt_id AS promptId
+         FROM spawns sp LEFT JOIN spawn_origins o ON o.agent_id = sp.agent_id
+         WHERE sp.session_id = ?`,
+      )
+      .all(sessionId),
   )
+  const agentByTask = new Map(spawnAgents.map((a) => [a.agentId, a.description ?? a.agentType ?? a.agentId] as const))
+  // Every request of those agents, on the session index — joined to `spawns`
+  // exactly as `listUsage` joins it, so the two can never count different rows.
+  const spawnReqs = z.array(SpawnReq).parse(
+    db
+      .prepare(
+        `SELECT q.agent_id AS agentId, q.ts, q.model, q.input_tokens AS input, q.cache_write_tokens AS cacheWrite,
+                q.cache_write_1h_tokens AS cacheWrite1h, q.cache_read_tokens AS cacheRead, q.output_tokens AS output
+         FROM spawn_requests q JOIN spawns sp ON sp.agent_id = q.agent_id
+         WHERE q.session_id = ?
+         ORDER BY q.ts, q.id`,
+      )
+      .all(sessionId),
+  )
+  // The calls a subagent can be charged to, gathered while the turns are
+  // built: every tool call by its id (an Agent call is found by meta's
+  // `toolUseId`), each run id a Workflow call's result names (first call
+  // wins: a later call that RESUMES a run repeats its id), every SendMessage
+  // to one of these agents, and each prompt id's first turn.
+  type Call = { tx: number; at: number | null; ts: number }
+  const callById = new Map<string, Call>()
+  const workflowCall = new Map<string, Call>()
+  const sendsTo = new Map<string, Call[]>()
+  const turnOfPrompt = new Map<string, Call>()
 
   // Group by prompt id in order of first appearance. Rows before any prompt
   // id (pre-2026-06 transcripts, or a harness preamble) fall into one
@@ -501,7 +607,8 @@ export function getTrace(
       listUsd,
     }
   }
-  const transactions: Transaction[] = buckets.map((b) => {
+  const transactions: Transaction[] = buckets.map((b, bi) => {
+    if (b.promptId && !turnOfPrompt.has(b.promptId)) turnOfPrompt.set(b.promptId, { tx: bi, at: null, ts: instant(b.rows[0]?.ts ?? null) })
     const opener = b.rows.find((r) => r.lane === 'prompt' || r.lane === 'meta' || r.lane === 'relay')
     // A meta opener with no command wrapper (caveats, context dumps) is
     // harness preamble, not a transaction the user started. A relay opener is
@@ -584,6 +691,10 @@ export function getTrace(
       // then land together, so the instructions of a multi-tool response
       // share one clock; that is the transcript's resolution, not a guess.
       const from = (r.requestId && requestEnd.get(r.requestId)) || r.ts
+      const here: Call = { tx: bi, at: instructions.length, ts: instant(r.ts) }
+      if (r.toolUseId && !callById.has(r.toolUseId)) callById.set(r.toolUseId, here)
+      if (tool === 'Workflow' && res) for (const m of res.text.matchAll(RUN_ID)) if (!workflowCall.has(m[0])) workflowCall.set(m[0], here)
+      if (out?.to && agentByTask.has(out.to)) sendsTo.set(out.to, [...(sendsTo.get(out.to) ?? []), here])
       instructions.push({
         tool,
         input: cut(inputFull, head),
@@ -634,6 +745,10 @@ export function getTrace(
       errors: instructions.filter((i) => i.error).length,
       model: dominantModel(tallyModels(steps.map((st) => st.model))),
       ...fee,
+      // Filled below, once every call of the session is known.
+      spawnUsd: 0,
+      allInUsd: null,
+      agents: [],
       reply,
       ms: first && last ? Math.max(0, Date.parse(last) - Date.parse(first)) : null,
       ...(opts.steps ? { requests: steps } : {}),
@@ -657,6 +772,69 @@ export function getTrace(
     .sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? '') || a.requestId.localeCompare(b.requestId))
   allSteps.push(...unplaced)
   const loose = sumFee(unplaced)
+
+  // Each subagent request, charged (TurnAgent): to the latest follow-up at or
+  // before its instant, else to its agent's home call. Every send is after
+  // the call that created the agent (the id does not exist before it), so
+  // "the latest call" is the latest send when one qualifies and the home
+  // otherwise — and a request with no instant goes home. No home and no
+  // qualifying send: unplaced.
+  const charged = new Map<string, { tx: number | null; row: TurnAgent; usd: number | null }>()
+  const byAgent = new Map(spawnAgents.map((a) => [a.agentId, a]))
+  const homes = new Map<string, { call: Call; via: TurnAgent['via'] } | null>()
+  const homeOf = (a: z.infer<typeof SpawnAgent>) => {
+    if (homes.has(a.agentId)) return homes.get(a.agentId) ?? null
+    const spawn = a.toolUseId ? callById.get(a.toolUseId) : undefined
+    const flow = a.workflowRunId ? workflowCall.get(a.workflowRunId) : undefined
+    const turn = a.promptId ? turnOfPrompt.get(a.promptId) : undefined
+    const home = spawn ? { call: spawn, via: 'spawn' as const } : flow ? { call: flow, via: 'workflow' as const } : turn ? { call: turn, via: 'turn' as const } : null
+    homes.set(a.agentId, home)
+    return home
+  }
+  for (const q of spawnReqs) {
+    const a = byAgent.get(q.agentId)
+    if (!a) continue
+    const t = instant(q.ts)
+    let send: Call | undefined
+    for (const s of sendsTo.get(a.agentId) ?? []) if (s.ts <= t && (!send || s.ts >= send.ts)) send = s
+    const home = homeOf(a)
+    const call = send ?? home?.call ?? null
+    const via: TurnAgent['via'] = send ? 'message' : (home?.via ?? 'none')
+    const key = `${a.agentId}\u0000${call ? `${call.tx}:${call.at ?? 'turn'}` : 'none'}:${via}`
+    let c = charged.get(key)
+    if (!c) {
+      c = {
+        tx: call?.tx ?? null,
+        row: { agentId: a.agentId, agentType: a.agentType, description: a.description, model: a.model, via, at: call?.at ?? null, requests: 0, output: 0, listUsd: 0 },
+        usd: 0,
+      }
+      charged.set(key, c)
+    }
+    // Priced as `listUsage` prices `spawn_requests` (usage.ts): by the
+    // request's own model and UTC rate day; a usage-less record with no
+    // rate is a request at zero, a billed one with no rate nulls the row.
+    const rate = rateFor(q.model, q.ts?.slice(0, 10) ?? null)
+    const billed = q.input + q.cacheWrite + q.cacheRead + q.output > 0
+    const usd = rate ? Object.values(priceOf(q, rate)).reduce((n, v) => n + v, 0) : billed ? null : 0
+    c.row.requests++
+    c.row.output += q.output
+    c.usd = c.usd == null || usd == null ? null : c.usd + usd
+  }
+  // In instruction order; a `turn` row (no instruction) heads its turn.
+  const order = (a: { row: TurnAgent }, b: { row: TurnAgent }) =>
+    (a.row.at ?? -1) - (b.row.at ?? -1) || a.row.agentId.localeCompare(b.row.agentId)
+  const byTx = new Map<number | null, { row: TurnAgent; usd: number | null }[]>()
+  for (const c of charged.values()) byTx.set(c.tx, [...(byTx.get(c.tx) ?? []), c])
+  const out = (c: { row: TurnAgent; usd: number | null }): TurnAgent => ({ ...c.row, listUsd: c.usd == null ? null : round2(c.usd) })
+  const usdOf = (cs: { usd: number | null }[]) => cs.reduce<number | null>((n, c) => (n == null || c.usd == null ? null : n + c.usd), 0)
+  transactions.forEach((x, i) => {
+    const mine = (byTx.get(i) ?? []).sort(order)
+    x.agents = mine.map(out)
+    x.spawnUsd = usdOf(mine)
+  })
+  const unplacedCharges = (byTx.get(null) ?? []).sort(order)
+  const unplacedAgents = unplacedCharges.map(out)
+  const looseSpawnUsd = usdOf(unplacedCharges)
 
   // Totals sum the unrounded fees; rows round on the way out.
   const totals = transactions.reduce(
@@ -707,13 +885,15 @@ export function getTrace(
     },
   )
 
-  // The subagent side, by the ledger `lore usage` reads: the same session,
-  // every request of every subagent file under it.
+  // The subagent side, from the same charged rows as the turns — every
+  // request of every subagent file under this session, the rows `lore usage`
+  // prices — so the turns plus the unplaced can never disagree with it.
   const listUsd = totals.listUsd == null ? null : round2(totals.listUsd)
-  const spawnUsd = listUsage(db, { by: 'session', sessions: [sessionId], limit: 1, subagents: true }).totals.spawnUsd ?? null
+  const spawnSum = transactions.reduce<number | null>((n, x) => (n == null || x.spawnUsd == null ? null : n + x.spawnUsd), looseSpawnUsd)
+  const spawnUsd = spawnSum == null ? null : round2(spawnSum)
   return {
     session,
-    totals: { ...totals, listUsd, spawnUsd, allInUsd: listUsd == null || spawnUsd == null ? null : round2(listUsd + spawnUsd) },
+    totals: { ...totals, listUsd, spawnUsd, allInUsd: allIn(listUsd, spawnUsd) },
     models,
     spawns: spawnGroups,
     lanes,
@@ -721,8 +901,31 @@ export function getTrace(
     polls: pollShape(pollSeq),
     idle: idleShape(pollSeq),
     unplaced,
-    transactions: transactions.slice(0, opts.limit).map((x) => ({ ...x, listUsd: x.listUsd == null ? null : round2(x.listUsd) })),
+    unplacedAgents,
+    // Rounded on the way out; `allInUsd` sums the two ROUNDED sides, so a
+    // turn showing `main $X · subagents $Y` beside it adds up to the cent.
+    transactions: transactions.slice(0, opts.limit).map((x) => {
+      const main = x.listUsd == null ? null : round2(x.listUsd)
+      const sub = x.spawnUsd == null ? null : round2(x.spawnUsd)
+      return { ...x, listUsd: main, spawnUsd: sub, allInUsd: allIn(main, sub) }
+    }),
   }
+}
+
+// The instant of a stamp, comparable across the transcript's two spellings
+// (`…05Z` and `…05.000Z` do not sort as strings). NaN when there is none,
+// which compares false both ways.
+function instant(ts: string | null): number {
+  return ts ? Date.parse(ts) : Number.NaN
+}
+
+// A run id as the Workflow tool's answer spells it (`Run ID: wf_9c9bce7d-611`,
+// and again in the paths it prints) — the name of the agents' directory,
+// `subagents/workflows/wf_<run>/`, which is `spawns.workflow_run_id`.
+const RUN_ID = /\bwf_[A-Za-z0-9-]+/g
+
+function allIn(main: number | null, sub: number | null): number | null {
+  return main == null || sub == null ? null : round2(main + sub)
 }
 
 function sumFee(steps: Step[]) {

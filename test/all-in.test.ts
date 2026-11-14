@@ -64,12 +64,18 @@ describe('agents and jobs: a row is all-in', () => {
   })
 })
 
-describe('trace: the session total is all-in, the turns are not', () => {
-  test('totals gain spawnUsd and allInUsd; listUsd and the per-turn fees stay the main thread', async () => {
+describe('trace: the session total is all-in, and so are the turns', () => {
+  test('totals gain spawnUsd and allInUsd; listUsd stays the main thread; the turns and the unplaced agents sum to spawnUsd', async () => {
     const { db } = await seed()
     const t = getTrace(db, 'sess-9', { limit: 10 })
     expect(t.totals).toMatchObject({ listUsd: MAIN3, spawnUsd: SUBS, allInUsd: ALL })
     expect(r2(t.transactions.reduce((n, x) => n + (x.listUsd ?? 0), 0) + t.unplaced.reduce((n, s) => n + (s.listUsd ?? 0), 0))).toBe(MAIN3)
+    // This corpus's main thread has no prompt ids and its spawns no origin a
+    // turn can match (no toolUseId, no prompt id): every agent is unplaced,
+    // still counted, and the two sides reconcile to the ledger.
+    expect(t.unplacedAgents.map((a) => a.agentId).sort()).toEqual(['fable', 'miner', 'wf'])
+    const placed = t.transactions.reduce((n, x) => n + (x.spawnUsd ?? 0), 0)
+    expect(r2(placed + t.unplacedAgents.reduce((n, a) => n + (a.listUsd ?? 0), 0))).toBe(SUBS)
   })
 })
 
@@ -114,6 +120,8 @@ describe('the explorer reads allInUsd', () => {
     expect(session.totals.allInUsd).toBe(ALL)
     const split = `main $${MAIN3.toFixed(2)} · subagents $${SUBS.toFixed(2)}`
     for (const p of ['/job/sess-9', `/well/${WELL}`, '/session/sess-9']) expect(await (await app.request(p)).text()).toContain(split)
-    expect(await (await app.request('/session/sess-9')).text()).toContain('subagent requests are not placed in turns')
+    // Every subagent request is placed (in a turn or listed unplaced), so the
+    // footnote that excused the turns is gone.
+    expect(await (await app.request('/session/sess-9')).text()).not.toContain('not placed in turns')
   })
 })

@@ -4,9 +4,9 @@ import { sentHead } from './envelope'
 import { cut, hm, hms, ms, tok, usd } from './fmt'
 import { mdBlock, mdInline, mdLead, mdUser } from './md'
 import { modelDrift, modelLabel } from './model'
-import type { Annotations, Instruction, Lane, SpawnGroup, Trace, Transaction } from './trace'
+import type { Annotations, Instruction, Lane, SpawnGroup, Trace, Transaction, TurnAgent } from './trace'
 import { priceOf, rateFor } from './usage'
-import { allInOf, clockEl, type Cost, costEl, costSplit, type FeeSplit, feeBar, ibar, modelChip, modelChips, spanEl } from './viz'
+import { allInOf, clockEl, type Cost, costCell, costEl, costSplit, type FeeSplit, feeBar, ibar, modelChip, modelChips, spanEl } from './viz'
 
 // The block view (docs/EXPLORER.md, design pass 2026-09-01): one session
 // rendered from `getTrace` alone. Three reads, top to bottom —
@@ -136,12 +136,23 @@ export function sessionHead(trace: Trace, o: { view?: SessionView } = {}) {
       ${tile('output', tok(t.output))}
       ${tile('cache-read', tok(t.cacheRead))}
       ${costTile(t)}
-      ${t.spawns ? tile('spawns', `${t.spawns} · ${tok(t.spawnOutput)} out`) : ''}
+      ${
+        // Agents no turn holds (trace.ts `unplacedAgents`) are in the list $
+        // tile's subagent figure; named here, as the steps tile names its
+        // unplaced requests, so the turns summing short of it is explained.
+        trace.unplacedAgents.length
+          ? tile(
+              html`<span title="${trace.unplacedAgents.length} subagent row${trace.unplacedAgents.length === 1 ? '' : 's'} no turn holds — no call of this session reaches the agent (its call is in another session, or its first prompt id matches no turn): counted in list $, listed in no turn${trace.unplacedAgents.map((a) => `\n${agentTitle(a)}`).join('')}">spawns</span>`,
+              `${t.spawns} · ${tok(t.spawnOutput)} out · ${trace.unplacedAgents.length} unplaced`,
+            )
+          : t.spawns
+            ? tile('spawns', `${t.spawns} · ${tok(t.spawnOutput)} out`)
+            : ''
+      }
       ${t.lanes ? tile(html`<span title="jobs this session spawned (ccc spawn) — their own sessions' list price, main thread and subagents">lanes</span>`, `${t.lanes} · ${usd(laneAllIn)}`) : ''}
       ${t.lanes ? tile(html`<span title="this session's list price plus its lanes', subagents included on both sides — what the run cost">run $</span>`, usd(t.allInUsd == null || laneAllIn == null ? null : t.allInUsd + laneAllIn)) : ''}
     </div>
-    ${feeBar(fee, { unpriced: fee.unpriced })}
-    ${t.spawnUsd ? html`<p class="footnote small muted">The fee bar and the turns below are the main thread, ${usd(t.listUsd)}; the ${usd(t.spawnUsd)} its subagents ran is in the list $ tile — subagent requests are not placed in turns.</p>` : ''}
+    ${feeBar(fee, { unpriced: fee.unpriced, subagents: t.spawnUsd ?? undefined })}
     ${fanout(trace.spawns)}
     ${timeline(trace, num)}
     ${laneLedger(trace.lanes)}
@@ -154,7 +165,8 @@ export function sessionBody(trace: Trace, o: { open?: boolean } = {}) {
   // A one-prompt session IS its transaction: open it. A conversation
   // stays folded so the spine reads first.
   const openAll = num.size <= 2
-  const maxUsd = Math.max(...txs.map((x) => x.listUsd ?? 0), 0)
+  // All-in: a turn that spawned a $40 audit outweighs one that read a file.
+  const maxUsd = Math.max(...txs.map((x) => x.allInUsd ?? 0), 0)
   const maxMs = Math.max(...txs.map((x) => x.ms ?? 0), 0)
   // A session that ran one model says so once, in the header. A session that
   // SWITCHED gets a column: which prompt ran on what is the whole question.
@@ -337,7 +349,7 @@ function timeline(trace: Trace, num: Map<Transaction, number>) {
     if (bx == null || !tx.ms) return
     const bw = Math.max(1, (tx.ms / span) * PW)
     const href = tx.promptId ? `#tx-${tx.promptId}` : `#tx-${i}`
-    bands.push(html`<a href="${href}"><rect class="band ${i % 2 ? 'alt' : ''} ${tx.kind}" x="${bx.toFixed(2)}" y="0" width="${bw.toFixed(2)}" height="${H - AX}"><title>#${num.get(tx) ?? '–'} ${cut(tx.prompt, 80)} · ${ms(tx.ms)} · ${usd(tx.listUsd)}</title></rect></a>`)
+    bands.push(html`<a href="${href}"><rect class="band ${i % 2 ? 'alt' : ''} ${tx.kind}" x="${bx.toFixed(2)}" y="0" width="${bw.toFixed(2)}" height="${H - AX}"><title>#${num.get(tx) ?? '–'} ${cut(tx.prompt, 80)} · ${ms(tx.ms)} · ${usd(tx.allInUsd)}${tx.spawnUsd ? ` (${costSplit(tx)})` : ''}</title></rect></a>`)
     if (bw >= 9 && tx.kind === 'prompt') labels.push(html`<span class="bandn" style="left:${pct(bx)}">${num.get(tx) ?? ''}</span>`)
     for (const ix of tx.instructions) {
       const mx = x(ix.ts)
@@ -415,7 +427,14 @@ function txRow(x: Transaction, i: number, o: { n: number | null; open: boolean; 
     <span class="num">${x.instructions.length || ''}</span>
     <span class="num ${x.errors ? 'err' : ''}">${x.errors || ''}</span>
     <span class="num">${x.output ? tok(x.output) : ''}</span>
-    <span class="num">${x.listUsd ? html`${ibar(x.listUsd, o.maxUsd, { of: 'priciest transaction in this session' })}${usd(x.listUsd)}` : ''}</span>
+    <span class="num">${
+      // All-in (trace.ts): the main thread plus the subagents charged here.
+      // A turn with work and no figure has an unpriced model in it — a dash,
+      // never a blank that reads as free.
+      x.allInUsd == null && (x.steps || x.agents.length)
+        ? html`<span title="a request here has no known rate${x.listUsd != null ? ` — main ${usd(x.listUsd)}` : ''}${x.spawnUsd != null ? ` · subagents ${usd(x.spawnUsd)}` : ''}">${usd(null)}</span>`
+        : costCell(x, o.maxUsd, 'priciest transaction in this session')
+    }</span>
     <span class="num">${x.ms ? html`${ibar(x.ms, o.maxMs, { of: 'longest transaction in this session', fmt: ms })}${ms(x.ms)}` : ''}</span>`
   const body = x.instructions.length || x.reply || x.notes.length || x.received.length || x.thoughts.length
   if (!body) return html`<div class="row txn ${x.kind}" id="${id}">${cells}</div>`
@@ -542,8 +561,13 @@ function txBody(x: Transaction, openTools: boolean) {
   if (firstAt > 0) phases.push({ note: null, from: 0, to: firstAt })
   x.notes.forEach((n, k) => phases.push({ note: n, from: n.at, to: x.notes[k + 1]?.at ?? len }))
   if (phases.length === 0) phases.push({ note: null, from: 0, to: len })
+  // Subagents charged here by their prompt id alone (trace.ts `via: 'turn'`:
+  // a nested spawn, or a harness that did not record the call) have no
+  // instruction row to sit on, so they head the turn in one line.
+  const headless = x.agents.filter((a) => a.at == null)
 
   return html`
+    ${headless.length ? html`<p class="ann muted small subagents">subagents, by prompt — no call in this turn: ${headless.map((a, i) => html`${i ? ' · ' : ''}<span class="subcost" title="${agentTitle(a)}">${a.description ?? a.agentType ?? a.agentId} ${agentFigure([a])}</span>`)}</p>` : ''}
     ${phases.map((p, k) => {
       const ix = x.instructions.slice(p.from, p.to)
       // A message read after the last instruction sits at cursor `len`; it
@@ -603,6 +627,9 @@ export function ixTable(x: Transaction, from: number, to: number, stepFee: Map<s
     const newStep = ix.requestId !== lastReq
     lastReq = ix.requestId
     const fee = newStep && ix.requestId ? stepFee.get(ix.requestId) : undefined
+    // The subagent requests this call is charged with (trace.ts TurnAgent):
+    // an Agent call's spawn, a Workflow's run, a follow-up's resumed work.
+    const subs = x.agents.filter((a) => a.at === i)
     const out = ix.tool === 'SendMessage'
     rows.push(html`<tr class="${family(ix.tool)} ${ix.error ? 'err' : ''} ${newStep ? 'step' : ''} ${out ? 'sent' : ''}">
       <td class="mono muted t">${clockEl(ix.ts, { sec: true })}</td>
@@ -616,7 +643,9 @@ export function ixTable(x: Transaction, from: number, to: number, stepFee: Map<s
             : html`<span class="muted">delivered</span>`
           : cut(ix.result, 200)
       }</td>
-      <td class="num muted small fee">${fee ? html`${fee.model ? html`<span title="${fee.model}">${modelLabel(fee.model)}</span> · ` : ''}${tok(fee.output)}${fee.thinking ? html` <span title="thinking">(${tok(fee.thinking)}t)</span>` : ''} · ${usd(fee.listUsd)}` : ''}</td>
+      <td class="num muted small fee">${fee ? html`${fee.model ? html`<span title="${fee.model}">${modelLabel(fee.model)}</span> · ` : ''}${tok(fee.output)}${fee.thinking ? html` <span title="thinking">(${tok(fee.thinking)}t)</span>` : ''} · ${usd(fee.listUsd)}` : ''}${
+        subs.length ? html`${fee ? html`<br>` : ''}<span class="subcost" title="${subs.map(agentTitle).join('\n')}">↳ ${agentFigure(subs)}</span>` : ''
+      }</td>
     </tr>`)
   }
   if (tail) for (const rv of received) if (rv.at === to) rows.push(receivedRow(rv))
@@ -675,6 +704,29 @@ function cutField(input: string, k: string): string | null {
   } catch {
     return null
   }
+}
+
+// A subagent charge in one line of text: the model (or how many agents, for
+// a Workflow's run), the requests, the dollars — `sonnet-5 · 2 req · $0.42`.
+function agentFigure(rows: TurnAgent[]): string {
+  const models = new Set(rows.map((a) => a.model))
+  const who = rows.length > 1 ? `${rows.length} agents` : modelLabel(rows[0]?.model)
+  const what = rows.length > 1 && models.size === 1 ? ` ${modelLabel(rows[0]?.model)}` : ''
+  const requests = rows.reduce((n, a) => n + a.requests, 0)
+  const listUsd = rows.reduce<number | null>((n, a) => (n == null || a.listUsd == null ? null : n + a.listUsd), 0)
+  return `${who}${what} · ${requests} req · ${usd(listUsd)}`
+}
+
+// Which agent, how it was charged, and what: the tooltip of a charge.
+const VIA: Record<TurnAgent['via'], string> = {
+  spawn: 'spawned by this call',
+  workflow: "this Workflow call's run",
+  message: 'resumed by this message — its requests from here on',
+  turn: "by its first prompt id: the turn it started in (nested, or the call wasn't recorded)",
+  none: 'no call of this session reaches it',
+}
+function agentTitle(a: TurnAgent): string {
+  return `${a.description ?? a.agentType ?? '?'} · ${a.agentId} · ${a.model ?? 'model unknown'} · ${a.requests} req · ${tok(a.output)} out · ${usd(a.listUsd)} — ${VIA[a.via]}`
 }
 
 function thoughtRow(text: string) {

@@ -243,6 +243,9 @@ a .mchip, .row a .mchip { color: inherit; }
 .feebar .seg { display: block; min-width: 2px; border-radius: 2px; }
 .seg.output, .sw.output { background: var(--series-1); } .seg.cache-read, .sw.cache-read { background: var(--series-2); }
 .seg.cache-write, .sw.cache-write { background: var(--series-3); } .seg.input, .sw.input { background: var(--series-4); }
+/* the session bar's fifth segment: the subagents' dollars, not a token class — neutral, so it never reads as a fifth hue to decode */
+.seg.subagents, .sw.subagents { background: var(--ink-3); }
+.ix td.fee .subcost { color: var(--ink-2); } p.subagents .subcost { color: var(--ink-2); }
 .fee figcaption { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; } .fee .key b { font-weight: 500; color: var(--ink-2); } .fee .pct { color: var(--ink-3); }
 .list .fee { margin: 0; display: inline-block; width: 100%; vertical-align: middle; } .list .feebar { height: 6px; }
 

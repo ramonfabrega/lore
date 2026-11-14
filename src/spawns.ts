@@ -24,7 +24,15 @@ const Meta = z.object({
   description: z.string().nullish(),
   spawnDepth: z.number().nullish(),
   model: z.string().nullish(),
+  // The id of the Agent call that spawned it (a main-thread tool row for a
+  // depth-1 spawn; a call inside another subagent for a nested one). Absent
+  // on harnesses before it was written and on workflow agents.
+  toolUseId: z.string().nullish(),
 })
+
+// Any user record, for its prompt id: the first one's is the turn the parent
+// was in when the agent started (spawn_origins).
+const UserHead = z.object({ type: z.literal('user'), promptId: z.string().nullish() }).loose()
 
 const Usage = z.object({
   input_tokens: z.number().nullish(),
@@ -167,12 +175,19 @@ export async function indexSpawns(
   // an index built before the table existed. Every request the row counts
   // gets a row (a usage-less one at zero), so a re-read always fills it and
   // happens once; a spawn that counts none has nothing to fill and is never
-  // re-read.
+  // re-read. `origin`: the same move for `spawn_origins`, which holds a row
+  // for every spawn (nulls included), so any current row without one is an
+  // index older than that table and is re-read exactly once.
   const findSpawn = db.prepare(
-    `SELECT size, mtime_ms, requests, EXISTS(SELECT 1 FROM spawn_requests q WHERE q.agent_id = spawns.agent_id) AS rows
+    `SELECT size, mtime_ms, requests, EXISTS(SELECT 1 FROM spawn_requests q WHERE q.agent_id = spawns.agent_id) AS rows,
+            EXISTS(SELECT 1 FROM spawn_origins o WHERE o.agent_id = spawns.agent_id) AS origin
      FROM spawns WHERE agent_id = ?`,
   )
-  const Existing = z.object({ size: z.number(), mtime_ms: z.number(), requests: z.number(), rows: z.number() }).nullish()
+  const Existing = z.object({ size: z.number(), mtime_ms: z.number(), requests: z.number(), rows: z.number(), origin: z.number() }).nullish()
+  const upsertOrigin = db.prepare(
+    `INSERT INTO spawn_origins(agent_id, session_id, tool_use_id, prompt_id) VALUES(?, ?, ?, ?)
+     ON CONFLICT(agent_id) DO UPDATE SET session_id=excluded.session_id, tool_use_id=excluded.tool_use_id, prompt_id=excluded.prompt_id`,
+  )
   const deleteRequests = db.prepare('DELETE FROM spawn_requests WHERE agent_id = ?')
   const insertRequest = db.prepare(
     `INSERT INTO spawn_requests(agent_id, session_id, message_id, ts, model, input_tokens, cache_write_tokens,
@@ -198,7 +213,7 @@ export async function indexSpawns(
   for (const f of files) {
     const existing = Existing.parse(findSpawn.get(f.agentId))
     const current = existing && existing.size === f.size && existing.mtime_ms === f.mtimeMs
-    if (!opts.full && current && (existing.requests === 0 || existing.rows)) {
+    if (!opts.full && current && (existing.requests === 0 || existing.rows) && existing.origin) {
       spawnsSkipped++
       continue
     }
@@ -233,6 +248,10 @@ export async function indexSpawns(
     // the way the main-thread indexer folds them (parse.ts `mergeRequest`),
     // keyed as above so the two counts agree. The first snapshot's instant.
     const requests = new Map<string, Request & { ts: string | null }>()
+    // The first user record's prompt id (spawn_origins) — `undefined` until
+    // one is seen, so a first record without the field stays null rather
+    // than letting a later one stand in for it.
+    let promptId: string | null | undefined
 
     for (const line of (await Bun.file(f.path).text()).split('\n')) {
       if (!line.trim()) continue
@@ -246,6 +265,10 @@ export async function indexSpawns(
       if (ts.success && ts.data.timestamp) {
         firstTs ??= ts.data.timestamp
         lastTs = ts.data.timestamp
+      }
+      if (promptId === undefined) {
+        const u = UserHead.safeParse(raw)
+        if (u.success) promptId = u.data.promptId ?? null
       }
       const res = ResultRecord.safeParse(raw)
       if (res.success) {
@@ -338,6 +361,7 @@ export async function indexSpawns(
         lastStopReason,
         openRequests,
       )
+      upsertOrigin.run(f.agentId, f.sessionId, meta.toolUseId ?? null, promptId ?? null)
       deleteRequests.run(f.agentId)
       for (const r of requests.values())
         insertRequest.run(f.agentId, f.sessionId, r.id, r.ts, r.model, r.input, r.cacheWrite, r.cacheWrite5m, r.cacheWrite1h, r.cacheRead, r.output, r.thinking, r.stopReason)

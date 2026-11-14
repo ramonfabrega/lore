@@ -81,7 +81,9 @@ function turnEl(turn: Turn, x: Transaction, i: number, self: string, o: { open?:
   // The turn's weight rides the line that opens it — steps, wall, fee — so a
   // scroll reads the heavy turn where it starts, not forty lines later where
   // it ends. The rail carries the same numbers as a column.
-  const fee = turn.steps ? html`<span class="fee">${turn.steps} step${turn.steps === 1 ? '' : 's'} · ${ms(turn.ms)} · ${usd(turn.listUsd)}</span>` : ''
+  // The fee is all-in — the main thread plus the subagents charged to the
+  // turn (trace.ts) — with the split in its tooltip.
+  const fee = turn.steps || x.agents.length ? html`<span class="fee">${turn.steps} step${turn.steps === 1 ? '' : 's'} · ${ms(turn.ms)} · ${costEl(turn)}</span>` : ''
   const opener =
     turn.kind === 'relay'
       ? html`<div class="who peer">${n}<span class="kind relay">@${turn.tag ?? 'peer'}</span>${clockEl(turn.ts, { sec: true })}${fee}</div>${peerText(turn.message)}`
@@ -120,7 +122,9 @@ function turnEl(turn: Turn, x: Transaction, i: number, self: string, o: { open?:
     }
     if (b.kind !== 'sent') return
     const to = b.agent ? html`<span class="kind sent agent" title="${b.to ?? ''}">→ agent</span> <span class="muted">${cut(b.agent, 60)}</span>` : html`<span class="kind sent" title="${b.to ?? ''}">→ @${b.name ?? shortTo(b.to)}</span>`
-    parts.push(html`<div class="who ai" id="${bid}"><span class="self">${self}</span>${to}${b.delivered === false ? html`<span class="kind err">lost</span>` : ''}${clockEl(b.ts, { sec: true })}</div>
+    // A follow-up to a subagent carries what that agent did from here on.
+    const sub = b.spawnUsd !== undefined ? html`<span class="fee" title="the subagent's requests from this message on">subagents ${usd(b.spawnUsd)}</span>` : ''
+    parts.push(html`<div class="who ai" id="${bid}"><span class="self">${self}</span>${to}${b.delivered === false ? html`<span class="kind err">lost</span>` : ''}${clockEl(b.ts, { sec: true })}${sub}</div>
       <div class="say ai out">${b.summary ? html`<p class="sum">${b.summary}</p>` : ''}${b.message ? html`<div class="md">${raw(mdBlock(b.message))}</div>` : ''}</div>`)
     speaker = 'ai'
   })
@@ -141,7 +145,7 @@ function workEl(b: Work, x: Transaction, stepFee: Map<string, { output: number; 
   const mix = html`<span class="mix mono">${b.tools.map((t) => html`<span><i class="sw ${familyOf(t.tool)}"></i>${t.tool}${t.n > 1 ? html` <b>×${t.n}</b>` : ''}</span>`)}</span>`
   const notif = b.notifications ? ` · ${b.notifications} notification${b.notifications === 1 ? '' : 's'}` : ''
   return html`<details class="work" ${open ? 'open' : ''}>
-    <summary>${mix}<span class="muted small">${b.steps} step${b.steps === 1 ? '' : 's'} · ${ms(b.ms)} · ${usd(b.listUsd)}${b.errors ? html` · <span class="err">${b.errors} err</span>` : ''}${notif}</span></summary>
+    <summary>${mix}<span class="muted small">${b.steps} step${b.steps === 1 ? '' : 's'} · ${ms(b.ms)} · ${usd(b.listUsd)}${b.spawnUsd !== 0 ? html` <span title="what the subagents called in this run cost (an Agent or Workflow call here)">+ subagents ${usd(b.spawnUsd)}</span>` : ''}${b.errors ? html` · <span class="err">${b.errors} err</span>` : ''}${notif}</span></summary>
     ${ixTable(x, b.from, b.to, stepFee, false)}
   </details>`
 }
@@ -215,7 +219,7 @@ function sessionRailRule(trace: Trace, at = '', label?: string) {
 
 function turnRows(turn: Turn, x: Transaction, i: number, self: string, at = ''): H[] {
   const id = turnId(x, i)
-  const nums = html`<span class="num">${turn.steps || ''}</span><span class="num x ${turn.errors ? 'err' : ''}">${turn.errors || ''}</span><span class="num x">${x.output ? tok(x.output) : ''}</span><span class="num">${turn.listUsd ? usd(turn.listUsd) : ''}</span><span class="num x">${turn.ms ? ms(turn.ms) : ''}</span>`
+  const nums = html`<span class="num">${turn.steps || ''}</span><span class="num x ${turn.errors ? 'err' : ''}">${turn.errors || ''}</span><span class="num x">${x.output ? tok(x.output) : ''}</span><span class="num">${turn.allInUsd ? costEl(turn) : ''}</span><span class="num x">${turn.ms ? ms(turn.ms) : ''}</span>`
   const who =
     turn.kind === 'relay'
       ? html`<span class="who"><span class="kind relay">@${turn.tag ?? 'peer'}</span></span>`
