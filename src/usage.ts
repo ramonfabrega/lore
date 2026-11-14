@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { CODEX_USAGE_FROM } from './codexindex'
 import { day, dayStart, weekKeySql } from './fmt'
 import { z } from 'zod'
 
@@ -143,6 +144,9 @@ export type UsageReport = {
   rows: UsageRow[]
   unpriced: string[]
   note: string
+  // Present only on a Codex report: which vendor's requests these are. A
+  // report is ONE source — two vendors never share a row or a listUsd.
+  source?: 'codex'
 }
 
 // A DAY is local (config.ts): `--by day` answers "what did I do Tuesday",
@@ -181,8 +185,17 @@ export function listUsage(
     until?: string
     limit: number
     split?: boolean
+    // Which vendor's requests: Claude's (`requests`, the default and the
+    // only thing this read before 2026-11-14) or Codex's (`codex_requests`).
+    // Never both in one report: the two share no rate table, and a total
+    // that summed them would be a number about nothing.
+    source?: 'claude' | 'codex'
   },
 ): UsageReport {
+  const codex = opts.source === 'codex'
+  // The same three aliases either way (r requests, s session, w well), so
+  // the aggregation below is one piece of code for both sources.
+  const FROM = codex ? CODEX_USAGE_FROM : 'requests r JOIN sessions s ON s.session_id = r.session_id JOIN wells w ON w.id = s.well_id'
   const where: string[] = ['1=1']
   const params: (string | number)[] = []
   if (opts.sessions) {
@@ -229,9 +242,7 @@ export function listUsage(
                 SUM(r.cache_write_1h_tokens) AS cacheWrite1h,
                 SUM(r.cache_read_tokens) AS cacheRead, SUM(r.output_tokens) AS output,
                 SUM(r.thinking_tokens) AS thinking
-         FROM requests r
-         JOIN sessions s ON s.session_id = r.session_id
-         JOIN wells w ON w.id = s.well_id
+         FROM ${FROM}
          WHERE ${filter}
          GROUP BY 1, 2, 3`,
       )
@@ -293,7 +304,7 @@ export function listUsage(
       db
         .prepare(
           `SELECT ${KEY_SQL[opts.by]} AS key, COUNT(DISTINCT r.session_id) AS sessions
-           FROM requests r JOIN sessions s ON s.session_id = r.session_id JOIN wells w ON w.id = s.well_id
+           FROM ${FROM}
            WHERE ${filter} GROUP BY 1`,
         )
         .all(...params),
@@ -312,7 +323,8 @@ export function listUsage(
   // had no WHERE, so `--by well --since today` put a well's every spawn ever
   // beside today's tokens. A spawn is in a window by when it started
   // (`first_ts`), and in a model filter by the model that served it.
-  if (opts.by === 'well' || opts.by === 'session') {
+  // (Claude only: a Codex thread's children are threads, not spawns.)
+  if ((opts.by === 'well' || opts.by === 'session') && !codex) {
     const spawnKey = opts.by === 'well' ? 'w.dir' : 'sp.session_id'
     const sw: string[] = ['1=1']
     const sp: (string | number)[] = []
@@ -367,7 +379,7 @@ export function listUsage(
       db
         .prepare(
           `SELECT s.session_id AS key, w.dir AS well, s.first_ts AS first
-           FROM sessions s JOIN wells w ON w.id = s.well_id
+           FROM ${codex ? "(SELECT thread_id AS session_id, first_ts FROM codex_threads) s JOIN (SELECT thread_id, COALESCE(repo, cwd, '?') AS dir FROM codex_threads) w ON w.thread_id = s.session_id" : 'sessions s JOIN wells w ON w.id = s.well_id'}
            WHERE s.session_id IN (${[...rows.keys()].map(() => '?').join(',') || "''"})`,
         )
         .all(...rows.keys()),
@@ -413,8 +425,7 @@ export function listUsage(
       .parse(
         db
           .prepare(
-            `SELECT COUNT(DISTINCT r.session_id) AS n FROM requests r
-             JOIN sessions s ON s.session_id = r.session_id JOIN wells w ON w.id = s.well_id WHERE ${filter}`,
+            `SELECT COUNT(DISTINCT r.session_id) AS n FROM ${FROM} WHERE ${filter}`,
           )
           .get(...params),
       ).n
@@ -426,8 +437,10 @@ export function listUsage(
     totals,
     rows: page,
     unpriced: [...unpriced].sort(),
-    note:
-      'listUsd is a list-price equivalent at first-party API rates (dated; cache reads priced per model/date, cache writes per TTL — 1.25x base input at 5 minutes, 2x at 1 hour, with cacheWrite1h the 1-hour slice of cacheWrite) — not a bill. Main-thread requests only; spawns/spawnOutput join the subagent observatory (`lore spawns` for detail). Open a session with `lore session <id>`.',
+    ...(codex ? { source: 'codex' as const } : {}),
+    note: codex
+      ? "Codex (OpenAI) requests in lore's token classes: `input` is UNCACHED — Codex reports input_tokens INCLUDING its cached_input_tokens and lore subtracts them — `cacheRead` is that cached share, `thinking` the reasoning share of output; a Codex cache write has no TTL split. No Codex model has a rate here: each is named in `unpriced` and `listUsd` is null wherever one appears — never a Claude price, and never summed with Claude's. `well` is the REPO key (the normalized remote, else the repo path, else the cwd): a Codex thread has no well. A guardian thread (model codex-auto-review, the judge of a worker's planned actions) is a thread of its own. Threads older than Codex 0.153 are read off the token_count event and are approximate. Open a thread with `lore codex turns <id>`."
+      : 'listUsd is a list-price equivalent at first-party API rates (dated; cache reads priced per model/date, cache writes per TTL — 1.25x base input at 5 minutes, 2x at 1 hour, with cacheWrite1h the 1-hour slice of cacheWrite) — not a bill. Main-thread requests only; spawns/spawnOutput join the subagent observatory (`lore spawns` for detail). Open a session with `lore session <id>`.',
   }
 }
 

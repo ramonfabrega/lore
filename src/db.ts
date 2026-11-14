@@ -124,12 +124,22 @@ import { z } from 'zod'
 // it drops the one table that has no source to rebuild from — `jobs` rows
 // for jobs the daemon has deleted (371 on 2026-11-13: 25 names, 7 parent
 // edges and every gone job's daemon id, carried by hand at v22).
+// (no version) codex_* — the second SOURCE (codex.ts, codexindex.ts): OpenAI
+// Codex rollouts, in tables of their own. The first sketch was a `source`
+// column on sessions and requests, and that is a bump: it changes what two
+// existing tables hold, and every query that reads them would have to say
+// which vendor it meant or silently start blending two. As new tables it is
+// neither — nothing that exists reads them, so a Claude page cannot change
+// by accident, and the source dimension is which tables a verb was asked to
+// read (`--source`). A Codex thread has no well (it keys to a repo), no
+// bridge id and no /clear, so half of `sessions`' columns would have been
+// null for it anyway.
 const SCHEMA_VERSION = 22
 // What a rebuild DROPS. `spawn_ledger` is deliberately absent: its rows are
 // ccc's own lines verbatim, nothing in them is derived, and ledger.ts keeps
 // them past a rotation of ccc's file — a bump that dropped the table would
 // take every edge whose line ccc no longer holds.
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits']
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits', 'codex_threads', 'codex_turns', 'codex_requests', 'codex_messages', 'codex_messages_fts', 'codex_questions']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -241,6 +251,137 @@ CREATE TABLE IF NOT EXISTS spawn_ledger(
   UNIQUE(child, ts)
 );
 CREATE INDEX IF NOT EXISTS idx_spawn_ledger_parent_session ON spawn_ledger(parent_session);
+-- Codex (OpenAI) rollouts — one row per THREAD, which is Codex's session and
+-- its job at once (one id, not three). kind is worker / guardian /
+-- subagent (codex.ts threadKind); root_thread_id the thread a child
+-- descends from. repo is the key a thread has instead of a well: the
+-- normalized remote (github.com/owner/name), else the repo path, else the
+-- cwd; repo_path is the local checkout the worktree hop found at index
+-- time, kept because Codex deletes the worktree. turns counts
+-- task_started — a file existing is not a thread having run. The
+-- reasoning_* pair says how many reasoning records there were against how
+-- many said anything in plaintext (the body is ENCRYPTED on every one), and
+-- withheld_* what a guardian's input came to: read, counted, never stored.
+CREATE TABLE IF NOT EXISTS codex_threads(
+  id INTEGER PRIMARY KEY,
+  thread_id TEXT UNIQUE NOT NULL,
+  root_thread_id TEXT NOT NULL,
+  parent_thread_id TEXT,
+  kind TEXT NOT NULL,
+  thread_source TEXT,
+  originator TEXT,
+  cli_version TEXT,
+  cwd TEXT,
+  repo TEXT,
+  repo_path TEXT,
+  branch TEXT,
+  commit_hash TEXT,
+  model TEXT,
+  path TEXT NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0,
+  size INTEGER NOT NULL,
+  mtime_ms INTEGER NOT NULL,
+  lines INTEGER NOT NULL DEFAULT 0,
+  first_ts TEXT,
+  last_ts TEXT,
+  last_activity_ts TEXT,
+  turns INTEGER NOT NULL DEFAULT 0,
+  reasoning_records INTEGER NOT NULL DEFAULT 0,
+  reasoning_summarized INTEGER NOT NULL DEFAULT 0,
+  withheld_records INTEGER NOT NULL DEFAULT 0,
+  withheld_chars INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_codex_threads_parent ON codex_threads(parent_thread_id) WHERE parent_thread_id IS NOT NULL;
+-- One row per turn (task_started … task_complete). opener is what was
+-- submitted to it — null on a guardian, whose input is evidence — and
+-- last_agent_message Codex's own closing text, which on a guardian is the
+-- verdict JSON the verdict_* columns are parsed from.
+CREATE TABLE IF NOT EXISTS codex_turns(
+  id INTEGER PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  n INTEGER NOT NULL,
+  started_ts TEXT,
+  completed_ts TEXT,
+  duration_ms INTEGER,
+  ttft_ms INTEGER,
+  model TEXT,
+  effort TEXT,
+  trigger TEXT,
+  opener TEXT,
+  last_agent_message TEXT,
+  aborted TEXT,
+  error TEXT,
+  verdict_outcome TEXT,
+  verdict_risk TEXT,
+  verdict_authorization TEXT,
+  requests INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  tools INTEGER NOT NULL DEFAULT 0,
+  execs INTEGER NOT NULL DEFAULT 0,
+  questions INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(thread_id, turn_id)
+);
+-- One row per API request, in lore's token classes: input_tokens here is
+-- UNCACHED (Codex's own input_tokens minus its cached_input_tokens — see
+-- codex.ts mapUsage). usage_source is 'record' (a token_usage_record, keyed
+-- by response id) or 'count' (the older token_count event, on threads that
+-- predate the record).
+CREATE TABLE IF NOT EXISTS codex_requests(
+  id INTEGER PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  response_id TEXT NOT NULL,
+  turn_id TEXT,
+  ts TEXT,
+  model TEXT,
+  effort TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  thinking_tokens INTEGER NOT NULL DEFAULT 0,
+  usage_source TEXT NOT NULL DEFAULT 'record',
+  UNIQUE(thread_id, response_id)
+);
+CREATE INDEX IF NOT EXISTS idx_codex_requests_thread ON codex_requests(thread_id);
+CREATE INDEX IF NOT EXISTS idx_codex_requests_ts ON codex_requests(ts);
+-- Messages by lane, text in the FTS table under the same rowid — the shape
+-- of messages/messages_fts, and a SEPARATE fts on purpose: bm25 ranks
+-- against the corpus it is in, so one shared table would re-rank every
+-- Claude hit the day Codex rows arrived. Lanes are lore's plus question.
+CREATE TABLE IF NOT EXISTS codex_messages(
+  id INTEGER PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  ts TEXT,
+  lane TEXT NOT NULL,
+  type TEXT NOT NULL,
+  turn_id TEXT,
+  tool_name TEXT,
+  call_id TEXT,
+  peer TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_codex_messages_thread_lane ON codex_messages(thread_id, lane, ordinal);
+CREATE INDEX IF NOT EXISTS idx_codex_messages_turn ON codex_messages(thread_id, turn_id);
+CREATE VIRTUAL TABLE IF NOT EXISTS codex_messages_fts USING fts5(text);
+-- A question the agent asked mid-run and what came back: the pair, joined
+-- on (call_id, idx) — questionItemId. free_text: the answer was not one
+-- of the options offered.
+CREATE TABLE IF NOT EXISTS codex_questions(
+  id INTEGER PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  call_id TEXT NOT NULL,
+  idx INTEGER NOT NULL,
+  turn_id TEXT,
+  asked_ts TEXT,
+  title TEXT,
+  options TEXT,
+  accepted INTEGER,
+  answer TEXT,
+  answered_ts TEXT,
+  free_text INTEGER,
+  UNIQUE(thread_id, call_id, idx)
+);
 CREATE TABLE IF NOT EXISTS repos(
   id INTEGER PRIMARY KEY,
   path TEXT UNIQUE NOT NULL,

@@ -2,6 +2,8 @@ import { Cli, z } from 'incur'
 import { listAgents } from './agents'
 import { archive } from './archive'
 import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, CODEX_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, LIMITS_PATH, PROJECTS_DIR, SPAWN_LEDGER_PATH, WIKI_DIR, selfArgv } from './config'
+import type { CodexLane } from './codex'
+import { SOURCES, indexCodex, listCodexSessions, searchCodex } from './codexindex'
 import { getConversation } from './conversation'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
@@ -31,6 +33,11 @@ import { listWorktrees } from './worktrees'
 import { indexWorkflowRuns, listWorkflowRuns } from './workflows'
 
 const LANES = ['prompt', 'text', 'thinking', 'tool', 'event', 'meta', 'relay'] as const
+// Codex's lanes are lore's plus `question`: what the agent asked the user
+// mid-run and what came back (codex.ts). Only `--source codex|all` reads it.
+const CODEX_LANES = [...LANES, 'question'] as const
+const SOURCE_NOTE =
+  'Which source: `claude` (the default — Claude Code transcripts, and exactly what this verb answered before Codex was indexed), `codex` (OpenAI Codex rollouts under ~/.codex, indexed into tables of their own) or `all`'
 
 // Session ids are read in prose as their first segment — the form every
 // listing, job dir and roster row prints.
@@ -85,18 +92,32 @@ cli.command('sessions', {
       .optional()
       .describe('Only sessions with ACTIVITY on/after this — a date (2026-08-01, the local day) or an ISO instant; heartbeat-only tails do not qualify'),
     limit: z.coerce.number().optional().describe('Max results (takes the newest n, then renders oldest-first). Default 100 — except under --since, where a delta window is sized by it and a silent cap mis-sized two ingests (#29, #32): no cap unless given. `capped` says when the cap bit.'),
+    source: z
+      .enum(SOURCES)
+      .default('claude')
+      .describe(
+        `${SOURCE_NOTE}. A Codex row is a THREAD and says \`source: codex\`: \`repo\` where a session has \`well\` (a thread has no well — it keys to its repo: the normalized remote, else the repo path, else the cwd; --well matches any of the three), \`turns\` (task_started count — 0 is a thread file that never ran), \`kind\` (worker, or subagent with \`parent\`), its judges rolled up (\`guardians\` minted, \`guardiansRan\`, \`verdicts\` returned), and \`reasoning\` against \`reasoningSummarized\`: Codex encrypts every reasoning body, so the thinking lane holds only the plaintext summaries a minority carry. \`firstPrompt\` is what the user SUBMITTED, never the harness injection that precedes it. Under \`all\` both kinds are listed together, oldest first, every row naming its source.`,
+      ),
+    guardians: z.boolean().optional().describe('Codex only: also list guardian threads (the judges a worker mints to review its planned actions — most of the thread files, a third of which never ran)'),
   }),
   alias: { well: 'w', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
     const limit = sessionsLimit(options)
-    const sessions = listSessions(db, {
-      well: options.well,
-      exact: options.exact,
-      since: options.since,
-      limit,
-    })
-    return { count: sessions.length, capped: sessions.length >= limit, sessions }
+    const claude = () => listSessions(db, { well: options.well, exact: options.exact, since: options.since, limit })
+    const codex = () => listCodexSessions(db, { repo: options.well, exact: options.exact, since: options.since, limit, guardians: options.guardians })
+    if (options.source === 'claude') {
+      const sessions = claude()
+      return { count: sessions.length, capped: sessions.length >= limit, sessions }
+    }
+    if (options.source === 'codex') {
+      const sessions = codex()
+      return { source: 'codex', count: sessions.length, capped: sessions.length >= limit, sessions }
+    }
+    // Both, as one arc: oldest first, by the instant each began.
+    const both = [...claude().map((s) => ({ source: 'claude' as const, ...s })), ...codex()].sort((a, b) => (a.firstAt ?? '').localeCompare(b.firstAt ?? ''))
+    const sessions = both.slice(-limit)
+    return { source: 'all', count: sessions.length, capped: both.length >= limit, sessions }
   },
 })
 
@@ -200,15 +221,18 @@ async function refreshIndex(db: ReturnType<typeof openDb>, full?: boolean) {
   // ccc's spawn ledger: the edges as fields (ledger.ts). After the
   // transcripts, since an edge resolves through the child's sessions.
   const ledger = await indexSpawnLedger(db, { path: SPAWN_LEDGER_PATH })
+  // The second source: Codex rollouts, into tables of their own
+  // (codexindex.ts). Independent of everything above.
+  const codex = await indexCodex(db, { codexHome: CODEX_DIR, full })
   // Names for the jobs the daemon has forgotten, off the other side's rows
   // (job.ts). After the transcripts and the state files, since it reads both.
   const named = backfillJobNames(db)
-  return { ...stats, spawns, workflows, jobs: { ...jobs, peerNamed: named.named }, ledger }
+  return { ...stats, spawns, workflows, jobs: { ...jobs, peerNamed: named.named }, ledger, codex }
 }
 
 cli.command('index', {
   description:
-    'Build or refresh the search index over transcripts, spawns, workflow runs, jobs and ccc\'s spawn ledger (incremental by mtime/size; `ledger` in the answer says how many lines were read and how many were left out, by why). This is the DETERMINISTIC read layer — it is NOT a wiki ingest, and `lore wiki` has no `index` verb: mining sources into wiki pages is a session-driven op that costs a subagent fan-out. Confusing the two has cost a round-trip twice.',
+    'Build or refresh the search index over transcripts, spawns, workflow runs, jobs, ccc\'s spawn ledger and Codex\'s rollouts (incremental by mtime/size; `ledger` in the answer says how many lines were read and how many were left out, by why; `codex` says how many threads ~/.codex holds, how many were `imported` — Codex\'s own copies of Claude Code transcripts, never indexed — and any record kind lore has no decoder for, in `unknown`). This is the DETERMINISTIC read layer — it is NOT a wiki ingest, and `lore wiki` has no `index` verb: mining sources into wiki pages is a session-driven op that costs a subagent fan-out. Confusing the two has cost a round-trip twice.',
   options: z.object({
     full: z.boolean().optional().describe('Reindex everything, ignoring the incremental skip'),
   }),
@@ -232,9 +256,9 @@ cli.command('search', {
   }),
   options: z.object({
     lane: z
-      .array(z.enum(LANES))
+      .array(z.enum(CODEX_LANES))
       .optional()
-      .describe('Lanes to search (default: prompt, text). thinking/tool/event/meta/relay are opt-in — `relay` is the fleet\'s cross-session traffic'),
+      .describe('Lanes to search (default: prompt, text). thinking/tool/event/meta/relay are opt-in — `relay` is the fleet\'s cross-session traffic. `question` exists on Codex rows only: what the agent asked the user mid-run (`ask`) and what came back (`answer`)'),
     well: z.string().optional().describe('Filter to wells whose dir or real path contains this substring'),
     exact: z
       .boolean()
@@ -245,15 +269,30 @@ cli.command('search', {
     session: z.string().optional().describe('Only this session — id or unique prefix (see the sessions listing). A mining bucket is a list of these'),
     limit: z.coerce.number().default(20).describe('Max results'),
     history: z.boolean().optional().describe('Also search history.jsonl (every prompt ever typed, survives retention)'),
+    source: z
+      .enum(SOURCES)
+      .default('claude')
+      .describe(
+        `${SOURCE_NOTE}. A Codex hit says \`source: codex\`, names its \`repo\` (a thread has no well; --well matches the repo key, the repo path or the cwd), its thread as \`sessionId\` and its \`turnId\`. Under \`all\` the Codex hits come back as their own list (\`codex\`), never interleaved: the two sources are two FTS tables and a rank means something only inside one. A guardian thread's input — its worker's transcript, re-embedded as evidence — is in no lane, so a hit is never a second copy of something said once.`,
+      ),
   }),
   alias: { lane: 'l', well: 'w', limit: 'n' },
   run: ({ args, options }) => {
     const db = openDb(DB_PATH)
-    const lanes = (options.lane ?? ['prompt', 'text']) as Lane[]
+    const asked: CodexLane[] = options.lane ?? ['prompt', 'text']
+    const lanes = asked.filter((l): l is Lane => l !== 'question')
     const scope = { since: options.since, until: options.until, session: options.session }
-    const hits = searchMessages(db, args.query, { lanes, well: options.well, exact: options.exact, limit: options.limit, ...scope })
+    const codex = () => searchCodex(db, args.query, { lanes: asked, repo: options.well, exact: options.exact, limit: options.limit, ...scope })
+    if (options.source === 'codex') {
+      const hits = codex()
+      return { query: args.query, lanes: asked, source: 'codex', count: hits.length, hits }
+    }
+    const hits = lanes.length ? searchMessages(db, args.query, { lanes, well: options.well, exact: options.exact, limit: options.limit, ...scope }) : []
     const history = options.history ? searchHistory(db, args.query, { limit: options.limit, ...scope }) : undefined
-    return { query: args.query, lanes, count: hits.length, hits, ...(history ? { history } : {}) }
+    const answer = { query: args.query, lanes: options.source === 'all' ? asked : lanes, count: hits.length, hits, ...(history ? { history } : {}) }
+    if (options.source === 'claude') return answer
+    const theirs = codex()
+    return { ...answer, source: 'all', codex: { count: theirs.length, hits: theirs } }
   },
 })
 
@@ -462,20 +501,31 @@ cli.command('usage', {
     since: z.string().optional().describe('Only requests on/after this — a date (2026-08-28, the local day) or an ISO instant'),
     until: z.string().optional().describe('Only requests before this — a date (its local midnight, exclusive) or an ISO instant'),
     limit: z.coerce.number().default(50).describe('Max rows (totals cover every matching row, not just the page)'),
+    source: z
+      .enum(SOURCES)
+      .default('claude')
+      .describe(
+        `${SOURCE_NOTE}. A Codex report is the same profile over Codex's requests, mapped into the same classes — \`input\` is UNCACHED (Codex counts its cache inside input_tokens; lore subtracts it), \`cacheRead\` the cached share, \`thinking\` the reasoning share of output — with \`--by well\` grouping on the REPO a thread keys to. No Codex model has a rate: gpt-6-astra, codex-auto-review and the rest are in \`unpriced\` and \`listUsd\` is null. Under \`all\` the Claude report is unchanged and the Codex one rides beside it as \`codex\`, with its own totals: two vendors are never summed into one row or one listUsd.`,
+      ),
   }),
   alias: { by: 'b', well: 'w', session: 's', model: 'm', limit: 'n' },
   run: ({ options }) => {
     const db = openDb(DB_PATH)
-    return listUsage(db, {
-      by: options.by,
-      well: options.well,
-      exact: options.exact,
-      session: options.session,
-      model: options.model,
-      since: options.since,
-      until: options.until,
-      limit: options.limit,
-    })
+    const report = (source: 'claude' | 'codex') =>
+      listUsage(db, {
+        by: options.by,
+        well: options.well,
+        exact: options.exact,
+        session: options.session,
+        model: options.model,
+        since: options.since,
+        until: options.until,
+        limit: options.limit,
+        source,
+      })
+    if (options.source === 'codex') return report('codex')
+    if (options.source === 'claude') return report('claude')
+    return { ...report('claude'), codex: report('codex') }
   },
 })
 

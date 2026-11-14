@@ -741,6 +741,69 @@ with what would reopen it:
   rollout is all prose, and a dynamic key (a skill name, an AGENTS.md path) is
   content a value-scrub never sees.
 
+**The index half (`codexindex.ts`): tables of their own, and no schema bump.**
+The page's sketch was a `source` column (`claude` | `codex`) on `sessions` and
+`requests`. That is a change to what two existing tables hold — a bump, a 3 GB
+rebuild, and the loss of the `jobs` rows with no source (the 11-13 entry above)
+— so Codex rows went into `codex_threads` / `codex_turns` / `codex_requests` /
+`codex_messages` (+ its own FTS) / `codex_questions`, created `IF NOT EXISTS`.
+The source dimension is which tables a verb reads: `--source claude|codex|all`
+on `sessions`, `usage` and `search`, default `claude`, under which no query
+touches a Codex table and every answer is byte-for-byte what it was (a test
+holds a Claude session's listing, four usage groupings and a search equal
+before and after a Codex index).
+
+- **`usage` is one aggregation over a swapped relation.** `CODEX_USAGE_FROM`
+  presents the Codex tables under the same three aliases (`r`, `s`, `w`), so
+  the cells, the pricing and the totals are the same code for both vendors
+  and cannot drift. `--by well` groups Codex on its repo key. A report is ONE
+  source: under `all` the Codex report rides beside Claude's as `codex`, with
+  its own totals — never one row, never one `listUsd`. Every Codex model is
+  `unpriced` (ten of them, not the page's two). Revisit when OpenAI rates are
+  wanted: they would be a second rate table keyed by vendor, not rows in
+  `RATES`.
+- **`search --source all` returns two lists.** bm25 ranks against the table it
+  is computed in; one FTS for both would have re-ranked every Claude hit the
+  day Codex rows arrived, and interleaving two tables' ranks compares numbers
+  that do not share a scale.
+- **`sessions --source all` is one list**, oldest first, every row naming its
+  source: an arc is chronological whoever drove it. Guardians are rolled up on
+  their worker (`guardians`, `guardiansRan`, `verdicts`) and listed only under
+  `--guardians`: 328 judges against 76 workers.
+- **`--well` matches a Codex thread's repo key, repo path or cwd.** A second
+  flag for the same question ("where") would be the well/repo split leaking
+  into the caller. Revisit if a repo key and a well dir ever collide on a
+  substring that matters.
+- **OPEN — the `codex_*` tables are in the rebuild's drop list, and lore does
+  not archive `~/.codex`.** They are there because they re-derive from the
+  rollouts in seconds. The cost: an incremental index never removes a thread
+  (the index outlives its sources), so a thread whose rollout has since been
+  deleted keeps answering — until the next schema bump, which drops the
+  tables and rebuilds only from what is still on disk. Claude's transcripts
+  have `lore archive` as their second copy; Codex's have none, and
+  `spawn_ledger` was taken OUT of the drop list the same day for the strong
+  form of this reason (its rows have no other copy at all). Whether Codex
+  ever deletes a rollout is not measured — the corpus shows it compressing
+  and archiving them. Not solved here. The choices: accept the loss; mirror
+  `~/.codex/sessions` in `lore archive` (387 MB today, already compressed)
+  and rebuild from the mirror; or take the tables out of the drop list and
+  give them their own re-derive switch. Decide before the first bump after
+  this lands.
+- **Not given the dimension here:** `trace`, `session`, `conversation`,
+  `stats`, `tools`, `jobs`, `purge` and the explorer. They read Claude's
+  tables and so cannot show a Codex thread by accident; a Codex thread is read
+  through `lore codex` (below). `lore purge` does not reach `codex_*`.
+
+What a `source` column would buy instead, and why it is not here: one `WHERE`
+for every verb at once (trace, the explorer, jobs), and one FTS. Its cost is
+the bump, plus a pass over every existing query to decide which vendor it
+means — `limits` reads its ledger through `listUsage` over `requests`, and a
+Codex row in that table would have been counted against the Claude subscription
+in silence.
+Revisit when a page needs both vendors in ONE query (a job whose lanes are
+Claude and Codex): that is the moment the column, or a view over both, earns
+the rebuild.
+
 ## Privacy redline
 
 Transcripts span work/client repos and personal projects. Graduation must be loud
