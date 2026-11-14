@@ -52,7 +52,9 @@ const WellRow = z.object({ dir: z.string() }).nullish()
 
 // Rows keyed on the transcript's session id. messages_fts/history_fts hang off
 // their parent's rowid, so they go first, in the same transaction.
-const ROW_TABLES = ['messages', 'requests', 'spawns', 'workflow_runs', 'history'] as const
+// `spawn_requests` keys on the PARENT session, so the purged session's
+// subagent requests go with it, as its spawns do.
+const ROW_TABLES = ['messages', 'requests', 'spawns', 'spawn_requests', 'workflow_runs', 'history'] as const
 // Two tables carry a session id and are NOT the session's alone.
 // `limits`: a refusal read off the transcript (`source = 'transcript'`) goes
 // with it — nothing else would ever delete it, the file being gone. A

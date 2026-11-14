@@ -7,6 +7,7 @@ import { openDb } from '../src/db'
 import { buildIndex } from '../src/indexer'
 import { indexJobs } from '../src/jobs'
 import { getLoop } from '../src/loop'
+import { indexSpawns } from '../src/spawns'
 
 // One job that runs others, in miniature: a commander in its worktree that
 // spawned three lanes through `ccc spawn --json` (one before the window),
@@ -93,6 +94,19 @@ async function corpus(cmdCwd: string) {
     mkdirSync(join(projects, well), { recursive: true })
     for (const [sid, lines] of Object.entries(sessions)) writeFileSync(join(projects, well, `${sid}.jsonl`), `${lines.join('\n')}\n`)
   }
+  // Subagents: the commander's (one before the window, one inside) and
+  // att-1's, each a single Sonnet request.
+  const subagent = (well: string, sid: string, agent: string, ts: string) => {
+    const dir = join(projects, well, sid, 'subagents')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, `agent-${agent}.jsonl`),
+      line({ type: 'assistant', timestamp: ts, message: { id: `m_${agent}`, model: 'claude-sonnet-5', role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 0, cache_read_input_tokens: 1_000_000, output_tokens: 10_000 } } }),
+    )
+  }
+  subagent(slug(cmdCwd), 'cmd-1', 'c-early', '2026-10-15T09:10:00Z')
+  subagent(slug(cmdCwd), 'cmd-1', 'c-late', '2026-10-15T10:30:00Z')
+  subagent(slug(w1), 'deadbeef-0000-4000-8000-000000000001', 'l-1', '2026-10-15T10:20:00Z')
   const claudeDir = mkdtempSync(join(tmpdir(), 'lore-loop-claude-'))
   mkdirSync(join(claudeDir, 'jobs', 'cmd00000'), { recursive: true })
   writeFileSync(join(claudeDir, 'jobs', 'cmd00000', 'state.json'), JSON.stringify({ name: 'commander', state: 'working', sessionId: 'cmd-1', bridgeSessionId: 'cse_CMD', cwd: cmdCwd }))
@@ -107,6 +121,7 @@ async function corpus(cmdCwd: string) {
   }
   const db = openDb(':memory:')
   await buildIndex(db, { projectsDir: projects, historyPath: join(projects, 'none.jsonl') })
+  await indexSpawns(db, { projectsDir: projects })
   await indexJobs(db, { claudeDir })
   return { db, w2 }
 }
@@ -156,7 +171,18 @@ describe('lore loop', () => {
     // the two lanes'. Less than the whole job's, which also paid for att-0.
     expect(loop.spend.jobUsd).toBeGreaterThan(0)
     expect(loop.spend.laneUsd).toBeGreaterThan(0)
-    expect(loop.spend.totalUsd).toBe(Math.round(((loop.spend.jobUsd ?? 0) + (loop.spend.laneUsd ?? 0)) * 100) / 100)
+    // The subagents beside them, each request by its own instant: the
+    // commander's 10:30 one (not its 09:10 one) and att-1's. One Sonnet
+    // request of 1M cache read + 10k out is 0.2 + 0.1 USD.
+    expect(loop.spend.jobSpawnUsd).toBe(0.3)
+    expect(loop.spend.laneSpawnUsd).toBe(0.3)
+    expect(loop.lanes.find((l) => l.name === 'att-1')?.spawnUsd).toBe(0.3)
+    expect(loop.lanes.find((l) => l.name === 'att-2')?.spawnUsd).toBe(0)
+    // The total is what the account counted: both main threads and both
+    // sides' subagents.
+    const { jobUsd, jobSpawnUsd, laneUsd, laneSpawnUsd } = loop.spend
+    expect(loop.spend.totalUsd).toBe(Math.round(((jobUsd ?? 0) + (jobSpawnUsd ?? 0) + (laneUsd ?? 0) + (laneSpawnUsd ?? 0)) * 100) / 100)
+    expect((await getLoop(db, 'commander', { now, live })).spend.jobSpawnUsd).toBe(0.6)
     const whole = await getLoop(db, 'commander', { now, live })
     expect(whole.spend.jobUsd ?? 0).toBeGreaterThan(loop.spend.jobUsd ?? 0)
     expect(whole.lanesTotal).toBe(3)

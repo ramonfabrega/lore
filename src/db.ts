@@ -124,12 +124,19 @@ import { z } from 'zod'
 // it drops the one table that has no source to rebuild from — `jobs` rows
 // for jobs the daemon has deleted (371 on 2026-11-13: 25 names, 7 parent
 // edges and every gone job's daemon id, carried by hand at v22).
+// (no version) spawn_requests — the subagent half of the token ledger (see
+// the table). New, so no bump; an existing index fills it on its next plain
+// `lore index`, which re-reads once every spawn row that counts requests and
+// has none here (spawns.ts).
 const SCHEMA_VERSION = 22
 // What a rebuild DROPS. `spawn_ledger` is deliberately absent: its rows are
 // ccc's own lines verbatim, nothing in them is derived, and ledger.ts keeps
 // them past a rotation of ccc's file — a bump that dropped the table would
-// take every edge whose line ccc no longer holds.
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits']
+// take every edge whose line ccc no longer holds. `spawn_requests` is
+// present: it is derived from the same files as `spawns`, row for row, and a
+// rebuild that kept it while dropping `spawns` would leave requests whose
+// spawn (and so whose well) is gone, under rules an older build applied.
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'spawn_requests', 'workflow_runs', 'requests', 'jobs', 'limits']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,
@@ -334,6 +341,37 @@ CREATE TABLE IF NOT EXISTS requests(
 );
 CREATE INDEX IF NOT EXISTS idx_requests_session ON requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_requests_ts ON requests(ts);
+-- One row per API request of a SUBAGENT (no version; spawns.ts): the spawn's
+-- agent_id, its PARENT session (the transcript under whose <session>/subagents/
+-- it lives), and the same token classes as \`requests\`, folded across a
+-- request's streaming snapshots the same way. \`requests\` is the main thread
+-- only, and \`spawns\` keeps a count and an output total per spawn, so until
+-- this table nothing could price a subagent inside a window — and the account
+-- counts them against the week (2026-11-14: one overnight window read 13.5 USD
+-- a point in \`lore limits\` against 19.2 priced from the subagent files by
+-- hand). One row for EVERY request the spawn row counts, a usage-less one at
+-- zero, so rows = spawns.requests and the backfill test is exact. On harness
+-- 2.1.285 – 2.1.299 a tool_use-ended request has no completion record and its
+-- output here is a snapshot's (spawns.open_requests): priced as written.
+CREATE TABLE IF NOT EXISTS spawn_requests(
+  id INTEGER PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  ts TEXT,
+  model TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_5m_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_1h_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  thinking_tokens INTEGER NOT NULL DEFAULT 0,
+  stop_reason TEXT,
+  UNIQUE(agent_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_spawn_requests_session ON spawn_requests(session_id);
+CREATE INDEX IF NOT EXISTS idx_spawn_requests_ts ON spawn_requests(ts);
 CREATE TABLE IF NOT EXISTS jobs(
   id INTEGER PRIMARY KEY,
   job_id TEXT UNIQUE NOT NULL,

@@ -62,7 +62,9 @@ export type LoopLane = {
   peak: number | null
   deep: boolean
   requests: number
+  // The lane's main-thread fee inside the window, and its subagents' beside it.
   listUsd: number | null
+  spawnUsd: number | null
   last: string | null
 }
 
@@ -95,7 +97,12 @@ export type Loop = {
   // lane in the window and `spend` sums every one, not the listed ones.
   lanes: LoopLane[]
   lanesTotal: number
-  spend: { jobUsd: number | null; laneUsd: number | null; totalUsd: number | null }
+  // `jobUsd`/`laneUsd` are the main threads of the job's sessions and of its
+  // lanes; `jobSpawnUsd`/`laneSpawnUsd` the subagents those sessions ran,
+  // each request by its own instant inside the window; `totalUsd` is all
+  // four — what the account counted. Until 2026-11-14 the total was the two
+  // main threads alone.
+  spend: { jobUsd: number | null; jobSpawnUsd: number | null; laneUsd: number | null; laneSpawnUsd: number | null; totalUsd: number | null }
   spoke: { lastPrompt: string | null; lastText: string | null; lastSent: string | null }
 }
 
@@ -149,16 +156,23 @@ function lastTs(db: Database, sessions: string[], where: string): string | null 
   return Ts.parse(db.prepare(`SELECT MAX(ts) AS ts FROM messages WHERE session_id IN (${marks}) AND ${where}`).get(...sessions)).ts
 }
 
-// The fee of a set of sessions inside a window: requests, list price, and
-// the models that served them.
-function feeOf(db: Database, sessions: string[], since: string | undefined, until?: string): { requests: number; listUsd: number | null; models: { model: string; requests: number }[] } {
-  if (sessions.length === 0) return { requests: 0, listUsd: 0, models: [] }
-  const u = listUsage(db, { by: 'session', sessions, since, until, limit: 100_000, split: true })
+// The fee of a set of sessions inside a window: main-thread requests, list
+// price, and the models that served them; and the list price of the
+// subagents those sessions ran, beside it.
+function feeOf(
+  db: Database,
+  sessions: string[],
+  since: string | undefined,
+  until?: string,
+): { requests: number; listUsd: number | null; spawnUsd: number | null; models: { model: string; requests: number }[] } {
+  if (sessions.length === 0) return { requests: 0, listUsd: 0, spawnUsd: 0, models: [] }
+  const u = listUsage(db, { by: 'session', sessions, since, until, limit: 100_000, split: true, subagents: true })
   const models = new Map<string, number>()
   for (const r of u.rows) for (const m of r.models ?? []) models.set(m.model, (models.get(m.model) ?? 0) + m.requests)
   return {
     requests: u.totals.requests,
     listUsd: u.totals.listUsd,
+    spawnUsd: u.totals.spawnUsd ?? null,
     models: [...models].map(([model, requests]) => ({ model, requests })).sort((a, b) => b.requests - a.requests),
   }
 }
@@ -246,6 +260,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
         deep: live && ctx != null ? ctx >= deep : peak != null && peak >= deep,
         requests: fee.requests,
         listUsd: fee.listUsd,
+        spawnUsd: fee.spawnUsd,
         last: lsp.last,
       }
     })
@@ -259,8 +274,13 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
   // (whole jobs); the whole job when there is no window.
   const ownFee = feeOf(db, sessions, since ?? undefined, until ?? undefined)
   const jobUsd = sessions.length ? ownFee.listUsd : null
-  const laneUsd = allLanes.length ? (allLanes.every((l) => l.listUsd != null) ? round2(allLanes.reduce((n, l) => n + (l.listUsd ?? 0), 0)) : null) : 0
-  const totalUsd = jobUsd == null || laneUsd == null ? null : round2(jobUsd + laneUsd)
+  const jobSpawnUsd = sessions.length ? ownFee.spawnUsd : null
+  const sumLanes = (pick: (l: LoopLane) => number | null) =>
+    allLanes.length ? (allLanes.every((l) => pick(l) != null) ? round2(allLanes.reduce((n, l) => n + (pick(l) ?? 0), 0)) : null) : 0
+  const laneUsd = sumLanes((l) => l.listUsd)
+  const laneSpawnUsd = sumLanes((l) => l.spawnUsd)
+  const parts = [jobUsd, jobSpawnUsd, laneUsd, laneSpawnUsd]
+  const totalUsd = parts.some((p) => p == null) ? null : round2(parts.reduce<number>((n, p) => n + (p ?? 0), 0))
 
   return {
     asOf: new Date(now).toISOString(),
@@ -284,7 +304,7 @@ export async function getLoop(db: Database, q: string, opts: LoopOpts = {}): Pro
     running,
     lanes,
     lanesTotal: allLanes.length,
-    spend: { jobUsd, laneUsd, totalUsd },
+    spend: { jobUsd, jobSpawnUsd, laneUsd, laneSpawnUsd, totalUsd },
     spoke: {
       lastPrompt: lastTs(db, sessions, "lane = 'prompt' AND type = 'user'"),
       lastText: lastTs(db, sessions, "lane = 'text'"),

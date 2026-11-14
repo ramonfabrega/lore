@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { dayStart, weekKeySql } from './fmt'
 import { modelDrift } from './model'
+import { mergeRequest, type Request, requestOf } from './parse'
 
 // The spawn observatory (lore#5): every subagent leaves a transcript at
 // <projectsDir>/<well>/<sessionId>/subagents/agent-<id>.jsonl plus a
@@ -161,8 +162,23 @@ export async function indexSpawns(
   const started = performance.now()
   const files = scanSpawnFiles(opts.projectsDir)
 
-  const findSpawn = db.prepare('SELECT size, mtime_ms FROM spawns WHERE agent_id = ?')
-  const Existing = z.object({ size: z.number(), mtime_ms: z.number() }).nullish()
+  // `rows`: the spawn's requests in `spawn_requests`. A row current by size
+  // and mtime is still re-read when it counts requests and has none there —
+  // an index built before the table existed. Every request the row counts
+  // gets a row (a usage-less one at zero), so a re-read always fills it and
+  // happens once; a spawn that counts none has nothing to fill and is never
+  // re-read.
+  const findSpawn = db.prepare(
+    `SELECT size, mtime_ms, requests, EXISTS(SELECT 1 FROM spawn_requests q WHERE q.agent_id = spawns.agent_id) AS rows
+     FROM spawns WHERE agent_id = ?`,
+  )
+  const Existing = z.object({ size: z.number(), mtime_ms: z.number(), requests: z.number(), rows: z.number() }).nullish()
+  const deleteRequests = db.prepare('DELETE FROM spawn_requests WHERE agent_id = ?')
+  const insertRequest = db.prepare(
+    `INSERT INTO spawn_requests(agent_id, session_id, message_id, ts, model, input_tokens, cache_write_tokens,
+       cache_write_5m_tokens, cache_write_1h_tokens, cache_read_tokens, output_tokens, thinking_tokens, stop_reason)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
   const upsert = db.prepare(
     `INSERT INTO spawns(well_dir, session_id, agent_id, agent_type, description, spawn_depth, requested_model,
        model, boot_tokens, boot_cached, requests, output_tokens, tool_uses, first_ts, last_ts, size, mtime_ms, workflow_run_id,
@@ -181,7 +197,8 @@ export async function indexSpawns(
 
   for (const f of files) {
     const existing = Existing.parse(findSpawn.get(f.agentId))
-    if (!opts.full && existing && existing.size === f.size && existing.mtime_ms === f.mtimeMs) {
+    const current = existing && existing.size === f.size && existing.mtime_ms === f.mtimeMs
+    if (!opts.full && current && (existing.requests === 0 || existing.rows)) {
       spawnsSkipped++
       continue
     }
@@ -212,6 +229,10 @@ export async function indexSpawns(
     // record, and whether its result has landed.
     let handbackId: string | null = null
     let handbackDelivered = false
+    // The same requests, whole: every token class, folded across snapshots
+    // the way the main-thread indexer folds them (parse.ts `mergeRequest`),
+    // keyed as above so the two counts agree. The first snapshot's instant.
+    const requests = new Map<string, Request & { ts: string | null }>()
 
     for (const line of (await Bun.file(f.path).text()).split('\n')) {
       if (!line.trim()) continue
@@ -268,6 +289,15 @@ export async function indexSpawns(
       if (out > (outputByRequest.get(reqId) ?? 0)) outputByRequest.set(reqId, out)
       lastStopReason = msg.stop_reason ?? null
       stopByRequest.set(reqId, lastStopReason)
+      // A record with no usage block (or no id) is still a request the row
+      // counts: it lands at zero rather than going missing.
+      const req = requestOf(raw) ?? {
+        id: reqId, model: msg.model ?? null, effort: null, stopReason: msg.stop_reason ?? null,
+        input: 0, cacheWrite: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0,
+      }
+      const seen = requests.get(reqId)
+      if (seen) mergeRequest(seen, req)
+      else requests.set(reqId, { ...req, id: reqId, ts: rec.data.timestamp ?? null })
       for (const block of msg.content ?? []) if (block.type === 'tool_use') toolUses++
       // Any later assistant record reopens the question: a spawn resumed
       // after its handback (SendMessage) is running again.
@@ -282,28 +312,37 @@ export async function indexSpawns(
     for (const v of stopByRequest.values()) if (v == null) openRequests++
     if (handbackDelivered) lastStopReason = 'handback'
 
-    upsert.run(
-      f.wellDir,
-      f.sessionId,
-      f.agentId,
-      meta.agentType ?? null,
-      meta.description ?? null,
-      meta.spawnDepth ?? null,
-      meta.model ?? null,
-      model,
-      bootTokens,
-      bootCached,
-      outputByRequest.size,
-      outputTokens,
-      toolUses,
-      firstTs,
-      lastTs,
-      f.size,
-      f.mtimeMs,
-      f.workflowRunId,
-      lastStopReason,
-      openRequests,
-    )
+    // The row and its requests land together: a crash between them would
+    // leave a current row with no requests, re-read next run, which is fine,
+    // but a half-written request set would not be re-read at all.
+    const write = db.transaction(() => {
+      upsert.run(
+        f.wellDir,
+        f.sessionId,
+        f.agentId,
+        meta.agentType ?? null,
+        meta.description ?? null,
+        meta.spawnDepth ?? null,
+        meta.model ?? null,
+        model,
+        bootTokens,
+        bootCached,
+        outputByRequest.size,
+        outputTokens,
+        toolUses,
+        firstTs,
+        lastTs,
+        f.size,
+        f.mtimeMs,
+        f.workflowRunId,
+        lastStopReason,
+        openRequests,
+      )
+      deleteRequests.run(f.agentId)
+      for (const r of requests.values())
+        insertRequest.run(f.agentId, f.sessionId, r.id, r.ts, r.model, r.input, r.cacheWrite, r.cacheWrite5m, r.cacheWrite1h, r.cacheRead, r.output, r.thinking, r.stopReason)
+    })
+    write()
     spawnsIndexed++
   }
 

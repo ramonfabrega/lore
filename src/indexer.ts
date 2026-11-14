@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { z } from 'zod'
 import { bridgeKey as bridgeKey_ } from './jobs'
 import type { Lane, Request } from './parse'
-import { parseLine } from './parse'
+import { mergeRequest, parseLine } from './parse'
 import { listWells } from './wells'
 
 // What counts as the session doing work, for last_activity_ts. Deliberately
@@ -170,19 +170,7 @@ export async function buildIndex(
           if (p.request) {
             const seen = requests.get(p.request.id)
             if (!seen) requests.set(p.request.id, { ...p.request, ts: p.timestamp ?? null })
-            else {
-              const r = p.request
-              seen.input = Math.max(seen.input, r.input)
-              seen.cacheWrite = Math.max(seen.cacheWrite, r.cacheWrite)
-              seen.cacheWrite5m = Math.max(seen.cacheWrite5m, r.cacheWrite5m)
-              seen.cacheWrite1h = Math.max(seen.cacheWrite1h, r.cacheWrite1h)
-              seen.cacheRead = Math.max(seen.cacheRead, r.cacheRead)
-              seen.output = Math.max(seen.output, r.output)
-              seen.thinking = Math.max(seen.thinking, r.thinking)
-              seen.stopReason = r.stopReason ?? seen.stopReason
-              seen.model ??= r.model
-              seen.effort ??= r.effort
-            }
+            else mergeRequest(seen, p.request)
           }
         }
         for (const r of requests.values()) {

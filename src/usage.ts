@@ -8,6 +8,17 @@ import { z } from 'zod'
 // the spawn observatory's output totals for the well/session groupings so a
 // session's fan-out cost sits next to its own.
 //
+// With `subagents`, the other half of the ledger rides beside it: every
+// subagent request (`spawn_requests`, the same token classes, priced through
+// the same rates) in `spawn*` fields of each row and of the totals — never
+// folded into `listUsd`, which stays the main thread so every reader that
+// knew it keeps the number it knew. A subagent request is attributed by its
+// own model and its own instant, and to its PARENT session (and that
+// session's well); every filter bounds both sides the same way. Opt-in
+// because the readers that only want the main thread (the explorer's pages,
+// the agents roster) aggregate the whole index on every poll and would pay
+// for a second table they do not show.
+//
 // Cost is a LIST-PRICE EQUIVALENT at first-party API rates, not a bill — the
 // fleet runs on subscription OAuth, where the price only matters as the
 // exchange rate the usage limit is believed to track. Rates are dated:
@@ -112,6 +123,17 @@ const Tokens = {
 }
 const Cell = z.object({ key: z.string(), model: z.string().nullable(), day: z.string().nullable(), ...Tokens })
 const SpawnCell = z.object({ key: z.string(), spawns: z.number(), spawnOutput: z.number() })
+const SubCell = z.object({
+  key: z.string(),
+  model: z.string().nullable(),
+  day: z.string().nullable(),
+  requests: z.number(),
+  input: z.number(),
+  cacheWrite: z.number(),
+  cacheWrite1h: z.number(),
+  cacheRead: z.number(),
+  output: z.number(),
+})
 const SessionMeta = z.object({ key: z.string(), well: z.string(), first: z.string().nullable() })
 
 export type UsageRow = {
@@ -128,9 +150,23 @@ export type UsageRow = {
   cacheRead: number
   output: number
   thinking: number
+  // The spawn observatory's rollup (well/session groupings only): how many
+  // spawns started in the window and their output, by spawn.
   spawns?: number
   spawnOutput?: number
+  // Main-thread requests only — never the subagents (below).
   listUsd: number | null
+  // With `subagents`: the subagent requests of this row, by request — their
+  // count, cache write/read, output, and list price (null when a model has
+  // no rate, like `listUsd`). `spawnRequestOutput` is per REQUEST inside the
+  // window, where `spawnOutput` is per spawn by its start, hence two names.
+  // On harness 2.1.285 – 2.1.299 a tool_use-ended subagent request kept no
+  // completion record, so its output here is a floor (spawns.open_requests).
+  spawnRequests?: number
+  spawnCacheWrite?: number
+  spawnCacheRead?: number
+  spawnRequestOutput?: number
+  spawnUsd?: number | null
   // With `split`: the list price by token class (the fee bar) and by model
   // (the stacked day chart), from the same (key, model, day) cells.
   usd?: { input: number; cacheWrite: number; cacheRead: number; output: number }
@@ -165,6 +201,17 @@ const KEY_SQL: Record<Grouping, string> = {
   week: weekKeySql('r.ts'),
   month: "strftime('%Y-%m', r.ts, 'localtime')",
 }
+// The same keys over `spawn_requests q`: the request's own model and instant,
+// and the parent session — whose well is the one the spawn file sits in
+// (`<well>/<session>/subagents/`), so `sp.well_dir` is that session's well.
+const SUB_KEY_SQL: Record<Grouping, string> = {
+  well: 'sp.well_dir',
+  session: 'q.session_id',
+  model: "COALESCE(q.model, '?')",
+  day: "date(q.ts, 'localtime')",
+  week: weekKeySql('q.ts'),
+  month: "strftime('%Y-%m', q.ts, 'localtime')",
+}
 
 export function listUsage(
   db: Database,
@@ -181,12 +228,16 @@ export function listUsage(
     until?: string
     limit: number
     split?: boolean
+    // Price the subagent requests too, in the `spawn*` fields (above).
+    subagents?: boolean
   },
 ): UsageReport {
+  const sub = opts.subagents === true
+  const subZero = sub ? { spawnRequests: 0, spawnCacheWrite: 0, spawnCacheRead: 0, spawnRequestOutput: 0, spawnUsd: 0 } : {}
   const where: string[] = ['1=1']
   const params: (string | number)[] = []
   if (opts.sessions) {
-    if (opts.sessions.length === 0) return { by: opts.by, count: 0, totals: { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0 }, rows: [], unpriced: [], note: '' }
+    if (opts.sessions.length === 0) return { by: opts.by, count: 0, totals: { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0, ...subZero }, rows: [], unpriced: [], note: '' }
     where.push(`r.session_id IN (${opts.sessions.map(() => '?').join(',')})`)
     params.push(...opts.sessions)
   }
@@ -238,9 +289,9 @@ export function listUsage(
       .all(...params),
   )
 
-  const rows = new Map<string, UsageRow & { priced: boolean }>()
+  const rows = new Map<string, UsageRow & { priced: boolean; subPriced: boolean }>()
   const unpriced = new Set<string>()
-  const blank = (key: string): UsageRow & { priced: boolean } => ({
+  const blank = (key: string): UsageRow & { priced: boolean; subPriced: boolean } => ({
     key,
     requests: 0,
     sessions: 0,
@@ -251,7 +302,9 @@ export function listUsage(
     output: 0,
     thinking: 0,
     listUsd: 0,
+    ...subZero,
     priced: true,
+    subPriced: true,
   })
   for (const c of cells) {
     const row = rows.get(c.key) ?? blank(c.key)
@@ -287,6 +340,74 @@ export function listUsage(
     }
     rows.set(c.key, row)
   }
+  // The subagent side: the same (key, model, rate day) cells over
+  // `spawn_requests`, under the same filters, into the `spawn*` fields. A key
+  // only subagents reached (a model the main thread never ran, a day the
+  // session sat idle while its fan-out worked) is a row of its own.
+  if (sub) {
+    const sw: string[] = ['1=1']
+    const sp: (string | number)[] = []
+    if (opts.sessions) {
+      sw.push(`q.session_id IN (${opts.sessions.map(() => '?').join(',')})`)
+      sp.push(...opts.sessions)
+    }
+    if (opts.well) {
+      sw.push(opts.exact ? '(sp.well_dir = ? OR w.real_path = ?)' : '(sp.well_dir LIKE ? OR w.real_path LIKE ?)')
+      const v = opts.exact ? opts.well : `%${opts.well}%`
+      sp.push(v, v)
+    }
+    if (opts.session) {
+      sw.push('q.session_id LIKE ?')
+      sp.push(`${opts.session}%`)
+    }
+    if (opts.model) {
+      sw.push('q.model LIKE ?')
+      sp.push(`%${opts.model}%`)
+    }
+    if (opts.since) {
+      sw.push('q.ts >= ?')
+      sp.push(dayStart(opts.since))
+    }
+    if (opts.until) {
+      sw.push('q.ts < ?')
+      sp.push(dayStart(opts.until))
+    }
+    const subCells = z.array(SubCell).parse(
+      db
+        .prepare(
+          `SELECT ${SUB_KEY_SQL[opts.by]} AS key, q.model AS model, substr(q.ts, 1, 10) AS day,
+                  COUNT(*) AS requests, SUM(q.input_tokens) AS input, SUM(q.cache_write_tokens) AS cacheWrite,
+                  SUM(q.cache_write_1h_tokens) AS cacheWrite1h, SUM(q.cache_read_tokens) AS cacheRead,
+                  SUM(q.output_tokens) AS output
+           FROM spawn_requests q
+           JOIN spawns sp ON sp.agent_id = q.agent_id
+           LEFT JOIN wells w ON w.dir = sp.well_dir
+           WHERE ${sw.join(' AND ')}
+           GROUP BY 1, 2, 3`,
+        )
+        .all(...sp),
+    )
+    for (const c of subCells) {
+      const row = rows.get(c.key) ?? blank(c.key)
+      row.spawnRequests = (row.spawnRequests ?? 0) + c.requests
+      row.spawnCacheWrite = (row.spawnCacheWrite ?? 0) + c.cacheWrite
+      row.spawnCacheRead = (row.spawnCacheRead ?? 0) + c.cacheRead
+      row.spawnRequestOutput = (row.spawnRequestOutput ?? 0) + c.output
+      const rate = rateFor(c.model, c.day)
+      if (rate) {
+        const u = priceOf(c, rate)
+        row.spawnUsd = (row.spawnUsd ?? 0) + u.input + u.cacheWrite + u.cacheRead + u.output
+      } else if (c.input + c.cacheWrite + c.cacheRead + c.output > 0) {
+        // A usage-less record is a row at zero (spawns.ts) and may carry no
+        // model: nothing to price, so it must not null the row's dollars —
+        // `lore limits` would then read the window's subagents as 0.
+        row.subPriced = false
+        unpriced.add(c.model ?? '?')
+      }
+      rows.set(c.key, row)
+    }
+  }
+
   // Distinct sessions per key can't be summed across cells — recount.
   if (opts.by !== 'session') {
     const perKey = z.array(z.object({ key: z.string(), sessions: z.number() })).parse(
@@ -381,14 +502,16 @@ export function listUsage(
     }
   }
 
-  const finished: UsageRow[] = [...rows.values()].map(({ priced, ...r }) => ({
+  const finished: UsageRow[] = [...rows.values()].map(({ priced, subPriced, ...r }) => ({
     ...r,
     listUsd: priced ? round2(r.listUsd ?? 0) : null,
+    ...(sub ? { spawnUsd: subPriced ? round2(r.spawnUsd ?? 0) : null } : {}),
   }))
   const timeGrouped = opts.by === 'day' || opts.by === 'week' || opts.by === 'month'
-  finished.sort((a, b) =>
-    timeGrouped ? a.key.localeCompare(b.key) : (b.listUsd ?? -1) - (a.listUsd ?? -1) || b.output - a.output,
-  )
+  // Ranked by what the row cost: the main thread, plus its subagents when
+  // they are counted (a model only subagents ran would otherwise sink).
+  const cost = (r: UsageRow) => (r.listUsd ?? -1) + (sub ? (r.spawnUsd ?? 0) : 0)
+  finished.sort((a, b) => (timeGrouped ? a.key.localeCompare(b.key) : cost(b) - cost(a) || b.output - a.output))
   const page = timeGrouped ? finished.slice(-opts.limit) : finished.slice(0, opts.limit)
 
   const totals = finished.reduce<Omit<UsageRow, 'key'>>(
@@ -403,8 +526,17 @@ export function listUsage(
       thinking: t.thinking + r.thinking,
       ...(r.spawns != null ? { spawns: (t.spawns ?? 0) + r.spawns, spawnOutput: (t.spawnOutput ?? 0) + (r.spawnOutput ?? 0) } : {}),
       listUsd: t.listUsd == null || r.listUsd == null ? null : round2(t.listUsd + r.listUsd),
+      ...(sub
+        ? {
+            spawnRequests: (t.spawnRequests ?? 0) + (r.spawnRequests ?? 0),
+            spawnCacheWrite: (t.spawnCacheWrite ?? 0) + (r.spawnCacheWrite ?? 0),
+            spawnCacheRead: (t.spawnCacheRead ?? 0) + (r.spawnCacheRead ?? 0),
+            spawnRequestOutput: (t.spawnRequestOutput ?? 0) + (r.spawnRequestOutput ?? 0),
+            spawnUsd: t.spawnUsd == null || r.spawnUsd == null ? null : round2(t.spawnUsd + r.spawnUsd),
+          }
+        : {}),
     }),
-    { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0 },
+    { requests: 0, sessions: 0, input: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0, output: 0, thinking: 0, listUsd: 0, ...subZero },
   )
   // `sessions` in totals is distinct across the whole filter, not a sum of rows.
   if (opts.by !== 'session') {
@@ -427,7 +559,11 @@ export function listUsage(
     rows: page,
     unpriced: [...unpriced].sort(),
     note:
-      'listUsd is a list-price equivalent at first-party API rates (dated; cache reads priced per model/date, cache writes per TTL — 1.25x base input at 5 minutes, 2x at 1 hour, with cacheWrite1h the 1-hour slice of cacheWrite) — not a bill. Main-thread requests only; spawns/spawnOutput join the subagent observatory (`lore spawns` for detail). Open a session with `lore session <id>`.',
+      'listUsd is a list-price equivalent at first-party API rates (dated; cache reads priced per model/date, cache writes per TTL — 1.25x base input at 5 minutes, 2x at 1 hour, with cacheWrite1h the 1-hour slice of cacheWrite) — not a bill. listUsd and requests/input/cacheWrite/cacheRead/output/thinking are MAIN-THREAD requests only. ' +
+      (sub
+        ? "spawnRequests/spawnCacheWrite/spawnCacheRead/spawnRequestOutput/spawnUsd are the SUBAGENT requests of the same row, priced at the same rates and never folded into listUsd (all-in = listUsd + spawnUsd): each counted by its own model and instant, and under its parent session and that session's well; every filter bounds both sides. Spawns on harness 2.1.285 – 2.1.299 lost the completion record of every tool_use-ended request, so their output (and spawnUsd) is a floor there — priced as written, nothing invented. "
+        : '') +
+      'spawns/spawnOutput (well/session) join the subagent observatory per spawn, by when it started (`lore spawns` for detail). Open a session with `lore session <id>`.',
   }
 }
 

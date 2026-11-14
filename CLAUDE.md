@@ -307,7 +307,7 @@ true, it is a design change, not a bug fix.
   `lore index` never prunes — so deleting a transcript by hand does NOT
   unindex it: the session keeps answering `trace`, keeps its tokens in
   `usage`, keeps its text in the FTS. `lore purge <id>` is the only way out
-  and takes every copy at once (rows across 8 tables + both FTS — the job's
+  and takes every copy at once (rows across 9 tables + both FTS — the job's
   own row only when this was its last session — the well
   file and its `<id>/` dir, the archive mirror, and the session's lines in
   `history.jsonl` — which `index` reloads WHOLESALE every run, so a purge

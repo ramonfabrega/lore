@@ -74,6 +74,51 @@ export type Request = {
   thinking: number
 }
 
+// The request an assistant record carries, or null. One reader for both
+// ledgers: the main thread's (`parseLine`, into `requests`) and a subagent
+// file's (spawns.ts, into `spawn_requests`), so a token class the envelope
+// grows lands in both or neither.
+// `<synthetic>` is the harness standing in for the model (interruption
+// markers, "no response requested" turns, a usage-limit refusal): zero
+// tokens, no API request behind it. Not a request — and not an unpriced
+// model either.
+export function requestOf(raw: unknown): Request | null {
+  const req = RequestRecord.safeParse(raw)
+  if (!req.success || req.data.message.model?.startsWith('<')) return null
+  const { message: m, effort } = req.data
+  const u = m.usage
+  return {
+    id: m.id,
+    model: m.model ?? null,
+    effort: effort ?? null,
+    stopReason: m.stop_reason ?? null,
+    input: u.input_tokens ?? 0,
+    cacheWrite: u.cache_creation_input_tokens ?? 0,
+    cacheWrite5m: u.cache_creation?.ephemeral_5m_input_tokens ?? 0,
+    cacheWrite1h: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+    cacheRead: u.cache_read_input_tokens ?? 0,
+    output: u.output_tokens ?? 0,
+    thinking: u.output_tokens_details?.thinking_tokens ?? 0,
+  }
+}
+
+// Several records of one request, folded: the max of each token field (an
+// earlier snapshot's output can be a partial count), the LAST stop_reason
+// seen (the completion record's), the first model and effort. The main-thread
+// indexer and the spawn indexer both fold through here.
+export function mergeRequest(seen: Request, r: Request): void {
+  seen.input = Math.max(seen.input, r.input)
+  seen.cacheWrite = Math.max(seen.cacheWrite, r.cacheWrite)
+  seen.cacheWrite5m = Math.max(seen.cacheWrite5m, r.cacheWrite5m)
+  seen.cacheWrite1h = Math.max(seen.cacheWrite1h, r.cacheWrite1h)
+  seen.cacheRead = Math.max(seen.cacheRead, r.cacheRead)
+  seen.output = Math.max(seen.output, r.output)
+  seen.thinking = Math.max(seen.thinking, r.thinking)
+  seen.stopReason = r.stopReason ?? seen.stopReason
+  seen.model ??= r.model
+  seen.effort ??= r.effort
+}
+
 export type Parsed = {
   type: string
   uuid?: string
@@ -255,27 +300,8 @@ export function parseLine(line: string): Parsed | null {
           p.limit = { kind: rateLimitType, resetsAt: typeof resetsAt === 'number' ? new Date(resetsAt * 1000).toISOString() : null }
         }
       }
-      const req = RequestRecord.safeParse(r)
-      // `<synthetic>` is the harness standing in for the model (interruption
-      // markers, "no response requested" turns): zero tokens, no API request
-      // behind it. Not a request — and not an unpriced model either.
-      if (req.success && !req.data.message.model?.startsWith('<')) {
-        const { message: m, effort } = req.data
-        const u = m.usage
-        p.request = {
-          id: m.id,
-          model: m.model ?? null,
-          effort: effort ?? null,
-          stopReason: m.stop_reason ?? null,
-          input: u.input_tokens ?? 0,
-          cacheWrite: u.cache_creation_input_tokens ?? 0,
-          cacheWrite5m: u.cache_creation?.ephemeral_5m_input_tokens ?? 0,
-          cacheWrite1h: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
-          cacheRead: u.cache_read_input_tokens ?? 0,
-          output: u.output_tokens ?? 0,
-          thinking: u.output_tokens_details?.thinking_tokens ?? 0,
-        }
-      }
+      const req = requestOf(r)
+      if (req) p.request = req
       const content = r.message?.content
       if (!Array.isArray(content)) break
       for (const block of content) {

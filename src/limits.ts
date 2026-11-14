@@ -59,7 +59,13 @@ function scopeModel(kind: string): string | null {
   return kind.slice('seven_day_'.length)
 }
 
-export type WindowUsage = { requests: number; cacheRead: number; output: number; listUsd: number }
+// What the ledger priced inside a window, ALL-IN: the main thread's requests
+// and every subagent's (`spawn_requests`), because the account counts both
+// against the week. Until 2026-11-14 this was the main thread alone, and on
+// the night of 11-13 → 14 it read 13.5 USD a point where the subagent files,
+// priced by hand, made it 19.2. `mainRequests`/`mainUsd` keep the main-thread
+// part visible so the two can be compared (the rest is the subagents').
+export type WindowUsage = { requests: number; cacheRead: number; output: number; listUsd: number; mainRequests: number; mainUsd: number }
 
 // A window reset on demand, before its `resetsAt`: the percent starts over
 // and the boundary does not move. On 2026-11-12 the all-models week read 100
@@ -110,16 +116,16 @@ export type LimitWindow = {
   from: string | null
   until: string | null
   // The model a scoped week counts (`fable` for `seven_day_fable`): `usage`,
-  // `implied` and `usdPerPoint` are then that model's requests alone. Null
-  // for the all-models windows.
+  // `implied` and `usdPerPoint` are then that model's requests alone, main
+  // thread and subagents both. Null for the all-models windows.
   model: string | null
   // Set when the window was reset on demand before its boundary: `usage`,
   // `implied` and `usdPerPoint` then count from `reset.at`, not from `from`.
   reset: WindowReset | null
   // The ledger over [from, ts] — or [reset.at, ts] after a reset: what the
-  // index priced inside the window up to the reading (main-thread requests,
-  // lore-visible sessions only). Null for a week scoped to a surface, which
-  // the ledger cannot single out.
+  // index priced inside the window up to the reading, main-thread requests
+  // AND subagent requests (WindowUsage), lore-visible sessions only. Null for
+  // a week scoped to a surface, which the ledger cannot single out.
   usage: WindowUsage | null
   // usage × 100 / pct — what 100% of this window is, in the ledger's units,
   // if the quota tracked the ledger linearly. After a reset the divisor is
@@ -129,8 +135,11 @@ export type LimitWindow = {
   // List dollars per percent point between the window's first and latest mod
   // readings — the first one at or after a reset — when they are at least 5
   // points apart: the exchange rate the window actually showed, independent
-  // of the implied line's assumption.
+  // of the implied line's assumption. All-in, like `usage`.
   usdPerPoint: number | null
+  // The same span priced on the main thread alone: what `usdPerPoint` read
+  // before subagents were counted, kept so the two can be compared.
+  mainUsdPerPoint: number | null
 }
 
 // A window whose last reading names a boundary that has already passed. The
@@ -161,8 +170,16 @@ export type LimitsReport = {
 
 function usageIn(db: Database, from: string, until: string, model: string | null): WindowUsage | null {
   if (from >= until) return null
-  const u = listUsage(db, { by: 'week', since: from, until, limit: 1, ...(model ? { model } : {}) }).totals
-  return { requests: u.requests, cacheRead: u.cacheRead, output: u.output, listUsd: Math.round((u.listUsd ?? 0) * 100) / 100 }
+  const u = listUsage(db, { by: 'week', since: from, until, limit: 1, subagents: true, ...(model ? { model } : {}) }).totals
+  const main = u.listUsd ?? 0
+  return {
+    requests: u.requests + (u.spawnRequests ?? 0),
+    cacheRead: u.cacheRead + (u.spawnCacheRead ?? 0),
+    output: u.output + (u.spawnRequestOutput ?? 0),
+    listUsd: round2(main + (u.spawnUsd ?? 0)),
+    mainRequests: u.requests,
+    mainUsd: round2(main),
+  }
 }
 
 function scale(u: WindowUsage, factor: number): WindowUsage {
@@ -170,8 +187,14 @@ function scale(u: WindowUsage, factor: number): WindowUsage {
     requests: Math.round(u.requests * factor),
     cacheRead: Math.round(u.cacheRead * factor),
     output: Math.round(u.output * factor),
-    listUsd: Math.round(u.listUsd * factor * 100) / 100,
+    listUsd: round2(u.listUsd * factor),
+    mainRequests: Math.round(u.mainRequests * factor),
+    mainUsd: round2(u.mainUsd * factor),
   }
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
 export function readLimits(db: Database, opts: { kind?: string; since?: string; limit: number; now?: string }): LimitsReport {
@@ -239,16 +262,20 @@ export function readLimits(db: Database, opts: { kind?: string; since?: string; 
     // Mod rows only (a 429 is the same fact at 100 and pairs with no dollar
     // figure of its own), and none from before a reset.
     let usdPerPoint: number | null = null
+    let mainUsdPerPoint: number | null = null
     if (ledgerFrom && priced) {
       const mod = inWindow.filter((x) => x.source === 'mod' && x.ts >= ledgerFrom)
       const first = mod[0]
       const last = mod.at(-1)
       if (first && last && last.pct - first.pct >= 5) {
         const span = usageIn(db, first.ts, last.ts, model)
-        if (span) usdPerPoint = Math.round((span.listUsd / (last.pct - first.pct)) * 100) / 100
+        if (span) {
+          usdPerPoint = round2(span.listUsd / (last.pct - first.pct))
+          mainUsdPerPoint = round2(span.mainUsd / (last.pct - first.pct))
+        }
       }
     }
-    windows.push({ kind: r.kind, pct: r.pct, ts: r.ts, session: r.session, source: r.source, resetsAt: r.resetsAt, from, until, model, reset, usage, implied, usdPerPoint })
+    windows.push({ kind: r.kind, pct: r.pct, ts: r.ts, session: r.session, source: r.source, resetsAt: r.resetsAt, from, until, model, reset, usage, implied, usdPerPoint, mainUsdPerPoint })
   }
   // Longest window first; the all-models week ahead of the weeks scoped inside it.
   windows.sort((a, b) => (windowMs(b.kind) ?? 0) - (windowMs(a.kind) ?? 0) || a.kind.localeCompare(b.kind))
@@ -269,6 +296,6 @@ export function readLimits(db: Database, opts: { kind?: string; since?: string; 
     history,
     count: rows.length,
     note:
-      'pct is the account\'s own reading (the `limits` mod logs the status line\'s rate_limits on every whole-point move; a 429 in a transcript is a reading of 100). `usage` is the ledger inside the window up to the reading — main-thread requests, lore-visible sessions, list rates; `implied` scales it to 100% and assumes the quota tracks the ledger linearly, which the two recorded 429s say it does NOT by price (same tokens, 2x the dollars) — read `cacheRead`/`output` before `listUsd`. `usdPerPoint` is measured between two mod readings of the same window. A window reset on demand before its boundary (the percent DROPS inside one `resetsAt`: 100 to 0 on 2026-11-12) says so in `reset` — `at` the first reading after the drop, `pct` what it read there, `was`/`wasAt` the reading before — and its `usage`, `implied` and `usdPerPoint` then count from `reset.at`, with `implied` scaled by the points gained since. Each hit names the `rateLimitType` its 429 carried, verbatim. `windows` are the ones OPEN now; a window whose last reading names a boundary already past is in `ended` with that reading and nothing priced (the plan dropped `five_hour` around 2026-10-30, and a week sits there between its boundary and the next reading); a stale reading that names a boundary already past never moves an open window there. `since` bounds `hits`, `history` and `count` only — the windows always read every reading of the window, so a reset before `since` is still seen. A week scoped to one model (`seven_day_fable`: Fable has its own allowance, half the week, and it binds first) names it in `model`, and its `usage`/`implied`/`usdPerPoint` count that model\'s requests alone; a 429 the harness spells `seven_day_overage_included` is that same Fable week and is listed under it. Install the mod: `claude plugin install limits@mods`.',
+      'pct is the account\'s own reading (the `limits` mod logs the status line\'s rate_limits on every whole-point move; a 429 in a transcript is a reading of 100). `usage` is the ledger inside the window up to the reading — ALL-IN: main-thread requests plus every subagent request (each by its own instant and model), lore-visible sessions, list rates; `mainRequests`/`mainUsd` are the main-thread part alone, the rest is subagents. Subagents on harness 2.1.285 – 2.1.299 lost the completion record of every tool_use-ended request, so their output there is a floor, priced as written. `implied` scales it to 100% and assumes the quota tracks the ledger linearly, which the two recorded 429s say it does NOT by price (same tokens, 2x the dollars) — read `cacheRead`/`output` before `listUsd`. `usdPerPoint` is measured between two mod readings of the same window, all-in; `mainUsdPerPoint` is the same span on the main thread alone (what this verb read before 2026-11-14). A window reset on demand before its boundary (the percent DROPS inside one `resetsAt`: 100 to 0 on 2026-11-12) says so in `reset` — `at` the first reading after the drop, `pct` what it read there, `was`/`wasAt` the reading before — and its `usage`, `implied` and `usdPerPoint` then count from `reset.at`, with `implied` scaled by the points gained since. Each hit names the `rateLimitType` its 429 carried, verbatim. `windows` are the ones OPEN now; a window whose last reading names a boundary already past is in `ended` with that reading and nothing priced (the plan dropped `five_hour` around 2026-10-30, and a week sits there between its boundary and the next reading); a stale reading that names a boundary already past never moves an open window there. `since` bounds `hits`, `history` and `count` only — the windows always read every reading of the window, so a reset before `since` is still seen. A week scoped to one model (`seven_day_fable`: Fable has its own allowance, half the week, and it binds first) names it in `model`, and its `usage`/`implied`/`usdPerPoint` count that model\'s requests alone, main thread and subagents; a 429 the harness spells `seven_day_overage_included` is that same Fable week and is listed under it. Install the mod: `claude plugin install limits@mods`.',
   }
 }
