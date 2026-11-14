@@ -4,6 +4,7 @@ import { archive } from './archive'
 import { ARCHIVE_DIR, BUILD_INFO, CLAUDE_DIR, CODE_DIR, CODEX_DIR, DB_PATH, DOCS_ASSISTED, DOCS_EXCLUDE, HISTORY_PATH, LIMITS_PATH, PROJECTS_DIR, SPAWN_LEDGER_PATH, WIKI_DIR, selfArgv } from './config'
 import type { CodexLane } from './codex'
 import { SOURCES, indexCodex, listCodexSessions, searchCodex } from './codexindex'
+import { getCodexMessages, getCodexMeta, getCodexQuestions, getCodexTurn, getCodexTurns } from './codexread'
 import { getConversation } from './conversation'
 import { openDb } from './db'
 import { indexDocs, listIndexedRepos, searchDocs } from './docs'
@@ -568,7 +569,7 @@ const web = createApp(heldDb, { build: BUILD_INFO, indexed })
 
 cli.command('serve', {
   description:
-    'Serve the explorer (docs/EXPLORER.md) in the foreground: / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee), /agents the live roster as a fleet tree, /job/<key> one background agent across its sessions, /run/<id> one workflow run, /thread/<a>/<b> the messages between two agents, /search, and /s/<trailer> from a commit to its transcript; every page answers JSON with ?json=1. Under /cli/ these verbs are routes with the JSON envelope, and only these: wells, sessions, session, trace, usage, search, spawns, workflows, tools, stats, agents, jobs, docs search and docs list (GET /cli/usage?by=week, GET /cli/trace/<id>, spec at /cli/openapi.json). Every other verb answers 404 there, the writers (archive, index, purge, wiki commit…) and also thread, conversation, loop, polls, limits, worktrees and harness: run those as commands, or read the page (/thread/<a>/<b>). `--host auto` binds the Tailscale address so the tailnet reaches http://<host>:<port>/ without binding the LAN; 0.0.0.0 when there is none. For always-on, use `lore server up`.',
+    'Serve the explorer (docs/EXPLORER.md) in the foreground: / wells + spend, /usage the profile, /well/<dir> the arc spine with fees, /session/<id> one session as a block (transactions → steps, instructions, fee), /agents the live roster as a fleet tree, /job/<key> one background agent across its sessions, /run/<id> one workflow run, /thread/<a>/<b> the messages between two agents, /search, and /s/<trailer> from a commit to its transcript; every page answers JSON with ?json=1. Under /cli/ these verbs are routes with the JSON envelope, and only these: wells, sessions, session, trace, usage, search, spawns, workflows, tools, stats, agents, jobs, docs search and docs list (GET /cli/usage?by=week, GET /cli/trace/<id>, spec at /cli/openapi.json). Every other verb answers 404 there, the writers (archive, index, purge, wiki commit…) and also thread, conversation, loop, polls, limits, worktrees, harness and codex: run those as commands, or read the page (/thread/<a>/<b>). `--host auto` binds the Tailscale address so the tailnet reaches http://<host>:<port>/ without binding the LAN; 0.0.0.0 when there is none. For always-on, use `lore server up`.',
   options: z.object({
     port: z.coerce.number().default(4949).describe('Port'),
     host: z.string().default('auto').describe('Bind address: auto (Tailscale IP, else 0.0.0.0), 127.0.0.1 (this machine only), or an address'),
@@ -766,6 +767,72 @@ cli.command('jobs', {
     return { count: jobs.length, named: jobs.filter((j) => j.name).length, jobs }
   },
 })
+
+// One Codex thread, read (codexread.ts). The listing, the profile and the
+// search live on the verbs that already had them, under `--source codex`.
+const codexCli = Cli.create('codex', {
+  description:
+    'Read one OpenAI Codex thread — the second source `lore index` reads (~/.codex rollouts; Codex\'s own imports of Claude Code transcripts are never indexed). `turns` is the instrument: one row per turn. `turn <id> <n>` opens one, `messages` is a lane in order (`--lane prompt` what the user submitted, `--lane text` what the agent said, `--lane tool` its calls and their output), `meta` the thread without opening it, `questions` what the agent asked mid-run and what came back. To FIND a thread: `lore sessions --source codex`; to search inside one: `lore search <query> --source codex --session <id>`; what it cost: `lore usage --source codex --session <id>`. A thread id takes a unique prefix; where a prefix names a worker and its guardians (ids are time-ordered, so they share their first characters) the worker is meant.',
+})
+const CODEX_ID = 'Thread id or unique prefix (see `lore sessions --source codex`)'
+
+codexCli.command('turns', {
+  description:
+    'The spine of a Codex thread: one row per turn (a `task_started` — a thread file with none never ran) with `opener` (what was SUBMITTED to open it: the user\'s words on a worker, the parent\'s instruction on a subagent, null when nobody typed it — a goal continuation — and on a guardian, whose input is its worker\'s transcript re-embedded as evidence and is withheld), `steers` (messages that arrived while it ran), `reply` (Codex\'s own closing text, `last_agent_message`), `ms`, the `model`, `requests` and `output` tokens, `tools` (every call) and `execs` (the custom_tool_call share), `questions` asked, and — on a guardian — the `verdict` (outcome, risk, authorization) in place of a reply. `aborted`, `error` and `open` (no completion: still running, or cut off mid-action) say how a turn ended. Instants are the turn\'s own `started_at`/`completed_at`, UTC. `totals` cover the whole thread in lore\'s token classes — `input` is UNCACHED, Codex\'s input_tokens minus its cached share — and `listUsd` is null: no Codex model has a rate. --limit takes the NEWEST n and renders them oldest-first.',
+  args: z.object({ id: z.string().describe(CODEX_ID) }),
+  options: z.object({
+    head: z.coerce.number().default(160).describe('Characters kept of each opener and reply'),
+    since: z.string().optional().describe('Only turns started on/after this — an ISO instant or a date (the local day)'),
+    until: z.string().optional().describe('Only turns started BEFORE this — an ISO instant or a date (its local midnight)'),
+    limit: z.coerce.number().default(200).describe('Max turns (the newest n; totals cover the whole thread)'),
+  }),
+  alias: { limit: 'n' },
+  run: ({ args, options }) => getCodexTurns(openDb(DB_PATH), args.id, { head: options.head, limit: options.limit, since: options.since, until: options.until }),
+})
+
+codexCli.command('turn', {
+  description:
+    'One turn of a Codex thread, opened: the `turns` row with its opener and reply WHOLE, and what was said inside it in order — by default the prompt, text, thinking, question and relay lanes (`thinking` is the plaintext summary only: Codex encrypts every reasoning body, so a turn with no thinking rows still reasoned). `--lane tool` adds the calls and their output (cut at index time, head and tail kept), paired on `callId`; `--lane meta` what the harness injected. Questions asked in the turn ride along with their answers.',
+  args: z.object({ id: z.string().describe(CODEX_ID), n: z.coerce.number().describe('Turn number, from `lore codex turns`') }),
+  options: z.object({
+    lane: z.array(z.enum(CODEX_LANES)).optional().describe('Lanes to include (default: prompt, text, thinking, question, relay)'),
+    head: z.coerce.number().optional().describe('Characters kept of each message (default: whole)'),
+    limit: z.coerce.number().default(500).describe('Max messages'),
+  }),
+  alias: { lane: 'l', limit: 'n' },
+  run: ({ args, options }) => getCodexTurn(openDb(DB_PATH), args.id, args.n, { lanes: options.lane ?? ['prompt', 'text', 'thinking', 'question', 'relay'], head: options.head, limit: options.limit }),
+})
+
+codexCli.command('messages', {
+  description:
+    'One Codex thread\'s messages in order, by lane (default: prompt — what the user SUBMITTED, never the injection the harness puts under the same role: plugin lists, AGENTS.md, environment and goal context are `meta`). `--lane text` is what the agent said (`type` commentary or final_answer), `--lane tool` its calls and their output, `--lane question` what it asked and what came back, `--lane relay` a subagent\'s instructions from its parent. Each row names its `turn`. A guardian has no prompt, meta or relay rows at all: its input is evidence and is not stored.',
+  args: z.object({ id: z.string().describe(CODEX_ID) }),
+  options: z.object({
+    lane: z.array(z.enum(CODEX_LANES)).optional().describe('Lanes to include (default: prompt)'),
+    since: z.string().optional().describe('Only messages on/after this — an ISO instant or a date (the local day)'),
+    until: z.string().optional().describe('Only messages BEFORE this — an ISO instant or a date (its local midnight)'),
+    head: z.coerce.number().optional().describe('Characters kept of each message (default: whole)'),
+    limit: z.coerce.number().default(500).describe('Max messages'),
+  }),
+  alias: { lane: 'l', limit: 'n' },
+  run: ({ args, options }) => getCodexMessages(openDb(DB_PATH), args.id, { lanes: options.lane ?? ['prompt'], since: options.since, until: options.until, head: options.head, limit: options.limit }),
+})
+
+codexCli.command('meta', {
+  description:
+    'A Codex thread without opening it: `kind` (worker; guardian — a judge a worker mints to review its planned actions; subagent), `parent` and `rootThreadId`, the `repo` it keys to (the normalized remote, else the repo path, else the cwd — a thread has no well) with `repoPath` (the local checkout its worktree pointed at when it was indexed), branch, commit, CLI version, originator, whether it `ran` (turns > 0 — never the file\'s size or date), `usage` in lore\'s token classes (`fromTokenCount` when the thread predates per-request records and was read off the older event), `reasoning` (records against the few with a plaintext summary; the body is encrypted), `withheld` on a guardian (the evidence it was shown: counted, not stored), rows per lane, and its `children` — how many threads it minted, how many ran, the verdicts they returned by `outcomes`, and the ones that ran as `childThreads`.',
+  args: z.object({ id: z.string().describe(CODEX_ID) }),
+  run: ({ args }) => getCodexMeta(openDb(DB_PATH), args.id),
+})
+
+codexCli.command('questions', {
+  description:
+    'What Codex asked the user mid-run and what came back: each `request_user_input_async` call with its `title`, the `options` it offered (null: an open question), whether the ask was `accepted`, and the `answer` — joined to its question on the call id the reply names, never on prose. `freeText` marks an answer that is not one of the options offered: the user typed their own. Totals: `count`, `withOptions`, `answered`, `freeText`. With a thread id, that thread\'s; without, every thread\'s.',
+  args: z.object({ id: z.string().optional().describe(`${CODEX_ID}; omit for every thread`) }),
+  run: ({ args }) => getCodexQuestions(openDb(DB_PATH), args.id),
+})
+
+cli.command(codexCli)
 
 cli.command('stats', {
   description:

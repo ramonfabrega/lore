@@ -699,6 +699,9 @@ export function parseRollout(text: string): CodexThread | null {
         const t = (p.data.turn_id ? turns.get(p.data.turn_id) : null) ?? open
         const answers = decodeReply(body)
         if (answers) {
+          // An answer is the user's words: it opens its turn on the spine,
+          // and is filed in the question lane beside what it answers.
+          if (t) t.opener ??= answers.map((a) => a.answer).join('\n')
           for (const a of answers) {
             const q = questions.get(`${a.callId}/${a.index}`)
             if (q && q.answer == null) {

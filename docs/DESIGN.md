@@ -804,6 +804,30 @@ Revisit when a page needs both vendors in ONE query (a job whose lanes are
 Claude and Codex): that is the moment the column, or a view over both, earns
 the rebuild.
 
+**The read surface (`lore codex`, `codexread.ts`).** The slicer the first two
+Codex threads were read with at ingest #28 died with its job; its verbs are the
+specification. `turns` is the instrument — one row per turn: what was submitted,
+Codex's own `last_agent_message`, duration, model, requests, output, tool
+calls, questions, and on a guardian the verdict in place of a reply. `turn <id>
+<n>` opens one; `messages --lane prompt|text|tool` is the slicer's `user` /
+`agent` / `tools`; `meta` is the thread unopened (kind, repo, whether it ran,
+its judges and their outcomes); `questions` is the lane the slicer could not
+see. `grep` is `lore search --source codex --session <id>` and the listing is
+`lore sessions --source codex`: neither got a second spelling.
+
+- **A sub-CLI, not more `--source` flags.** `trace`, `session` and
+  `conversation` are built on Claude's transaction (`prompt_id`, streaming
+  snapshots, queued attachments); a Codex turn is a first-class record with
+  its own instants and closing text, and bending either reader to the other
+  would cost both. Revisit when a page wants one conversation view over both
+  vendors — that is the same moment as the `source` column above.
+- **A thread id prefix shared by a worker and its judges means the worker.**
+  Ids are time-ordered, so `01a08412` — the name the wiki uses for the
+  attrition thread — is also a guardian's first eight characters. Any other
+  ambiguity is an error listing the candidates.
+- **An answer to a question opens its turn on the spine** (`opener`) and stays
+  in the `question` lane: it is the user's words, but not a second prompt.
+
 ## Privacy redline
 
 Transcripts span work/client repos and personal projects. Graduation must be loud

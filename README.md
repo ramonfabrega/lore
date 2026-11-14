@@ -175,6 +175,7 @@ from your other devices, never the LAN), `0.0.0.0` otherwise; pass `--host
 | `lore usage` | The token profile: four billed classes + thinking, by well/session/model/day/week/month, dated list-price equivalent. |
 | `lore trace <id-prefix>` | One session as a block: transactions → steps (fee) + instructions (tool, latency, error) + annotations. `--steps` expands requests. |
 | `lore conversation <id-or-job>` | One session, or a job across its `/clear`s, read as a dialogue: who said what, in order, with the tool work between a message and its answer folded to one line. A projection of `trace`. |
+| `lore codex turns <thread>` | The second source: OpenAI Codex rollouts under `~/.codex`, indexed by `lore index` into tables of their own. `turns` is one row per turn (what was submitted, the closing reply, tools, output tokens; a guardian's verdict); also `turn <id> <n>`, `messages`, `meta`, `questions`. `sessions`, `usage` and `search` take `--source claude\|codex\|all` (default `claude`: unchanged). |
 | `lore agents` | The live roster (`claude agents` + background-job state) joined to the index: live tokens beside indexed requests. |
 | `lore jobs` | Every background agent the index knows, live or long deleted — one row per job, which is an agent over time, not a session. Its repo, its peers, the job that spawned it. |
 | `lore thread <a> <b>` | The messages two agents sent each other, each with both halves (the send and the receiver's copy) and what became of it: opened a turn, read mid-turn, lost. |
@@ -290,7 +291,13 @@ the tool itself never needs an API key.
   optional inputs other tools write, each read only if it exists:
   `~/.lore/limits.jsonl` (a status-line mod's rate-limit readings, for
   `lore limits`), ccc's spawn ledger (`CCC_SPAWN_LEDGER`, for who spawned
-  whom), and `~/.codex/worktrees` (for `lore worktrees`).
+  whom), and `~/.codex` — its `worktrees/` (for `lore worktrees`) and, for
+  `lore index`, its rollouts (`sessions/` and `archived_sessions/`,
+  compressed or not), `external_agent_session_imports.json` (the list of
+  threads that are Codex's copies of Claude Code transcripts, which are
+  never indexed) and, per live Codex worktree, its `.git` file and the
+  `codex-thread.json` beside the repo it points at. lore does not archive
+  `~/.codex`.
 - **Writes**: `~/.lore` (the archive and the rebuildable `lore.db`), your
   wiki repo if you configure one, and — only for `lore server up` — one plist
   under `~/Library/LaunchAgents/` (macOS only). Nothing else.
@@ -325,7 +332,7 @@ All env vars, validated in one place (`src/config.ts`):
 | `LORE_WIKI_DIR` | `~/code/personal/lore-wiki` | The wiki repo for `lore wiki commit`. Optional. |
 | `LORE_DOCS_EXCLUDE` | — | Comma-separated `/`-bounded path suffixes to skip in the docs scan. |
 | `LORE_DOCS_ASSISTED` | — | Force-flag repos as assisted (someone else's project) when auto-detection misses. |
-| `LORE_CODEX_DIR` | `~/.codex` | Codex's data dir; `lore worktrees` lists its checkouts. |
+| `LORE_CODEX_DIR` | `~/.codex` | Codex's data dir; `lore worktrees` lists its checkouts and `lore index` reads its rollouts. |
 | `CCC_SPAWN_LEDGER` | `~/Library/Application Support/ccc/spawns.jsonl` | ccc's own variable for its spawn ledger; lore reads the same file. |
 
 ## Standalone: what your sessions do when a tool call is denied

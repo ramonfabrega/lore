@@ -25,6 +25,9 @@ Tiers: **raw sources** (immutable transcripts + memories) → **wiki**
 (lore-maintained markdown; the compounding middle layer) → **canon**
 (git-committed docs). Three corpora feed layer 1: transcripts, memories, and
 canon docs (indexed via git objects; powers lint, the map, graduation dedup).
+Transcripts have two SOURCES: Claude Code's wells, and OpenAI Codex's rollouts
+under `LORE_CODEX_DIR` (`codex.ts`; in `codex_*` tables of their own, read
+through `--source` and `lore codex` — see "A second source" below).
 
 Ops: **ingest** (raw → wiki), **graduate** (wiki → canon; human-approved;
 protocol v1.2 in DESIGN.md — facts as PRs, work as issues, repo-lens review
@@ -314,6 +317,32 @@ true, it is a design change, not a bug fix.
   that skips them un-purges itself at the next index). Dry run until `--yes`.
 - Wiki durability is CLI-owned: **every wiki op ends with
   `lore wiki commit`** (hooks don't travel across drivers).
+- **A second source: Codex threads are not sessions with a different
+  vendor.** A rollout (`~/.codex/sessions/<local day>/rollout-<local
+  stamp>-<threadId>.jsonl`, `.zst` once it rests, or flat under
+  `archived_sessions/`) is one THREAD: no well (it keys to its REPO — the
+  normalized remote from `session_meta.git`, never a slug), no bridge id, no
+  `/clear`; the thread id is the job key, one id where Claude has three.
+  What a blind reader gets wrong, each measured (DESIGN.md 2026-11-14):
+  `input_tokens` INCLUDES the cached share (subtract, or a thread reads 54x
+  high); the turn's input is the `UserMessage` item, and everything else
+  under role=user is harness injection — authorship is a field here too;
+  every reasoning body is encrypted and only a minority carry a plaintext
+  `summary`; a guardian thread (`thread_source: guardian_review`, or
+  `source.subagent.other: guardian` on older ones) re-embeds its worker's
+  transcript as its input, which is counted and NEVER stored; a thread file
+  existing is not a thread having run (count `task_started`: a third of the
+  guardians never did); the path's day is local and the records are UTC; and
+  `external_agent_session_imports.json` names the rollouts that are Codex's
+  imports of Claude Code transcripts — the exclusion list, or lore indexes
+  its own sessions twice. Codex rows live in `codex_*` tables so no Claude
+  query can read one by accident, and two vendors are never summed into one
+  `listUsd`. Its shapes move like the daemon's: after a Codex update,
+  `bun scripts/codex-corpus.ts` snapshots that version into
+  `test/fixtures/codex/<version>/` as a PROJECTION (each record through its
+  schema, every string that is not an enum, id or instant replaced by its
+  length; personal trees only), and `test/codex-corpus.test.ts` re-checks
+  every string — a rollout is a transcript, and the repo is public.
 
 ## References
 

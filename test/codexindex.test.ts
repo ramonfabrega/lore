@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { ASK_TOOL } from '../src/codex'
 import { indexCodex, listCodexSessions, searchCodex } from '../src/codexindex'
+import { getCodexMessages, getCodexMeta, getCodexQuestions, getCodexTurn, getCodexTurns, resolveThread } from '../src/codexread'
 import { openDb } from '../src/db'
 import { searchMessages } from '../src/search'
 import { listSessions } from '../src/sessions'
@@ -270,5 +271,136 @@ describe('codex index', () => {
     expect(searchCodex(db, 'refund', { lanes: ['prompt'], repo: 'shop', limit: 20 })).toHaveLength(1)
     // The summary is the thinking lane.
     expect(searchCodex(db, 'checkout controller', { lanes: ['thinking'], limit: 20 })).toHaveLength(1)
+  })
+})
+
+// `lore codex` (src/codexread.ts): the slicer's verbs over the same index.
+describe('codex read surface', () => {
+  test('turns: one row per turn — what was submitted, what came back, what it cost', async () => {
+    const { db } = await indexed()
+    const spine = getCodexTurns(db, WORKER.slice(0, 8), { head: 160, limit: 200 })
+    expect(spine).toMatchObject({ source: 'codex', threadId: WORKER, kind: 'worker', repo: 'github.com/u/shop', model: 'gpt-6-astra', count: 2 })
+    // input is uncached; nothing is priced.
+    expect(spine.totals).toMatchObject({ turns: 2, requests: 2, input: 3000, cacheRead: 99_000, output: 540, thinking: 200, listUsd: null, tools: 2, execs: 1, questions: 1, open: 0 })
+    expect(spine.turns[0]).toMatchObject({ n: 1, opener: 'add a refund button to the checkout', reply: 'the button is in; one question pending', requests: 1, output: 500, tools: 2, execs: 1, questions: 1, ms: 9000, model: 'gpt-6-astra' })
+    // The second turn was opened by an ANSWER: the user's words on the
+    // spine, filed in the question lane rather than as a second prompt.
+    expect(spine.turns[1]).toMatchObject({ n: 2, opener: 'staging first please', reply: 'deploying to staging' })
+    expect(spine.turns[0]).not.toHaveProperty('verdict')
+    // --limit keeps the newest and renders oldest-first; --head cuts.
+    expect(getCodexTurns(db, WORKER, { head: 5, limit: 1 }).turns.map((t) => [t.n, t.reply])).toEqual([[2, 'deplo…']])
+    expect(getCodexTurns(db, WORKER, { head: 160, limit: 200, since: '2026-09-09T00:00:00.000Z' }).count).toBe(0)
+  })
+
+  test('turns on a guardian: the verdict in place of a reply, and no opener — its input is evidence', async () => {
+    const { db } = await indexed()
+    const spine = getCodexTurns(db, JUDGE, { head: 160, limit: 200 })
+    expect(spine).toMatchObject({ kind: 'guardian', parent: WORKER })
+    expect(spine.turns).toEqual([expect.objectContaining({ n: 1, opener: null, reply: null, verdict: { outcome: 'allow', risk: 'low', authorization: 'high' }, model: 'codex-auto-review' })])
+    expect(JSON.stringify(spine)).not.toContain('zebrafish')
+    // A thread that never ran has a spine of nothing — and says so.
+    expect(getCodexTurns(db, IDLE, { head: 160, limit: 200 })).toMatchObject({ kind: 'guardian', count: 0, totals: { turns: 0, requests: 0 } })
+  })
+
+  test('a prefix shared by a worker and its judges means the worker; anything else ambiguous is an error', async () => {
+    const { db } = await indexed()
+    // All three ids begin `01a07f58` — thread ids are time-ordered.
+    expect(resolveThread(db, '01a07f58').threadId).toBe(WORKER)
+    expect(resolveThread(db, JUDGE).kind).toBe('guardian')
+    expect(() => resolveThread(db, 'ffff')).toThrow(/No Codex thread/)
+    db.exec(`UPDATE codex_threads SET kind = 'worker' WHERE thread_id = '${JUDGE}'`)
+    expect(() => resolveThread(db, '01a07f58')).toThrow(/names 3 Codex threads/)
+  })
+
+  test('turn N: the turn opened, in order, tool traffic opt-in, its question and answer alongside', async () => {
+    const { db } = await indexed()
+    const one = getCodexTurn(db, WORKER, 1, { lanes: ['prompt', 'text', 'thinking', 'question', 'relay'], limit: 500 })
+    expect(one.messages.map((m) => [m.lane, m.type, m.turn])).toEqual([
+      ['prompt', 'user', 1],
+      ['thinking', 'reasoning', 1],
+      ['question', 'ask', 1],
+      ['text', 'final_answer', 1],
+    ])
+    expect(one.turn).toMatchObject({ n: 1, opener: 'add a refund button to the checkout' })
+    expect(one.questions).toEqual([expect.objectContaining({ callId: 'call_q', index: 0, turn: 1, title: 'Deploy now?', options: ['Yes', 'Wait'], accepted: true, answer: 'staging first please', freeText: true })])
+    const tools = getCodexTurn(db, WORKER, 1, { lanes: ['tool'], limit: 500, head: 10 })
+    expect(tools.messages.map((m) => [m.type, m.toolName ?? null, m.callId, m.text])).toEqual([
+      ['custom_tool_call', 'exec', 'call_1', 'exec await…'],
+      ['custom_tool_call_output', null, 'call_1', 'app/checko…'],
+    ])
+    expect(() => getCodexTurn(db, WORKER, 9, { lanes: ['prompt'], limit: 10 })).toThrow(/has 2 turns; there is no turn 9/)
+  })
+
+  test('messages: `user` is the prompt lane, `agent` the text lane — and a guardian has no prompt at all', async () => {
+    const { db } = await indexed()
+    expect(getCodexMessages(db, WORKER, { lanes: ['prompt'], limit: 500 }).messages.map((m) => m.text)).toEqual(['add a refund button to the checkout'])
+    expect(getCodexMessages(db, WORKER, { lanes: ['text'], limit: 500 }).messages.map((m) => [m.turn, m.text])).toEqual([
+      [1, 'the button is in; one question pending'],
+      [2, 'deploying to staging'],
+    ])
+    expect(getCodexMessages(db, WORKER, { lanes: ['question'], limit: 500 }).messages.map((m) => [m.type, m.turn])).toEqual([
+      ['ask', 1],
+      ['answer', 2],
+    ])
+    expect(getCodexMessages(db, JUDGE, { lanes: ['prompt', 'meta', 'relay'], limit: 500 }).count).toBe(0)
+    expect(getCodexMessages(db, WORKER, { lanes: ['text'], limit: 500, until: '2026-09-08T04:48:22.000Z' }).count).toBe(1)
+  })
+
+  test('meta: the thread without opening it — kind, repo, whether it ran, its judges and their verdicts', async () => {
+    const { db } = await indexed()
+    expect(getCodexMeta(db, WORKER)).toMatchObject({
+      source: 'codex',
+      kind: 'worker',
+      parent: null,
+      repo: 'github.com/u/shop',
+      branch: 'codex/refunds',
+      cli: '0.153.4',
+      ran: true,
+      turns: 2,
+      archived: false,
+      usage: { requests: 2, input: 3000, cacheRead: 99_000, output: 540, listUsd: null },
+      reasoning: { records: 1, summarized: 1, encrypted: true },
+      lanes: { tool: 2, text: 2, question: 2, prompt: 1, thinking: 1, meta: 1 },
+      children: { count: 2, ran: 1, verdicts: 1, output: 80 },
+      outcomes: { allow: 1 },
+      childThreads: [expect.objectContaining({ threadId: JUDGE, kind: 'guardian', turns: 1, verdicts: 1 })],
+    })
+    expect(getCodexMeta(db, WORKER)).not.toHaveProperty('withheld')
+    // The guardian: what it was shown is counted, not kept.
+    expect(getCodexMeta(db, JUDGE)).toMatchObject({ kind: 'guardian', parent: WORKER, rootThreadId: WORKER, withheld: { records: 1, chars: EVIDENCE.length + 2 + 'add a refund button to the checkout'.length } })
+    expect(getCodexMeta(db, IDLE)).toMatchObject({ ran: false, turns: 0, archived: true, usage: { requests: 0 } })
+  })
+
+  // The same rule as the index half: a typed day is the local day, made an
+  // instant inside the library. 20:00Z is already the 9th at UTC+14.
+  test('turns and messages bound a typed day as the local day', async () => {
+    const { db } = await indexed()
+    const at = '2026-09-08T20:00:00.000Z'
+    const LATE = '01a07f60-0000-7000-8000-00000000000a'
+    db.exec(`INSERT INTO codex_threads(thread_id, root_thread_id, kind, repo, path, size, mtime_ms, first_ts, last_ts, last_activity_ts, turns) VALUES('${LATE}', '${LATE}', 'worker', 'github.com/u/shop', 'x', 1, 1, '${at}', '${at}', '${at}', 1)`)
+    db.exec(`INSERT INTO codex_turns(thread_id, turn_id, n, started_ts, completed_ts, opener) VALUES('${LATE}', 'L1', 1, '${at}', '${at}', 'a nocturne for the night shift')`)
+    db.exec(`INSERT INTO codex_messages(id, thread_id, ordinal, ts, lane, type, turn_id) VALUES(9001, '${LATE}', 1, '${at}', 'prompt', 'user', 'L1')`)
+    db.exec(`INSERT INTO codex_messages_fts(rowid, text) VALUES(9001, 'a nocturne for the night shift')`)
+    const local = day(at)
+    const next = day(new Date(Date.parse(at) + 86_400_000).toISOString())
+    const turns = (window: { since?: string; until?: string }) => getCodexTurns(db, LATE, { head: 160, limit: 200, ...window }).count
+    const messages = (window: { since?: string; until?: string }) => getCodexMessages(db, LATE, { lanes: ['prompt'], limit: 500, ...window }).count
+    for (const count of [turns, messages]) {
+      expect(count({ since: local })).toBe(1)
+      expect(count({ since: local, until: next })).toBe(1)
+      expect(count({ until: local })).toBe(0)
+      expect(count({ since: next })).toBe(0)
+    }
+    // Totals are the thread's, whatever the window shows.
+    expect(getCodexTurns(db, LATE, { head: 160, limit: 200, since: next }).totals.turns).toBe(1)
+  })
+
+  test('questions: the pair, per thread and across them', async () => {
+    const { db } = await indexed()
+    expect(getCodexQuestions(db, WORKER)).toMatchObject({ threadId: WORKER, count: 1, withOptions: 1, answered: 1, freeText: 1 })
+    const all = getCodexQuestions(db)
+    expect(all).toMatchObject({ threads: 1, count: 1, answered: 1 })
+    expect(all.questions[0]).toMatchObject({ threadId: WORKER, repo: 'github.com/u/shop', answer: 'staging first please' })
+    expect(getCodexQuestions(db, JUDGE).count).toBe(0)
   })
 })
