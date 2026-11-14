@@ -125,7 +125,11 @@ import { z } from 'zod'
 // for jobs the daemon has deleted (371 on 2026-11-13: 25 names, 7 parent
 // edges and every gone job's daemon id, carried by hand at v22).
 const SCHEMA_VERSION = 22
-const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits', 'spawn_ledger']
+// What a rebuild DROPS. `spawn_ledger` is deliberately absent: its rows are
+// ccc's own lines verbatim, nothing in them is derived, and ledger.ts keeps
+// them past a rotation of ccc's file — a bump that dropped the table would
+// take every edge whose line ccc no longer holds.
+const TABLES = ['wells', 'sessions', 'messages', 'messages_fts', 'history', 'history_fts', 'repos', 'docs', 'docs_fts', 'spawns', 'workflow_runs', 'requests', 'jobs', 'limits']
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wells(
   id INTEGER PRIMARY KEY,

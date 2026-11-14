@@ -891,7 +891,7 @@ cli.command('archive', {
 
 cli.command('purge', {
   description:
-    'Delete one session everywhere lore keeps it — index rows (messages + FTS, requests, spawns, workflow runs, history, jobs), the well transcript and its `<id>/` dir, the archive mirror of both, and its lines in ~/.claude/history.jsonl. The escape hatch from lore\'s retention: the archive is additive and `lore index` never prunes, so deleting a transcript by hand leaves the session fully indexed and searchable forever — this is the only thing that unindexes it. DRY RUN by default: it reports what would go and changes nothing until `--yes`. Accepts an id prefix, resolved against the index AND both trees (so a half-deleted session still resolves); ambiguity is an error, never a guess. `--index-only` unindexes and leaves every file alone.',
+    'Delete one session everywhere lore keeps it — index rows (messages + FTS, requests, spawns, workflow runs, history, the rate-limit refusals read off its transcript, and the job row when this was the last session of its job), the well transcript and its `<id>/` dir, the archive mirror of both, and its lines in ~/.claude/history.jsonl. The escape hatch from lore\'s retention: the archive is additive and `lore index` never prunes, so deleting a transcript by hand leaves the session fully indexed and searchable forever — this is the only thing that unindexes it. DRY RUN by default: it reports what would go and changes nothing until `--yes`. Accepts an id prefix, resolved against the index AND both trees (so a half-deleted session still resolves); ambiguity is an error, never a guess. `--index-only` unindexes and leaves every file alone.',
   args: z.object({
     id: z.string().describe('Session id or unique prefix'),
   }),

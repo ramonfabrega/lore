@@ -52,7 +52,21 @@ const WellRow = z.object({ dir: z.string() }).nullish()
 
 // Rows keyed on the transcript's session id. messages_fts/history_fts hang off
 // their parent's rowid, so they go first, in the same transaction.
-const ROW_TABLES = ['messages', 'requests', 'spawns', 'workflow_runs', 'history', 'jobs'] as const
+const ROW_TABLES = ['messages', 'requests', 'spawns', 'workflow_runs', 'history'] as const
+// Two tables carry a session id and are NOT the session's alone.
+// `limits`: a refusal read off the transcript (`source = 'transcript'`) goes
+// with it — nothing else would ever delete it, the file being gone. A
+// reading the limits mod wrote stays: it is the account's, and `lore index`
+// reloads those wholesale from the mod's own file.
+const LIMITS_WHERE = "session_id = ?1 AND source = 'transcript'"
+// `jobs`: `jobs.session_id` is the job's FIRST session, so the row belongs
+// to every session of the job. It goes only when the purged session was the
+// last one keyed to it; otherwise purging a stub took the name, daemon id
+// and cwd of a whole job — and for a job the daemon has deleted, that row
+// has no source left to come back from.
+const JOBS_WHERE = `session_id = ?1 AND NOT EXISTS (
+  SELECT 1 FROM sessions s WHERE s.session_id != ?1
+    AND (s.job_session_id = jobs.session_id OR (jobs.bridge_key IS NOT NULL AND s.bridge_key = jobs.bridge_key)))`
 
 // A purge takes a prefix like every other id argument, but it cannot lean on
 // resolveSessionId: the case that brings people here is a session whose file
@@ -183,6 +197,8 @@ export async function purgeSession(db: Database, prefix: string, opts: PurgeOpts
   const count = (sql: string) => CountRow.parse(db.prepare(sql).get(sessionId)).n
   rows.sessions = count('SELECT count(*) AS n FROM sessions WHERE session_id = ?')
   for (const t of ROW_TABLES) rows[t] = count(`SELECT count(*) AS n FROM ${t} WHERE session_id = ?`)
+  rows.limits = count(`SELECT count(*) AS n FROM limits WHERE ${LIMITS_WHERE}`)
+  rows.jobs = count(`SELECT count(*) AS n FROM jobs WHERE ${JOBS_WHERE}`)
 
   const files: PurgeFile[] = []
   if (!opts.indexOnly && !opts.keepSource)
@@ -207,6 +223,9 @@ export async function purgeSession(db: Database, prefix: string, opts: PurgeOpts
       db.prepare('DELETE FROM messages_fts WHERE rowid IN (SELECT id FROM messages WHERE session_id = ?)').run(sessionId)
       db.prepare('DELETE FROM history_fts WHERE rowid IN (SELECT id FROM history WHERE session_id = ?)').run(sessionId)
       for (const t of ROW_TABLES) db.prepare(`DELETE FROM ${t} WHERE session_id = ?`).run(sessionId)
+      db.prepare(`DELETE FROM limits WHERE ${LIMITS_WHERE}`).run(sessionId)
+      // Before the session row goes: the test is "no OTHER session keys here".
+      db.prepare(`DELETE FROM jobs WHERE ${JOBS_WHERE}`).run(sessionId)
       db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId)
     })()
     for (const f of files) rmSync(f.path, { recursive: true, force: true })

@@ -138,9 +138,11 @@ const RateLimitInfo = z.object({ rateLimitType: z.string(), resetsAt: z.number()
 
 const Authorship = z.object({
   isMeta: z.boolean().nullish(),
-  origin: z.object({ kind: z.string().nullish(), name: z.string().nullish(), msg_id: z.string().nullish() }).loose().nullish(),
+  origin: z.object({ kind: z.string().nullish(), name: z.string().nullish(), msg_id: z.string().nullish(), handback: z.boolean().nullish() }).loose().nullish(),
 })
 type Authorship = z.infer<typeof Authorship>
+// What a `queued_command` attachment carries as its `prompt`.
+const QueuedText = z.union([z.string(), z.array(z.object({ type: z.string().nullish(), text: z.string().nullish() }).loose())])
 
 export function parseLine(line: string): Parsed | null {
   if (!line.trim()) return null
@@ -228,9 +230,18 @@ export function parseLine(line: string): Parsed | null {
         }
         break
       }
-      if (a?.type !== 'queued_command' || typeof a.prompt !== 'string' || !a.prompt.trim()) break
+      if (a?.type !== 'queued_command') break
+      // A message typed while the turn ran is usually a string. One sent with
+      // a pasted image is an ARRAY of content blocks, the same shape a `user`
+      // record's content takes; reading only the string dropped the user's
+      // words whole (29 records in 23 transcripts on 2026-11-14, every one a
+      // mid-turn "[Image #3] is this old / can I close" kind of decision).
+      const queued = QueuedText.safeParse(a.prompt)
+      if (!queued.success) break
+      const said = typeof queued.data === 'string' ? queued.data : queued.data.flatMap((b) => (b.type === 'text' && b.text ? [b.text] : [])).join('\n')
+      if (!said.trim()) break
       const who = Authorship.safeParse(a).data ?? {}
-      p.entries.push(userTextEntry(a.prompt, who))
+      p.entries.push(userTextEntry(said, who))
       break
     }
     case 'assistant': {
@@ -321,8 +332,15 @@ function userTextEntry(text: string, who: Authorship): Entry {
   // A peer's words are neither the user's nor the harness's — they are another
   // session's, and the routing doctrine calls them an ingest surface, so they
   // get a lane of their own rather than being filed away as noise.
-  if (who.origin?.kind === 'peer')
-    return { lane: 'relay', text, ...(who.origin.name ? { peer: who.origin.name } : {}), ...(who.origin.msg_id ? { msgId: who.origin.msg_id } : {}) }
+  // A subagent handing back wears the same `kind: 'peer'`, but its `name` is
+  // the AGENT TYPE (`lean`, `lore-miner`), not a session: it stays in the
+  // relay lane (the conversation reads it there) and carries no peer, or
+  // `lore stats` lists "lean" among the sessions that messaged this fleet
+  // and `lore jobs` among a job's peers.
+  if (who.origin?.kind === 'peer') {
+    const named = who.origin.handback === true ? null : who.origin.name
+    return { lane: 'relay', text, ...(named ? { peer: named } : {}), ...(who.origin.msg_id ? { msgId: who.origin.msg_id } : {}) }
+  }
   // Injected, either by its own admission or — on transcripts older than the
   // field — by the shape of its prose. Command extraction must survive both
   // paths: `command:<name>` is how the ambient ROI ledger counts slash
