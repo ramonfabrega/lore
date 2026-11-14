@@ -112,7 +112,7 @@ export type Parsed = {
 
 // Tool inputs/results are indexed truncated: enough to find "that session where
 // we ran X", not enough to bloat the index with full file dumps.
-const TOOL_TEXT_CAP = 2_000
+export const TOOL_TEXT_CAP = 2_000
 
 // Harness-injected user content (command wrappers, caveats, skill expansions,
 // interruption markers) — searchable but not a human prompt. This regex was
@@ -355,7 +355,7 @@ function userTextEntry(text: string, who: Authorship): Entry {
 // output, and the explorer's annotations (docs/EXPLORER.md) read them there.
 const RESULT_HEAD = 1_200
 const RESULT_TAIL = 800
-function headTail(text: string): string {
+export function headTail(text: string): string {
   if (text.length <= TOOL_TEXT_CAP) return text
   return `${text.slice(0, RESULT_HEAD)}\n… … …\n${text.slice(-RESULT_TAIL)}`
 }

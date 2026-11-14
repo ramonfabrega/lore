@@ -661,6 +661,86 @@ and a bump is not free (a 3 GB rebuild that drops the one table with no source,
 existing table holds. Rejected: resolving the edge at query time from ccc's file
 — the index outlives its sources, and an edge must not vanish with a rotated log.
 
+### 2026-11-14 — The Codex adapter, read half: a second source for layer 1 (`codex.ts`)
+
+OpenAI Codex has executed first-class work in the fleet since 09-07 and leaves
+transcripts lore did not read (`~/.codex/sessions`; the measured design is the
+wiki's `projects/codex-adapter.md`). `src/codex.ts` decodes a rollout — one zod
+schema per record kind — and parses it, pure, into lore's row shapes: a thread
+(session), its turns, its requests in lore's token classes, its messages by
+lane. Re-measured on 11-14 before trusting the page: 454 rollouts where it
+counted 140, and three things it does not describe — 385 of them are
+`.jsonl.zst` (Codex compresses a rested rollout), 20 sit flat in
+`archived_sessions/`, and the event stream (`event_msg/item_completed`) repeats
+every message and command a second time. The decisions the page left open, each
+with what would reopen it:
+
+- **Authorship is the `UserMessage` item, not a position.** The page's rule is
+  "the first role-user record is injection"; the corpus has a field. What was
+  SUBMITTED to a turn is an `item_completed` of type `UserMessage`, and newer
+  CLIs also label every role-user record's parts (`content_item_kinds`:
+  `user.text`, `agents_md.instructions`, `goal.internal_context`…). The prompt
+  lane is the item; a role-user record is `meta` unless the label says `user.*`
+  or — before the label — the item of the same turn carries the same text, in
+  which case it is the model's copy of the input and is dropped. That also
+  catches what position cannot: 345 `<goal_context>` continuations mid-thread,
+  none first. Revisit if a Codex stops writing the item, or injects through it.
+- **A guardian is a field, under two labels.** `thread_source: guardian_review`,
+  or `source.subagent.other: guardian` — which the 7 threads labelled
+  `thread_source: subagent` (0.131 – 0.145, two with no `parent_thread_id`)
+  carry too: they are guardians from before the label, verdict JSON and all.
+  Every other thread with a parent is a `subagent`: its input is its parent's
+  instruction (the `relay` lane, `peer` the parent), never withheld. The corpus
+  holds NO real multi_agent child yet; the `thread_spawn` shape is Codex's enum,
+  hand-authored in the test. Revisit at the first one on disk.
+- **A guardian keeps verdict, usage and parentage; its user and developer
+  records are counted (`withheld`), never stored** — 64.5 MB over 328 judges.
+- **Requests are `token_usage_record`s; `token_count` stands in only for a
+  thread with none.** 111 of the 327 threads that ran predate the record
+  (0.153). The count event has no id (lore names it `count:<ordinal>`), is
+  re-emitted (661 of 4,810 repeat the thread total and are skipped), and where
+  both exist they agree on output in 197 threads of 216 — so it is a stand-in,
+  marked `usageSource: count`, never merged with records. Known limit: 32
+  threads have records for only some turns, and the rest of their turns read
+  zero. Revisit (per-turn fallback) if one of those is ever a thread that
+  matters; today 30 of the 32 are guardians.
+- **`input` = `input_tokens` − `cached_input_tokens`.** Codex's input includes
+  its cache (total = input + output on 21,050 of 21,050); lore's does not.
+  `cache_write_input_tokens` is 0 on every record, so whether input includes it
+  cannot be measured: carried, not subtracted. Revisit at the first nonzero.
+- **A turn's instants are `started_at` / `completed_at`, and a row stamped
+  outside its turn moves to the nearer end.** 28 guardian threads of 0.153.4
+  stamp every record with the thread's creation instant.
+- **The repo key is the normalized remote** (`github.com/owner/name`, from
+  `session_meta.git`, on 433 of 454), then the worktree hop's repo path, then
+  the cwd. The hop (`.git` file → `<repo>/.git/worktrees/<name>` →
+  `codex-thread.json`) is exact but reads a worktree Codex deletes when the
+  thread is done (5 of 15 left), so it is recorded at index time as `repoPath`
+  and is not the key. Rejected: the local path as key — one repo would key two
+  ways depending on whether its worktree still exists.
+- **The thread id is the job key** (one id, not three); a child's `session_id`
+  is its root's.
+- **`question` is a lane of its own**, both halves: the `request_user_input_async`
+  call (`ask`) and the reply (`answer`), joined on `questionItemId`'s call id.
+  The reply is decoded (the element, a JSON array, the triple), not sniffed. An
+  ask still counts in a turn's `tools`, the page's own convention.
+- **No error flag on a tool result.** The `response_item` carries none, and the
+  event stream's `CommandExecution` keys on a process id (6 of 17,020 are call
+  ids). Revisit if Codex pairs them.
+- **Not indexed:** `world_state`, `compacted` beyond its window number (it
+  re-embeds history), goal objectives (2,776 updates in two threads), and every
+  `item_completed` but the input.
+- **Archived and compressed rollouts are the corpus too**; a thread present
+  twice is its newest file. The 50 imports of Claude Code transcripts
+  (`external_agent_session_imports.json`) are excluded by id, in both places.
+- **A fixture is a projection, not a scrubbed copy** (`scripts/codex-corpus.ts`):
+  each record is parsed through its schema in strip mode, so only declared
+  fields exist, then every string not under an enum, id or instant key becomes
+  `[<length>]`, ids are remapped, and paths and remotes become constants.
+  Personal trees only. Rejected: harness-corpus's cut-to-a-fragment scrub — a
+  rollout is all prose, and a dynamic key (a skill name, an AGENTS.md path) is
+  content a value-scrub never sees.
+
 ## Privacy redline
 
 Transcripts span work/client repos and personal projects. Graduation must be loud
